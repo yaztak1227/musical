@@ -1,0 +1,187 @@
+export const locales = ["en", "ja"] as const;
+
+export type Locale = (typeof locales)[number];
+
+export type TranslationKey = keyof typeof translations.en;
+
+type TranslationValues = Record<string, string | number>;
+
+const localeLabels: Record<Locale, string> = {
+  en: "English",
+  ja: "日本語",
+};
+
+const translations = {
+  en: {
+    "app.brand": "Musical",
+    "app.title": "Library",
+    "app.description": "Scan a local folder, read tags in Rust, and build the album database.",
+    "language.label": "Language",
+    "theme.label": "Theme",
+    "theme.crimson": "Crimson",
+    "theme.ocean": "Ocean",
+    "theme.violet": "Violet",
+    "scan.folderLabel": "Music folder",
+    "scan.folderPlaceholder": "/Users/takumi/Music",
+    "scan.chooseFolder": "Choose folder",
+    "scan.button": "Scan library",
+    "scan.buttonScanning": "Scanning...",
+    "search.label": "Search albums",
+    "search.placeholder": "Album, artist, year",
+    "view.label": "Album view",
+    "view.largeIcons": "Large icons",
+    "view.smallIcons": "Small icons",
+    "view.list": "Album list",
+    "sort.label": "Sort albums",
+    "sort.title": "Title",
+    "sort.artist": "Artist",
+    "sort.yearDesc": "Newest",
+    "sort.yearAsc": "Oldest",
+    "albums.heading": "Albums",
+    "albums.count": "{count} albums",
+    "sidebar.collapse": "Collapse library panel",
+    "sidebar.expand": "Expand library panel",
+    "library.albumListLabel": "Album library",
+    "library.controls": "Library controls",
+    "library.selectedAlbumLabel": "Selected album",
+    "library.fallbackYear": "Library",
+    "library.emptySearch": "No albums match that search yet.",
+    "library.emptyTitle": "Scan a folder to start",
+    "library.emptyDescription": "Once the desktop app indexes a music folder, albums and tracks will appear here.",
+    "album.coverAlt": "{album} cover",
+    "album.artworkAlt": "{album} artwork",
+    "album.play": "Play {album}",
+    "data.unknownTrack": "Unknown Track",
+    "data.unknownAlbum": "Unknown Album",
+    "data.unknownArtist": "Unknown Artist",
+    "data.otherAlbum": "Other Album",
+    "data.variousArtists": "Various Artists",
+    "player.label": "Player",
+    "player.nowPlaying": "Now playing",
+    "player.nothingSelected": "Nothing selected",
+    "player.pickPrompt": "Pick an album or scan a folder.",
+    "player.previous": "Previous",
+    "player.play": "Play",
+    "player.pause": "Pause",
+    "player.next": "Next",
+    "player.idle": "Idle",
+    "player.seek": "Seek",
+    "player.volume": "Volume",
+    "player.shuffle": "Shuffle",
+    "player.repeat": "Repeat",
+    "player.repeatOff": "Repeat off",
+    "player.repeatAll": "Repeat all",
+    "player.repeatOne": "Repeat one",
+    "player.queue": "Queue",
+    "player.queueCount": "{count} tracks",
+    "player.playbackError": "Could not play this track: {message}",
+    "status.noLibraryScanned": "No library scanned yet.",
+    "status.webMockMode": "Web mode is using mock albums.",
+    "status.loadedAlbums": "{count} albums loaded from {databasePath}",
+    "status.noAlbumsIndexed": "No albums indexed yet. Database: {databasePath}",
+    "status.desktopOnly": "Folder scanning runs in the Tauri desktop app.",
+    "status.enterFolder": "Enter a local music folder path first.",
+    "status.scanComplete": "{albums} albums / {tracks} tracks imported from {libraryPath}",
+    "status.folderOpenError": "Could not open folder {folderPath}: {reason}",
+    "status.notFolderError": "{folderPath} is not a folder.",
+    "status.error": "Error: {message}",
+  },
+  ja: {
+    "app.brand": "Musical",
+    "app.title": "ライブラリ",
+    "app.description": "ローカルフォルダをスキャンし、Rust でタグを読み取り、アルバムデータベースを作成します。",
+    "language.label": "言語",
+    "theme.label": "テーマ",
+    "theme.crimson": "クリムゾン",
+    "theme.ocean": "オーシャン",
+    "theme.violet": "バイオレット",
+    "scan.folderLabel": "音楽フォルダ",
+    "scan.folderPlaceholder": "/Users/takumi/Music",
+    "scan.chooseFolder": "フォルダ指定",
+    "scan.button": "ライブラリをスキャン",
+    "scan.buttonScanning": "スキャン中...",
+    "search.label": "アルバム検索",
+    "search.placeholder": "アルバム、アーティスト、年",
+    "view.label": "アルバム表示",
+    "view.largeIcons": "大アイコン",
+    "view.smallIcons": "小アイコン",
+    "view.list": "アルバム名リスト",
+    "sort.label": "アルバムの並び替え",
+    "sort.title": "タイトル順",
+    "sort.artist": "アーティスト順",
+    "sort.yearDesc": "新しい順",
+    "sort.yearAsc": "古い順",
+    "albums.heading": "アルバム",
+    "albums.count": "{count} 件",
+    "sidebar.collapse": "左パネルを閉じる",
+    "sidebar.expand": "左パネルを開く",
+    "library.albumListLabel": "アルバムライブラリ",
+    "library.controls": "ライブラリ操作",
+    "library.selectedAlbumLabel": "選択中のアルバム",
+    "library.fallbackYear": "ライブラリ",
+    "library.emptySearch": "この検索に一致するアルバムはまだありません。",
+    "library.emptyTitle": "フォルダをスキャンして開始",
+    "library.emptyDescription": "デスクトップアプリで音楽フォルダをインデックスすると、ここにアルバムと曲が表示されます。",
+    "album.coverAlt": "{album} のカバー",
+    "album.artworkAlt": "{album} のアートワーク",
+    "album.play": "{album} を再生",
+    "data.unknownTrack": "不明な曲",
+    "data.unknownAlbum": "不明なアルバム",
+    "data.unknownArtist": "不明なアーティスト",
+    "data.otherAlbum": "その他アルバム",
+    "data.variousArtists": "複数のアーティスト",
+    "player.label": "プレイヤー",
+    "player.nowPlaying": "再生中",
+    "player.nothingSelected": "未選択",
+    "player.pickPrompt": "アルバムを選ぶか、フォルダをスキャンしてください。",
+    "player.previous": "前へ",
+    "player.play": "再生",
+    "player.pause": "一時停止",
+    "player.next": "次へ",
+    "player.idle": "待機中",
+    "player.seek": "シーク",
+    "player.volume": "音量",
+    "player.shuffle": "シャッフル",
+    "player.repeat": "リピート",
+    "player.repeatOff": "リピートなし",
+    "player.repeatAll": "全曲リピート",
+    "player.repeatOne": "1曲リピート",
+    "player.queue": "キュー",
+    "player.queueCount": "{count} 曲",
+    "player.playbackError": "この曲を再生できませんでした: {message}",
+    "status.noLibraryScanned": "ライブラリはまだスキャンされていません。",
+    "status.webMockMode": "Web モードではモックアルバムを使用しています。",
+    "status.loadedAlbums": "{count} 件のアルバムを {databasePath} から読み込みました",
+    "status.noAlbumsIndexed": "インデックス済みのアルバムはまだありません。データベース: {databasePath}",
+    "status.desktopOnly": "フォルダスキャンは Tauri デスクトップアプリで実行します。",
+    "status.enterFolder": "先にローカル音楽フォルダのパスを入力してください。",
+    "status.scanComplete": "{albums} 件のアルバム / {tracks} 曲を {libraryPath} から取り込みました",
+    "status.folderOpenError": "フォルダ {folderPath} を開けませんでした: {reason}",
+    "status.notFolderError": "{folderPath} はフォルダではありません。",
+    "status.error": "エラー: {message}",
+  },
+} as const;
+
+export function getInitialLocale(): Locale {
+  const storedLocale = window.localStorage.getItem("musical.locale");
+  if (isLocale(storedLocale)) return storedLocale;
+
+  const browserLocale = window.navigator.language.split("-")[0];
+  return isLocale(browserLocale) ? browserLocale : "en";
+}
+
+export function getLocaleLabel(locale: Locale) {
+  return localeLabels[locale];
+}
+
+export function translate(locale: Locale, key: TranslationKey, values: TranslationValues = {}) {
+  const template: string = translations[locale][key];
+  return Object.entries(values).reduce(
+    (message, [name, value]) => message.split(`{${name}}`).join(String(value)),
+    template,
+  );
+}
+
+function isLocale(value: string | null): value is Locale {
+  return locales.some((locale) => locale === value);
+}
