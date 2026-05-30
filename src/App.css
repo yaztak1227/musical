@@ -22,6 +22,9 @@
   --app-player: color-mix(in oklch, var(--primary), var(--foreground) 54%);
   --app-player-strong: color-mix(in oklch, var(--primary), var(--foreground) 68%);
   --app-on-player: var(--primary-foreground);
+  --library-panel-min: 240px;
+  --albums-panel-min: 360px;
+  --album-panel-min: 280px;
 }
 
 * {
@@ -78,9 +81,9 @@ select:focus-visible {
 .app-shell {
   display: grid;
   grid-template-columns:
-    minmax(240px, 280px)
-    minmax(0, 1fr)
-    minmax(280px, 360px);
+    minmax(var(--library-panel-min), 280px)
+    minmax(var(--albums-panel-min), 1fr)
+    minmax(var(--album-panel-min), 360px);
   grid-template-rows: minmax(0, 1fr) auto;
   width: 100vw;
   height: 100dvh;
@@ -90,15 +93,15 @@ select:focus-visible {
 .app-shell.sidebar-collapsed {
   grid-template-columns:
     72px
-    minmax(0, 1fr)
-    minmax(280px, 360px);
+    minmax(var(--albums-panel-min), 1fr)
+    minmax(var(--album-panel-min), 360px);
 }
 
 .library-panel {
   display: flex;
   flex-direction: column;
   gap: 16px;
-  min-width: 0;
+  min-width: var(--library-panel-min);
   min-height: 0;
   padding: 28px;
   overflow-x: hidden;
@@ -117,6 +120,7 @@ select:focus-visible {
 
 .sidebar-collapsed .library-panel {
   align-items: center;
+  min-width: 72px;
   padding: 20px 12px;
   overflow: hidden;
 }
@@ -155,11 +159,11 @@ select:focus-visible {
 }
 
 .albums-panel {
-  min-width: 0;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  min-width: var(--albums-panel-min);
   min-height: 0;
-  padding: 28px;
-  overflow-x: hidden;
-  overflow-y: auto;
+  overflow: hidden;
   background:
     linear-gradient(180deg, color-mix(in oklch, var(--accent), transparent 26%), transparent 34%),
     var(--background);
@@ -167,20 +171,25 @@ select:focus-visible {
 }
 
 .albums-panel-header {
-  position: sticky;
-  top: 0;
   z-index: 1;
   display: grid;
-  grid-template-columns: minmax(0, auto) minmax(220px, 1fr);
+  grid-template-columns: minmax(0, auto) minmax(0, 1fr);
   align-items: center;
   justify-content: space-between;
   gap: 16px;
   min-width: 0;
-  margin: -28px -28px 18px;
   padding: 16px 28px 14px;
   background: color-mix(in oklch, var(--background), transparent 8%);
   backdrop-filter: blur(12px);
   border-bottom: 1px solid color-mix(in oklch, var(--border), transparent 25%);
+}
+
+.albums-panel-main {
+  min-width: 0;
+  min-height: 0;
+  padding: 28px;
+  overflow-x: hidden;
+  overflow-y: auto;
 }
 
 .albums-title {
@@ -199,6 +208,7 @@ select:focus-visible {
 
 .album-toolbar {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: flex-end;
   gap: 10px;
@@ -221,6 +231,7 @@ select:focus-visible {
 
 .album-search-field {
   display: block;
+  flex: 1 1 190px;
   width: min(360px, 100%);
   min-width: 150px;
 }
@@ -249,6 +260,24 @@ select:focus-visible {
   color: var(--app-muted);
   font-size: 0.78rem;
   font-weight: 700;
+}
+
+.theme-option {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.theme-swatch {
+  display: inline-block;
+  width: 0.78rem;
+  height: 0.78rem;
+  flex: 0 0 auto;
+  border: 1px solid color-mix(in oklch, var(--foreground), transparent 72%);
+  border-radius: 999px;
+  background: var(--theme-swatch);
+  box-shadow: inset 0 0 0 1px color-mix(in oklch, white, transparent 75%);
 }
 
 .settings-row {
@@ -294,8 +323,9 @@ h2 {
   display: grid;
   flex: 0 0 auto;
   gap: 12px;
-  padding: 0;
+  padding: 2;
   background: var(--app-surface);
+  overflow-x: scroll;
 }
 
 .scan-panel-content {
@@ -416,19 +446,17 @@ h2 {
   gap: 14px;
   min-height: 0;
   overflow: visible;
-  scroll-margin-top: 120px;
-  padding-top: 16px;
   padding-right: 2px;
   padding-bottom: 8px;
 }
 
 .album-grid.large {
-  grid-template-columns: repeat(auto-fill, minmax(min(100%, 150px), 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 148px), 1fr));
   align-content: start;
 }
 
 .album-grid.small {
-  grid-template-columns: repeat(auto-fill, minmax(min(100%, 210px), 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 190px), 1fr));
   align-content: start;
 }
 
@@ -456,6 +484,7 @@ button.album-card {
   background: var(--app-panel);
   text-align: left;
   white-space: normal;
+  overflow: hidden;
   box-shadow: 0 1px 0 var(--app-shadow);
 }
 
@@ -474,6 +503,7 @@ button.album-card {
   width: 64px;
   height: 64px;
   min-width: 0;
+  max-width: 100%;
   border-radius: 8px;
   overflow: hidden;
 }
@@ -624,6 +654,7 @@ button.album-card {
   display: block;
   width: 100%;
   min-width: 0;
+  max-width: 100%;
 }
 
 .album-card .album-hover-play {
@@ -649,7 +680,7 @@ button.album-card {
   grid-template-rows: auto auto minmax(0, 1fr);
   align-content: start;
   gap: 20px;
-  min-width: 0;
+  min-width: var(--album-panel-min);
   min-height: 0;
   padding: 28px;
   overflow-x: hidden;
@@ -666,26 +697,106 @@ button.album-card {
   box-shadow: 0 18px 50px var(--app-shadow);
 }
 
+.album-title-edit-button {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-width: 0;
+  border: 0;
+  padding: 0;
+  color: inherit;
+  background: transparent;
+  text-align: left;
+}
+
+.album-title-edit-button h2 {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.album-title-edit-button svg {
+  width: 18px;
+  height: 18px;
+  color: var(--app-muted);
+}
+
+.album-genre,
+.tag-edit-note,
+.tag-edit-message {
+  color: var(--app-muted);
+  font-size: 0.9rem;
+}
+
+.album-tag-form {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+}
+
+.album-tag-form label {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+  color: var(--foreground);
+  font-size: 0.78rem;
+  font-weight: 800;
+}
+
+.album-tag-form input {
+  min-width: 0;
+}
+
+.album-tag-form-row {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  min-width: 0;
+}
+
+.album-tag-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  min-width: 0;
+}
+
+.album-tag-actions button {
+  min-width: 0;
+}
+
 .track-list {
   display: grid;
   gap: 10px;
   align-content: start;
+  width: 100%;
+  min-width: 0;
+  overflow: visible;
   margin: 0;
   padding: 0;
   list-style: none;
+}
+
+.track-list li {
+  min-width: 0;
 }
 
 .track-list button {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 12px;
   width: 100%;
+  max-width: 100%;
   min-height: 54px;
   border: 1px solid var(--app-line);
   padding: 12px 14px;
   color: var(--foreground);
   background: var(--card);
   text-align: left;
+  min-width: 0;
+  overflow: hidden;
 }
 
 .track-list button.active-track {
@@ -694,14 +805,59 @@ button.album-card {
   box-shadow: inset 3px 0 0 var(--app-accent);
 }
 
-.track-list span {
-  padding-right: 12px;
+.track-title-wrap {
+  position: relative;
+  display: block;
+  flex: 1 1 auto;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.track-title {
+  display: block;
+  width: 100%;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   font-weight: 800;
+}
+
+.track-list button:hover .track-title-wrap[data-marquee="true"] .track-title,
+.track-list button:focus-visible .track-title-wrap[data-marquee="true"] .track-title,
+.track-list button:focus-within .track-title-wrap[data-marquee="true"] .track-title {
+  max-width: none;
+  width: max-content;
+  overflow: visible;
+  text-overflow: clip;
+  animation: track-title-marquee 7s ease-in-out infinite;
 }
 
 .track-list small {
   flex: none;
   color: var(--app-muted);
+}
+
+@keyframes track-title-marquee {
+  0%,
+  12% {
+    transform: translateX(0);
+  }
+
+  88%,
+  100% {
+    transform: translateX(var(--track-title-shift, 0px));
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .track-list button:hover .track-title-wrap[data-marquee="true"] .track-title,
+  .track-list button:focus-visible .track-title-wrap[data-marquee="true"] .track-title,
+  .track-list button:focus-within .track-title-wrap[data-marquee="true"] .track-title {
+    animation: none;
+  }
 }
 
 .empty-state,
@@ -890,7 +1046,7 @@ button.album-card {
   text-align: right;
 }
 
-@media (max-width: 860px) {
+@media (max-width: 980px) {
   .app-shell {
     grid-template-columns: 1fr;
     grid-template-rows: auto minmax(370px, 1fr) minmax(120px, 0.45fr) auto;
@@ -903,7 +1059,12 @@ button.album-card {
   .library-panel,
   .albums-panel,
   .album-panel {
+    min-width: 0;
     padding: 20px;
+  }
+
+  .albums-panel {
+    padding: 0;
   }
 
   .library-panel {
@@ -976,7 +1137,10 @@ button.album-card {
     grid-template-columns: 1fr;
     align-items: start;
     gap: 10px;
-    margin: -20px -20px 16px;
+    padding: 20px;
+  }
+
+  .albums-panel-main {
     padding: 20px;
   }
 
@@ -1045,7 +1209,7 @@ button.album-card {
   }
 }
 
-@media (max-height: 700px) and (min-width: 861px) {
+@media (max-height: 700px) and (min-width: 981px) {
   .library-panel {
     gap: 14px;
     padding: 20px;
@@ -1100,9 +1264,9 @@ button.album-card {
   }
 }
 
-@media (max-width: 1080px) and (min-width: 861px) {
+@media (max-width: 1120px) and (min-width: 981px) {
   .app-shell {
-    grid-template-columns: minmax(220px, 260px) minmax(0, 1fr) minmax(250px, 320px);
+    grid-template-columns: minmax(220px, 260px) minmax(330px, 1fr) minmax(250px, 320px);
   }
 
   .library-panel,
@@ -1111,8 +1275,15 @@ button.album-card {
     padding: 20px;
   }
 
+  .albums-panel {
+    padding: 0;
+  }
+
   .albums-panel-header {
-    margin: -20px -20px 16px;
+    padding: 20px;
+  }
+
+  .albums-panel-main {
     padding: 20px;
   }
 

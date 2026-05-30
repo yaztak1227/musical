@@ -1,6 +1,6 @@
 mod library;
 
-use library::{LibrarySnapshot, ScanSummary};
+use library::{AlbumTagUpdateRequest, AlbumTagUpdateResult, LibrarySnapshot, ScanSummary};
 
 #[tauri::command]
 fn app_status() -> &'static str {
@@ -17,6 +17,14 @@ fn scan_music_folder(app: tauri::AppHandle, folder_path: String) -> Result<ScanS
     library::scan_folder(&app, &folder_path)
 }
 
+#[tauri::command]
+fn update_album_tags(
+    app: tauri::AppHandle,
+    request: AlbumTagUpdateRequest,
+) -> Result<AlbumTagUpdateResult, String> {
+    library::update_album_tags(&app, request)
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -25,7 +33,8 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             app_status,
             library_snapshot,
-            scan_music_folder
+            scan_music_folder,
+            update_album_tags
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -1,13 +1,14 @@
 use encoding_rs::{SHIFT_JIS, UTF_8, WINDOWS_1252};
 use jwalk::WalkDir;
 use lofty::{
+    config::WriteOptions,
     file::{AudioFile, TaggedFileExt},
     picture::{MimeType, Picture, PictureType},
     read_from_path,
-    tag::Accessor,
+    tag::{items::Timestamp, Accessor, ItemKey, Tag},
 };
 use rusqlite::{params, Connection, OptionalExtension};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::{
     collections::{BTreeSet, HashMap},
     fs,
@@ -39,6 +40,7 @@ pub struct AlbumRecord {
     pub title: String,
     pub artist: String,
     pub year: Option<i64>,
+    pub genre: Option<String>,
     pub artwork_path: Option<String>,
     pub tracks: Vec<TrackRecord>,
 }
@@ -65,12 +67,39 @@ pub struct ScanSummary {
     pub library_path: String,
 }
 
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AlbumTagUpdateRequest {
+    pub album_id: i64,
+    pub album_title: String,
+    pub album_artist: String,
+    pub artist: String,
+    pub year: Option<i64>,
+    pub genre: String,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AlbumTagUpdateResult {
+    pub album_id: i64,
+    pub updated_files: usize,
+    pub failed_files: Vec<TagWriteFailure>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TagWriteFailure {
+    pub file_path: String,
+    pub reason: String,
+}
+
 #[derive(Debug)]
 struct PendingAlbum {
     title: String,
     artist: String,
     artists: BTreeSet<String>,
     year: Option<i64>,
+    genre: Option<String>,
     artwork_path: Option<String>,
     tracks: Vec<PendingTrack>,
 }
@@ -83,6 +112,13 @@ struct PendingTrack {
     track_number: Option<i64>,
     disc_number: Option<i64>,
     file_path: String,
+}
+
+#[derive(Debug)]
+struct ExistingAlbum {
+    id: i64,
+    artist: String,
+    source_root: String,
 }
 
 pub fn load_snapshot(app: &AppHandle) -> Result<LibrarySnapshot, String> {
@@ -154,6 +190,7 @@ pub fn scan_folder(app: &AppHandle, folder_path: &str) -> Result<ScanSummary, St
         let year = tag
             .and_then(|value| value.date())
             .map(|timestamp| i64::from(timestamp.year));
+        let genre = tag.and_then(|value| clean_tag_text(value.genre()));
         let track_number = tag.and_then(|value| value.track()).map(i64::from);
         let disc_number = tag.and_then(|value| value.disk()).map(i64::from);
         let duration_seconds = tagged_file.properties().duration().as_secs() as i64;
@@ -177,6 +214,7 @@ pub fn scan_folder(app: &AppHandle, folder_path: &str) -> Result<ScanSummary, St
                 },
                 artists: BTreeSet::new(),
                 year: if is_other_album { None } else { year },
+                genre: genre.clone(),
                 artwork_path: None,
                 tracks: Vec::new(),
             });
@@ -186,6 +224,9 @@ pub fn scan_folder(app: &AppHandle, folder_path: &str) -> Result<ScanSummary, St
         }
         if pending_album.artwork_path.is_none() {
             pending_album.artwork_path = artwork_path;
+        }
+        if pending_album.genre.is_none() {
+            pending_album.genre = genre;
         }
 
         pending_album.tracks.push(PendingTrack {
@@ -214,6 +255,63 @@ pub fn scan_folder(app: &AppHandle, folder_path: &str) -> Result<ScanSummary, St
     })
 }
 
+pub fn update_album_tags(
+    app: &AppHandle,
+    request: AlbumTagUpdateRequest,
+) -> Result<AlbumTagUpdateResult, String> {
+    let album_title = request.album_title.trim();
+    if album_title.is_empty() {
+        return Err("library.error.emptyAlbumTitle".to_owned());
+    }
+
+    let album_artist = request.album_artist.trim();
+    let artist = request.artist.trim();
+    let genre = request.genre.trim();
+    let database_path = app_database_path(app)?;
+    let mut connection = open_database(&database_path)?;
+    let existing_album = load_album_for_update(&connection, request.album_id)?;
+    let track_paths = load_track_paths(&connection, request.album_id)?;
+
+    if track_paths.is_empty() {
+        return Err(format!("library.error.albumHasNoTracks\t{}", request.album_id));
+    }
+
+    let mut updated_paths = Vec::new();
+    let mut failed_files = Vec::new();
+    for file_path in track_paths {
+        match write_album_tags_to_file(
+            &file_path,
+            album_title,
+            album_artist,
+            artist,
+            request.year,
+            genre,
+        ) {
+            Ok(()) => updated_paths.push(file_path),
+            Err(reason) => failed_files.push(TagWriteFailure { file_path, reason }),
+        }
+    }
+
+    if !updated_paths.is_empty() {
+        persist_album_tag_update(
+            &mut connection,
+            &existing_album,
+            &updated_paths,
+            album_title,
+            album_artist,
+            artist,
+            request.year,
+            genre,
+        )?;
+    }
+
+    Ok(AlbumTagUpdateResult {
+        album_id: request.album_id,
+        updated_files: updated_paths.len(),
+        failed_files,
+    })
+}
+
 fn read_snapshot(connection: &Connection, database_path: &Path) -> Result<LibrarySnapshot, String> {
     let last_scan_path = connection
         .query_row(
@@ -226,7 +324,7 @@ fn read_snapshot(connection: &Connection, database_path: &Path) -> Result<Librar
 
     let mut album_statement = connection
         .prepare(
-            "SELECT id, title, artist, year, artwork_path
+            "SELECT id, title, artist, year, genre, artwork_path
              FROM albums
              ORDER BY artist COLLATE NOCASE, title COLLATE NOCASE, year",
         )
@@ -239,7 +337,8 @@ fn read_snapshot(connection: &Connection, database_path: &Path) -> Result<Librar
                 title: repair_mojibake(&row.get::<_, String>(1)?),
                 artist: repair_mojibake(&row.get::<_, String>(2)?),
                 year: row.get(3)?,
-                artwork_path: row.get(4)?,
+                genre: row.get(4)?,
+                artwork_path: row.get(5)?,
                 tracks: Vec::new(),
             })
         })
@@ -287,6 +386,150 @@ fn load_tracks(connection: &Connection, album_id: i64) -> Result<Vec<TrackRecord
     rows.collect::<Result<Vec<_>, _>>().map_err(to_error_string)
 }
 
+fn load_album_for_update(connection: &Connection, album_id: i64) -> Result<ExistingAlbum, String> {
+    connection
+        .query_row(
+            "SELECT id, artist, source_root FROM albums WHERE id = ?1",
+            [album_id],
+            |row| {
+                Ok(ExistingAlbum {
+                    id: row.get(0)?,
+                    artist: row.get(1)?,
+                    source_root: row.get(2)?,
+                })
+            },
+        )
+        .optional()
+        .map_err(to_error_string)?
+        .ok_or_else(|| format!("library.error.albumNotFound\t{album_id}"))
+}
+
+fn load_track_paths(connection: &Connection, album_id: i64) -> Result<Vec<String>, String> {
+    let mut statement = connection
+        .prepare("SELECT file_path FROM tracks WHERE album_id = ?1 ORDER BY id")
+        .map_err(to_error_string)?;
+    let rows = statement
+        .query_map([album_id], |row| row.get::<_, String>(0))
+        .map_err(to_error_string)?;
+
+    rows.collect::<Result<Vec<_>, _>>().map_err(to_error_string)
+}
+
+fn write_album_tags_to_file(
+    file_path: &str,
+    album_title: &str,
+    album_artist: &str,
+    artist: &str,
+    year: Option<i64>,
+    genre: &str,
+) -> Result<(), String> {
+    let path = Path::new(file_path);
+    let mut tagged_file = read_from_path(path).map_err(to_error_string)?;
+    let tag_type = tagged_file.primary_tag_type();
+
+    if tagged_file.primary_tag_mut().is_none() {
+        tagged_file.insert_tag(Tag::new(tag_type));
+    }
+
+    let tag = tagged_file
+        .primary_tag_mut()
+        .ok_or_else(|| "No writable tag is available for this file".to_owned())?;
+
+    tag.set_album(album_title.to_owned());
+
+    if album_artist.is_empty() {
+        tag.remove_key(ItemKey::AlbumArtist);
+    } else {
+        tag.insert_text(ItemKey::AlbumArtist, album_artist.to_owned());
+    }
+
+    if artist.is_empty() {
+        tag.remove_artist();
+    } else {
+        tag.set_artist(artist.to_owned());
+    }
+
+    if let Some(year) = year.and_then(valid_year) {
+        tag.set_date(Timestamp {
+            year,
+            month: None,
+            day: None,
+            hour: None,
+            minute: None,
+            second: None,
+        });
+    } else {
+        tag.remove_date();
+    }
+
+    if genre.is_empty() {
+        tag.remove_genre();
+    } else {
+        tag.set_genre(genre.to_owned());
+    }
+
+    tagged_file
+        .save_to_path(path, WriteOptions::default())
+        .map_err(to_error_string)
+}
+
+fn persist_album_tag_update(
+    connection: &mut Connection,
+    existing_album: &ExistingAlbum,
+    updated_paths: &[String],
+    album_title: &str,
+    album_artist: &str,
+    artist: &str,
+    year: Option<i64>,
+    genre: &str,
+) -> Result<(), String> {
+    let transaction = connection.transaction().map_err(to_error_string)?;
+    let display_album_artist = if album_artist.is_empty() {
+        existing_album.artist.as_str()
+    } else {
+        album_artist
+    };
+    let next_album_key = format!(
+        "{}::{}::{}",
+        existing_album.source_root,
+        album_title.to_lowercase(),
+        year.unwrap_or_default()
+    );
+    let next_track_artist = if artist.is_empty() { existing_album.artist.as_str() } else { artist };
+    let next_genre = (!genre.is_empty()).then_some(genre);
+
+    transaction
+        .execute(
+            "UPDATE albums
+             SET title = ?1, artist = ?2, year = ?3, genre = ?4, album_key = ?5
+             WHERE id = ?6",
+            params![
+                album_title,
+                display_album_artist,
+                year,
+                next_genre,
+                next_album_key,
+                existing_album.id,
+            ],
+        )
+        .map_err(to_error_string)?;
+
+    for file_path in updated_paths {
+        transaction
+            .execute(
+                "UPDATE tracks SET artist = ?1 WHERE file_path = ?2",
+                params![next_track_artist, file_path],
+            )
+            .map_err(to_error_string)?;
+    }
+
+    transaction.commit().map_err(to_error_string)
+}
+
+fn valid_year(year: i64) -> Option<u16> {
+    (1..=9999).contains(&year).then_some(year as u16)
+}
+
 fn write_library(
     connection: &mut Connection,
     canonical_root: &Path,
@@ -329,12 +572,13 @@ fn write_library(
 
         transaction
             .execute(
-                "INSERT INTO albums (title, artist, year, artwork_path, source_root, album_key)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+                "INSERT INTO albums (title, artist, year, genre, artwork_path, source_root, album_key)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
                 params![
                     album.title,
                     album.artist,
                     album.year,
+                    album.genre,
                     album.artwork_path,
                     root_string,
                     album_key
@@ -427,6 +671,7 @@ fn open_database(database_path: &Path) -> Result<Connection, String> {
                 title TEXT NOT NULL,
                 artist TEXT NOT NULL,
                 year INTEGER,
+                genre TEXT,
                 artwork_path TEXT,
                 source_root TEXT NOT NULL,
                 album_key TEXT NOT NULL UNIQUE
@@ -445,7 +690,36 @@ fn open_database(database_path: &Path) -> Result<Connection, String> {
             ",
         )
         .map_err(to_error_string)?;
+    ensure_column(&connection, "albums", "genre", "TEXT")?;
     Ok(connection)
+}
+
+fn ensure_column(
+    connection: &Connection,
+    table_name: &str,
+    column_name: &str,
+    column_definition: &str,
+) -> Result<(), String> {
+    let mut statement = connection
+        .prepare(&format!("PRAGMA table_info({table_name})"))
+        .map_err(to_error_string)?;
+    let columns = statement
+        .query_map([], |row| row.get::<_, String>(1))
+        .map_err(to_error_string)?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(to_error_string)?;
+
+    if columns.iter().any(|column| column == column_name) {
+        return Ok(());
+    }
+
+    connection
+        .execute(
+            &format!("ALTER TABLE {table_name} ADD COLUMN {column_name} {column_definition}"),
+            [],
+        )
+        .map_err(to_error_string)?;
+    Ok(())
 }
 
 fn is_supported_audio_file(path: &Path) -> bool {

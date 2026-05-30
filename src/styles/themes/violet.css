@@ -1,0 +1,17 @@
+:root[data-theme="violet"] {
+    --background: oklch(0.985 0.012 300);
+    --foreground: oklch(0.18 0.026 292);
+    --card: oklch(1 0 0);
+    --card-foreground: oklch(0.18 0.026 292);
+    --primary: oklch(0.48 0.18 292);
+    --primary-foreground: oklch(0.99 0.01 300);
+    --secondary: oklch(0.94 0.03 292);
+    --secondary-foreground: oklch(0.26 0.08 292);
+    --muted: oklch(0.95 0.018 292);
+    --muted-foreground: oklch(0.48 0.035 292);
+    --accent: oklch(0.92 0.055 320);
+    --accent-foreground: oklch(0.28 0.08 300);
+    --border: oklch(0.87 0.025 292);
+    --input: oklch(0.87 0.025 292);
+    --ring: oklch(0.57 0.16 292);
+}

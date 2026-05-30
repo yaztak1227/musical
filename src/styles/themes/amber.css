@@ -1,0 +1,17 @@
+:root[data-theme="amber"] {
+    --background: oklch(0.985 0.012 78);
+    --foreground: oklch(0.19 0.025 70);
+    --card: oklch(1 0 0);
+    --card-foreground: oklch(0.19 0.025 70);
+    --primary: oklch(0.58 0.15 72);
+    --primary-foreground: oklch(0.99 0.01 80);
+    --secondary: oklch(0.95 0.035 78);
+    --secondary-foreground: oklch(0.28 0.065 72);
+    --muted: oklch(0.95 0.018 78);
+    --muted-foreground: oklch(0.48 0.035 70);
+    --accent: oklch(0.92 0.065 88);
+    --accent-foreground: oklch(0.28 0.075 72);
+    --border: oklch(0.87 0.026 78);
+    --input: oklch(0.87 0.026 78);
+    --ring: oklch(0.6 0.14 72);
+}
