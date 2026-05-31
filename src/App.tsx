@@ -1,142 +1,57 @@
 import { convertFileSrc, invoke } from "@tauri-apps/api/core";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
-import {
-  ArrowDownAZ,
-  ChevronLeft,
-  ChevronRight,
-  FolderOpen,
-  ListMusic,
-  Maximize2,
-  Minimize2,
-  PanelLeftClose,
-  PanelLeftOpen,
-  Pause,
-  Pencil,
-  Play,
-  Repeat,
-  Repeat1,
-  Save,
-  Search,
-  Shuffle,
-  VolumeX,
-  X,
-  Volume2,
-} from "lucide-react";
 import { type CSSProperties, useEffect, useMemo, useRef, useState } from "react";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
 import { Slider } from "@/components/ui/slider";
-import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Toggle } from "@/components/ui/toggle";
+import { ChevronLeft, ChevronRight, FolderOpen, ListMusic, PanelLeftClose, PanelLeftOpen, Pause, Pencil, Play, Repeat, Repeat1, Save, Shuffle, Volume2, VolumeX, X } from "lucide-react";
 import "./App.css";
 import { getInitialLocale, getLocaleLabel, locales, translate, type Locale, type TranslationKey } from "./i18n";
-import { type AlbumTagDraft, updateAlbumTags } from "./lib/tagEditing";
+import type { Album, Track, LibrarySnapshot, ScanSummary } from "./types/audio";
+import { themeOptions, type AlbumListMode, type AlbumSortMode, type AlbumViewMode, type I18nMessage, type RepeatMode, type ThemeName, isThemeName } from "./types/app";
+import { updateAlbumTags, updateTrackTags, type AlbumTagDraft, type TrackTagDraft } from "./lib/tagEditing";
 import { useGlobalMediaKeys } from "./lib/useGlobalMediaKeys";
-
-type Track = {
-  id: number;
-  title: string;
-  artist: string;
-  durationSeconds?: number;
-  durationLabel?: string;
-  trackNumber?: number | null;
-  discNumber?: number | null;
-  filePath?: string;
-};
-
-type Album = {
-  id: number;
-  title: string;
-  artist: string;
-  year: number | null;
-  genre?: string | null;
-  artworkPath?: string | null;
-  coverUrl?: string;
-  tracks: Track[];
-};
-
-type LibrarySnapshot = {
-  albums: Album[];
-  lastScanPath: string | null;
-  databasePath: string;
-};
-
-type ScanSummary = {
-  scannedFiles: number;
-  importedTracks: number;
-  skippedFiles: number;
-  albums: number;
-  libraryPath: string;
-};
-
-type I18nMessage = {
-  key: TranslationKey;
-  values?: Record<string, string | number>;
-};
-
-type TFunction = (key: TranslationKey, values?: Record<string, string | number>) => string;
-
-type RepeatMode = "off" | "all" | "one";
-type AlbumViewMode = "large" | "small" | "list";
-type AlbumSortMode = "title" | "artist" | "year-desc" | "year-asc";
-type ThemeName = "crimson" | "ocean" | "violet" | "forest" | "amber" | "mono";
-
-const themeOptions = [
-  { name: "crimson", labelKey: "theme.crimson", color: "oklch(0.46 0.18 25)" },
-  { name: "ocean", labelKey: "theme.ocean", color: "oklch(0.46 0.12 205)" },
-  { name: "violet", labelKey: "theme.violet", color: "oklch(0.48 0.18 292)" },
-  { name: "forest", labelKey: "theme.forest", color: "oklch(0.43 0.12 145)" },
-  { name: "amber", labelKey: "theme.amber", color: "oklch(0.58 0.15 72)" },
-  { name: "mono", labelKey: "theme.mono", color: "oklch(0.34 0.01 260)" },
-] satisfies { name: ThemeName; labelKey: TranslationKey; color: string }[];
-
-const mockAlbums: Album[] = [
-  {
-    id: 1,
-    title: "Midnight Transit",
-    artist: "Circular Moonray",
-    year: 2026,
-    coverUrl:
-      "https://images.unsplash.com/photo-1516280440614-37939bbacd81?auto=format&fit=crop&w=640&q=80",
-    tracks: [
-      { id: 101, title: "Station Lights", artist: "Circular Moonray", durationLabel: "3:42" },
-      { id: 102, title: "Last Train Home", artist: "Circular Moonray", durationLabel: "4:08" },
-      { id: 103, title: "Blue Platform", artist: "Circular Moonray", durationLabel: "2:57" },
-    ],
-  },
-  {
-    id: 2,
-    title: "Room Tone",
-    artist: "Astra Field",
-    year: 2024,
-    coverUrl:
-      "https://images.unsplash.com/photo-1494232410401-ad00d5433cfa?auto=format&fit=crop&w=640&q=80",
-    tracks: [
-      { id: 201, title: "Soft Machines", artist: "Astra Field", durationLabel: "3:21" },
-      { id: 202, title: "Paper Sleeve", artist: "Astra Field", durationLabel: "3:54" },
-      { id: 203, title: "Archive Dust", artist: "Astra Field", durationLabel: "4:31" },
-    ],
-  },
-  {
-    id: 3,
-    title: "North Window",
-    artist: "Mica Notes",
-    year: 2025,
-    coverUrl:
-      "https://images.unsplash.com/photo-1465847899084-d164df4dedc6?auto=format&fit=crop&w=640&q=80",
-    tracks: [
-      { id: 301, title: "First Snow", artist: "Mica Notes", durationLabel: "2:48" },
-      { id: 302, title: "Glass Echo", artist: "Mica Notes", durationLabel: "5:12" },
-      { id: 303, title: "Quiet Street", artist: "Mica Notes", durationLabel: "3:36" },
-    ],
-  },
-];
+import { mockAlbums } from "./lib/mockData";
+import { formatSeconds, formatTrackDuration, getTrackDurationSeconds } from "./lib/formatUtils";
+import { filterAndSortAlbums } from "./lib/albumFilters";
+import { localizeLibraryText, getArtworkSrc, getAlbumStartTrack, getAlbumJumpTarget, getAudioErrorMessage, toI18nError } from "./lib/libraryUtils";
+import { prepareMarquee } from "./lib/marqueeUtils";
+import { makeAlbumTagDraft, isAlbumTagDraftChanged, parseOptionalYear } from "./lib/tagDraftUtils";
+import { AlbumBrowser } from "./components/AlbumBrowser";
 
 const isTauriRuntime = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
+
+const trackTagFields = [
+  { key: "title", labelKey: "tags.title" },
+  { key: "artist", labelKey: "tags.artist" },
+  { key: "album", labelKey: "tags.album" },
+  { key: "year", labelKey: "tags.year" },
+  { key: "genre", labelKey: "tags.genre" },
+  { key: "trackNumber", labelKey: "tags.trackNumber" },
+  { key: "discNumber", labelKey: "tags.discNumber" },
+] satisfies { key: keyof TrackTagDraft; labelKey: TranslationKey }[];
+
+function makeTrackTagDraft(track: Track | null, album: Album | null): TrackTagDraft {
+  return {
+    title: track?.title ?? "",
+    artist: track?.artist ?? "",
+    album: album?.title ?? "",
+    year: String(album?.year ?? ""),
+    genre: album?.genre ?? "",
+    trackNumber: String(track?.trackNumber ?? ""),
+    discNumber: String(track?.discNumber ?? ""),
+  };
+}
+
+function isTrackTagDraftChanged(draft: TrackTagDraft, track: Track, album: Album | null) {
+  const original = makeTrackTagDraft(track, album);
+  return trackTagFields.some((field) => draft[field.key].trim() !== original[field.key].trim());
+}
 
 function App() {
   const audioRef = useRef<HTMLAudioElement | null>(null);
@@ -144,7 +59,8 @@ function App() {
   const [locale, setLocale] = useState<Locale>(() => getInitialLocale());
   const [themeName, setThemeName] = useState<ThemeName>(() => {
     const storedTheme = window.localStorage.getItem("musical.theme");
-    return isThemeName(storedTheme) ? storedTheme : "crimson";
+    if (isThemeName(storedTheme)) return storedTheme;
+    return "crimson";
   });
   const t = useMemo(() => {
     return (key: TranslationKey, values?: Record<string, string | number>) => translate(locale, key, values);
@@ -170,7 +86,9 @@ function App() {
   const [isShuffle, setIsShuffle] = useState(false);
   const [repeatMode, setRepeatMode] = useState<RepeatMode>("off");
   const [albumViewMode, setAlbumViewMode] = useState<AlbumViewMode>("large");
+  const [albumListMode, setAlbumListMode] = useState<AlbumListMode>("album");
   const [albumSortMode, setAlbumSortMode] = useState<AlbumSortMode>("title");
+  const [lyricsOnly, setLyricsOnly] = useState(false);
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const [isLibraryMenuOpen, setIsLibraryMenuOpen] = useState(false);
   const [playbackError, setPlaybackError] = useState<string | null>(null);
@@ -178,6 +96,11 @@ function App() {
   const [albumTagDraft, setAlbumTagDraft] = useState<AlbumTagDraft>(() => makeAlbumTagDraft(mockAlbums[0] ?? null));
   const [isSavingAlbumTags, setIsSavingAlbumTags] = useState(false);
   const [albumTagMessage, setAlbumTagMessage] = useState<I18nMessage | null>(null);
+  const [detailTrackId, setDetailTrackId] = useState<number | null>(null);
+  const [trackTagDraft, setTrackTagDraft] = useState<TrackTagDraft>(() => makeTrackTagDraft(null, mockAlbums[0] ?? null));
+  const [editingTrackTag, setEditingTrackTag] = useState<keyof TrackTagDraft | null>(null);
+  const [isSavingTrackTags, setIsSavingTrackTags] = useState(false);
+  const [trackTagMessage, setTrackTagMessage] = useState<I18nMessage | null>(null);
 
   useEffect(() => {
     document.documentElement.lang = locale;
@@ -308,25 +231,10 @@ function App() {
     return () => window.clearInterval(timer);
   }, [currentTrack, duration, isPlaying]);
 
-  const filteredAlbums = useMemo(() => {
-    const normalizedQuery = query.trim().toLowerCase();
-    const matchingAlbums = normalizedQuery
-      ? albums.filter((album) => {
-          const searchable = [
-            album.title,
-            album.artist,
-            localizeLibraryText(album.title, t),
-            localizeLibraryText(album.artist, t),
-            String(album.year ?? ""),
-          ]
-            .join(" ")
-            .toLowerCase();
-          return searchable.includes(normalizedQuery);
-        })
-      : albums;
-
-    return [...matchingAlbums].sort((firstAlbum, secondAlbum) => compareAlbums(firstAlbum, secondAlbum, albumSortMode, t));
-  }, [albumSortMode, albums, query, t]);
+  const filteredAlbums = useMemo(
+    () => filterAndSortAlbums(albums, query, albumSortMode, t, lyricsOnly),
+    [albumSortMode, albums, lyricsOnly, query, t],
+  );
 
   const selectedAlbum =
     albums.find((album) => album.id === selectedAlbumId) ?? filteredAlbums[0] ?? albums[0] ?? null;
@@ -339,12 +247,26 @@ function App() {
   const effectiveDuration = duration || getTrackDurationSeconds(currentTrack);
   const seekProgress = effectiveDuration > 0 ? Math.min(100, Math.max(0, (currentTime / effectiveDuration) * 100)) : 0;
   const hasAlbumTagChanges = selectedAlbum ? isAlbumTagDraftChanged(albumTagDraft, selectedAlbum) : false;
+  const detailAlbum =
+    albums.find((album) => album.tracks.some((track) => track.id === detailTrackId)) ?? selectedAlbum;
+  const detailTrack =
+    detailAlbum?.tracks.find((track) => track.id === detailTrackId) ?? null;
+  const hasTrackTagChanges = detailTrack
+    ? isTrackTagDraftChanged(trackTagDraft, detailTrack, detailAlbum)
+    : false;
 
   useEffect(() => {
     if (!selectedAlbum || isAlbumTagEditing) return;
     setAlbumTagDraft(makeAlbumTagDraft(selectedAlbum));
     setAlbumTagMessage(null);
   }, [isAlbumTagEditing, selectedAlbum]);
+
+  useEffect(() => {
+    if (!detailTrack) return;
+    setTrackTagDraft(makeTrackTagDraft(detailTrack, detailAlbum));
+    setEditingTrackTag(null);
+    setTrackTagMessage(null);
+  }, [detailAlbum, detailTrack]);
 
   async function refreshLibrary() {
     try {
@@ -441,6 +363,24 @@ function App() {
     setIsPlaying(true);
   }
 
+  function selectTrack(track: Track, albumId = selectedAlbumId) {
+    setPlaybackAlbumId(albumId);
+    setCurrentTrack(track);
+    setCurrentTime(0);
+    setIsPlaying(false);
+  }
+
+  function openTrackDetail(track: Track) {
+    setDetailTrackId(track.id);
+  }
+
+  function closeTrackDetail() {
+    if (isSavingTrackTags) return;
+    setDetailTrackId(null);
+    setEditingTrackTag(null);
+    setTrackTagMessage(null);
+  }
+
   function togglePlayback() {
     if (!currentTrack && selectedAlbum) {
       playAlbum(selectedAlbum);
@@ -526,21 +466,6 @@ function App() {
     }
   }
 
-  function prepareTrackTitleMarquee(event: { currentTarget: HTMLElement }) {
-    const titleWrap = event.currentTarget.querySelector<HTMLElement>(".track-title-wrap");
-    const title = event.currentTarget.querySelector<HTMLElement>(".track-title");
-    if (!titleWrap || !title) return;
-
-    const overflowDistance = title.scrollWidth - titleWrap.clientWidth;
-    if (overflowDistance > 4) {
-      titleWrap.dataset.marquee = "true";
-      titleWrap.style.setProperty("--track-title-shift", `-${overflowDistance}px`);
-    } else {
-      delete titleWrap.dataset.marquee;
-      titleWrap.style.removeProperty("--track-title-shift");
-    }
-  }
-
   function jumpToAlbumLetter(letter: string) {
     const targetAlbum = getAlbumJumpTarget(filteredAlbums, letter, t);
     if (!targetAlbum) return;
@@ -603,6 +528,7 @@ function App() {
         const result = await updateAlbumTags(selectedAlbum.id, albumTagDraft);
         const snapshot = await invoke<LibrarySnapshot>("library_snapshot");
         applyLibrarySnapshot(snapshot, { resetPlayback: false });
+        setSelectedAlbumId(result.albumId);
         setAlbumTagMessage(
           result.failedFiles.length > 0
             ? { key: "tags.partialSaved", values: { updated: result.updatedFiles, failed: result.failedFiles.length } }
@@ -614,6 +540,56 @@ function App() {
       setAlbumTagMessage(toI18nError(error));
     } finally {
       setIsSavingAlbumTags(false);
+    }
+  }
+
+  async function saveTrackTags() {
+    if (!detailTrack || !detailAlbum || !hasTrackTagChanges || isSavingTrackTags) return;
+    if (!trackTagDraft.title.trim()) {
+      setTrackTagMessage({ key: "tags.trackTitleRequired" });
+      return;
+    }
+    if (!trackTagDraft.album.trim()) {
+      setTrackTagMessage({ key: "tags.albumRequired" });
+      return;
+    }
+
+    try {
+      setIsSavingTrackTags(true);
+      if (!isTauriRuntime) {
+        setAlbums((currentAlbums) =>
+          currentAlbums.map((album) => ({
+            ...album,
+            title: album.id === detailAlbum.id ? trackTagDraft.album.trim() : album.title,
+            year: album.id === detailAlbum.id ? parseOptionalYear(trackTagDraft.year) : album.year,
+            genre: album.id === detailAlbum.id ? trackTagDraft.genre.trim() || null : album.genre,
+            tracks: album.tracks.map((track) =>
+              track.id === detailTrack.id
+                ? {
+                    ...track,
+                    title: trackTagDraft.title.trim(),
+                    artist: trackTagDraft.artist.trim() || track.artist,
+                    trackNumber: parseOptionalYear(trackTagDraft.trackNumber),
+                    discNumber: parseOptionalYear(trackTagDraft.discNumber),
+                  }
+                : track,
+            ),
+          })),
+        );
+        setTrackTagMessage({ key: "tags.mockSaved" });
+      } else {
+        const result = await updateTrackTags(detailTrack.id, trackTagDraft);
+        const snapshot = await invoke<LibrarySnapshot>("library_snapshot");
+        applyLibrarySnapshot(snapshot, { resetPlayback: false });
+        setSelectedAlbumId(result.albumId);
+        setDetailTrackId(result.trackId);
+        setTrackTagMessage({ key: "tags.trackSaved" });
+      }
+      setEditingTrackTag(null);
+    } catch (error) {
+      setTrackTagMessage(toI18nError(error));
+    } finally {
+      setIsSavingTrackTags(false);
     }
   }
 
@@ -743,132 +719,36 @@ function App() {
             </CardContent>
           </Card>
         </div>
-
       </section>
 
-      <section className="albums-panel" aria-label={t("library.albumListLabel")} ref={albumsPanelRef}>
-        <div className="albums-panel-header">
-          <div className="albums-title">
-            <Badge variant="secondary">{t("albums.count", { count: filteredAlbums.length })}</Badge>
-          </div>
-          <div className="album-toolbar">
-            <div className="album-sort-field" aria-label={t("sort.label")}>
-              <Select value={albumSortMode} onValueChange={(value) => setAlbumSortMode(value as AlbumSortMode)}>
-                <SelectTrigger aria-label={t("sort.label")} className="album-sort-trigger" title={t("sort.label")}>
-                  <ArrowDownAZ aria-hidden="true" />
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent align="end">
-                  <SelectItem value="title">{t("sort.title")}</SelectItem>
-                  <SelectItem value="artist">{t("sort.artist")}</SelectItem>
-                  <SelectItem value="year-desc">{t("sort.yearDesc")}</SelectItem>
-                  <SelectItem value="year-asc">{t("sort.yearAsc")}</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            <label className="album-search-field">
-              <span className="sr-only">{t("search.label")}</span>
-              <div className="search-input-wrap">
-                <Search aria-hidden="true" />
-                <Input
-                  value={query}
-                  onChange={(event) => setQuery(event.currentTarget.value)}
-                  placeholder={t("search.placeholder")}
-                  type="search"
-                />
-              </div>
-            </label>
-            <div className="view-mode-field" aria-label={t("view.label")}>
-              <span className="sr-only">{t("view.label")}</span>
-              <Tabs value={albumViewMode} onValueChange={(value) => setAlbumViewMode(value as AlbumViewMode)}>
-                <TabsList className="view-mode-buttons">
-                  <TabsTrigger value="large" aria-label={t("view.largeIcons")} title={t("view.largeIcons")}>
-                    <Maximize2 />
-                    <span className="sr-only">{t("view.largeIcons")}</span>
-                  </TabsTrigger>
-                  <TabsTrigger value="small" aria-label={t("view.smallIcons")} title={t("view.smallIcons")}>
-                    <Minimize2 />
-                    <span className="sr-only">{t("view.smallIcons")}</span>
-                  </TabsTrigger>
-                  <TabsTrigger value="list" aria-label={t("view.list")} title={t("view.list")}>
-                    <ListMusic />
-                    <span className="sr-only">{t("view.list")}</span>
-                  </TabsTrigger>
-                </TabsList>
-              </Tabs>
-            </div>
-          </div>
-        </div>
-
-        <div className="albums-panel-main">
-          <div className={`album-grid ${albumViewMode}`}>
-            {filteredAlbums.length === 0 ? (
-              <div className="empty-state">{t("library.emptySearch")}</div>
-            ) : (
-              filteredAlbums.map((album) => {
-                const albumTitle = localizeLibraryText(album.title, t);
-                const albumArtist = localizeLibraryText(album.artist, t);
-                const artworkSrc = getArtworkSrc(album);
-
-                return (
-                  <Button
-                    className={album.id === selectedAlbum?.id ? "album-card active" : "album-card"}
-                    data-album-id={album.id}
-                    key={album.id}
-                    onClick={() => selectAlbum(album)}
-                    variant="outline"
-                    type="button"
-                  >
-                    <span className="album-cover-wrap">
-                      {artworkSrc ? (
-                        <img alt={t("album.coverAlt", { album: albumTitle })} src={artworkSrc} />
-                      ) : (
-                        <span className="album-placeholder" aria-hidden="true">
-                          {albumTitle.charAt(0).toUpperCase()}
-                        </span>
-                      )}
-                      <span
-                        aria-label={t("album.playSelected")}
-                        className="album-hover-play"
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          playAlbum(album);
-                        }}
-                        onKeyDown={(event) => {
-                          if (event.key === "Enter" || event.key === " ") {
-                            event.preventDefault();
-                            event.stopPropagation();
-                            playAlbum(album);
-                          }
-                        }}
-                        role="button"
-                        tabIndex={0}
-                        title={t("album.playSelected")}
-                      >
-                        <Play aria-hidden="true" />
-                      </span>
-                    </span>
-                    <span>{albumTitle}</span>
-                    <small>
-                      {albumArtist}
-                      {album.year ? ` / ${album.year}` : ""}
-                    </small>
-                  </Button>
-                );
-              })
-            )}
-          </div>
-        </div>
-      </section>
+      <AlbumBrowser
+        albumSortMode={albumSortMode}
+        albumListMode={albumListMode}
+        albums={filteredAlbums}
+        albumViewMode={albumViewMode}
+        isTauriRuntime={isTauriRuntime}
+        lyricsOnly={lyricsOnly}
+        onPlayAlbum={playAlbum}
+        onListModeChange={setAlbumListMode}
+        onLyricsOnlyChange={setLyricsOnly}
+        onQueryChange={setQuery}
+        onSelectAlbum={selectAlbum}
+        onSortModeChange={setAlbumSortMode}
+        onViewModeChange={setAlbumViewMode}
+        panelRef={albumsPanelRef}
+        query={query}
+        selectedAlbumId={selectedAlbum?.id ?? null}
+        t={t}
+      />
 
       <section className="album-panel" aria-label={t("library.selectedAlbumLabel")}>
         {selectedAlbum ? (
           <>
-            {getArtworkSrc(selectedAlbum) ? (
+            {getArtworkSrc(selectedAlbum, isTauriRuntime) ? (
               <img
                 className="album-art"
                 alt={t("album.artworkAlt", { album: localizeLibraryText(selectedAlbum.title, t) })}
-                src={getArtworkSrc(selectedAlbum)}
+                src={getArtworkSrc(selectedAlbum, isTauriRuntime)}
               />
             ) : (
               <div className="album-art placeholder-art" aria-hidden="true">
@@ -953,7 +833,7 @@ function App() {
                 </form>
               ) : (
                 <>
-                  <p className="eyebrow">{selectedAlbum.year ?? t("library.fallbackYear")}</p>
+                  <p className="eyebrow">{selectedAlbum.yearLabel ?? selectedAlbum.year ?? t("library.fallbackYear")}</p>
                   <button
                     aria-label={t("tags.editSelected")}
                     className="album-title-edit-button"
@@ -980,16 +860,23 @@ function App() {
                 <li key={track.id}>
                   <Button
                     className={track.id === currentTrack?.id ? "active-track" : undefined}
-                    onFocus={prepareTrackTitleMarquee}
-                    onMouseEnter={prepareTrackTitleMarquee}
-                    onClick={() => playTrack(track, selectedAlbum.id)}
+                    onFocus={prepareMarquee}
+                    onMouseEnter={prepareMarquee}
+                    onClick={() => selectTrack(track, selectedAlbum.id)}
+                    onContextMenu={(event) => {
+                      event.preventDefault();
+                      openTrackDetail(track);
+                    }}
                     variant="outline"
                     type="button"
                   >
-                    <span className="track-title-wrap">
-                      <span className="track-title">
-                        {track.trackNumber ? `${track.trackNumber}. ` : ""}
-                        {localizeLibraryText(track.title, t)}
+                    <span className="track-title-wrap marquee-wrap">
+                      <span className="track-title marquee-text">
+                        <span className="track-name">
+                          {track.trackNumber ? `${track.trackNumber}. ` : ""}
+                          {localizeLibraryText(track.title, t)}
+                        </span>
+                        {track.lyrics?.trim() ? <span className="track-lyrics-badge">歌詞</span> : null}
                       </span>
                     </span>
                     <small>{formatTrackDuration(track)}</small>
@@ -1098,191 +985,106 @@ function App() {
           </p>
         </div>
       </section>
+      {detailTrack && detailAlbum ? (
+        <div className="track-detail-backdrop" onMouseDown={closeTrackDetail} role="presentation">
+          <section
+            aria-label={t("trackDetail.label")}
+            aria-modal="true"
+            className="track-detail-dialog"
+            onMouseDown={(event) => event.stopPropagation()}
+            role="dialog"
+          >
+            <div className="track-detail-header">
+              <div className="track-detail-title">
+                <p className="eyebrow">{localizeLibraryText(detailAlbum.title, t)}</p>
+                <h2>{localizeLibraryText(detailTrack.title, t)}</h2>
+              </div>
+              <Button aria-label={t("trackDetail.close")} className="icon-button" onClick={closeTrackDetail} type="button" variant="outline">
+                <X />
+              </Button>
+            </div>
+
+            <Tabs className="track-detail-tabs" defaultValue="info">
+              <TabsList className="track-detail-tab-list">
+                <TabsTrigger value="info">{t("trackDetail.infoTab")}</TabsTrigger>
+                <TabsTrigger value="lyrics">{t("trackDetail.lyricsTab")}</TabsTrigger>
+              </TabsList>
+              <TabsContent className="track-detail-tab-panel" value="info">
+                <div className="track-tag-grid">
+                  {trackTagFields.map((field) => (
+                    <label className="track-tag-field" key={field.key}>
+                      <span>{t(field.labelKey)}</span>
+                      {editingTrackTag === field.key ? (
+                        <Input
+                          autoFocus
+                          data-keyboard-scope="text"
+                          inputMode={field.key === "year" || field.key === "trackNumber" || field.key === "discNumber" ? "numeric" : undefined}
+                          onBlur={() => setEditingTrackTag(null)}
+                          onChange={(event) => {
+                            const nextValue = event.currentTarget.value;
+                            setTrackTagDraft((value) => ({ ...value, [field.key]: nextValue }));
+                          }}
+                          onKeyDown={(event) => {
+                            if (event.key === "Escape") {
+                              setTrackTagDraft(makeTrackTagDraft(detailTrack, detailAlbum));
+                              setEditingTrackTag(null);
+                            }
+                          }}
+                          value={trackTagDraft[field.key]}
+                        />
+                      ) : (
+                        <button
+                          className="track-tag-value"
+                          onClick={() => setEditingTrackTag(field.key)}
+                          type="button"
+                        >
+                          {trackTagDraft[field.key].trim() || t("trackDetail.emptyTag")}
+                        </button>
+                      )}
+                    </label>
+                  ))}
+                  <div className="track-tag-field readonly">
+                    <span>{t("trackDetail.duration")}</span>
+                    <strong>{formatTrackDuration(detailTrack)}</strong>
+                  </div>
+                  <div className="track-tag-field readonly wide">
+                    <span>{t("trackDetail.filePath")}</span>
+                    <strong>{detailTrack.filePath ?? t("trackDetail.noFilePath")}</strong>
+                  </div>
+                </div>
+                {trackTagMessage ? (
+                  <p className="tag-edit-message" aria-live="polite">
+                    {t(trackTagMessage.key, trackTagMessage.values)}
+                  </p>
+                ) : null}
+                <div className="album-tag-actions">
+                  <Button disabled={!hasTrackTagChanges || isSavingTrackTags} onClick={() => void saveTrackTags()} type="button">
+                    <Save />
+                    {isSavingTrackTags ? t("tags.saving") : t("tags.save")}
+                  </Button>
+                  <Button
+                    disabled={!hasTrackTagChanges || isSavingTrackTags}
+                    onClick={() => {
+                      setTrackTagDraft(makeTrackTagDraft(detailTrack, detailAlbum));
+                      setEditingTrackTag(null);
+                    }}
+                    type="button"
+                    variant="outline"
+                  >
+                    <X />
+                    {t("tags.cancel")}
+                  </Button>
+                </div>
+              </TabsContent>
+              <TabsContent className="track-detail-tab-panel" value="lyrics">
+                <pre className="lyrics-panel">{detailTrack.lyrics?.trim() || t("trackDetail.noLyrics")}</pre>
+              </TabsContent>
+            </Tabs>
+          </section>
+        </div>
+      ) : null}
     </main>
   );
-}
-
-function localizeLibraryText(value: string, t: TFunction) {
-  if (value === "Unknown Track") return t("data.unknownTrack");
-  if (value === "Unknown Album") return t("data.unknownAlbum");
-  if (value === "Unknown Artist") return t("data.unknownArtist");
-  if (value === "Other Album") return t("data.otherAlbum");
-  if (value === "Various Artists") return t("data.variousArtists");
-  return value;
-}
-
-function getArtworkSrc(album: Album) {
-  if (album.coverUrl) return album.coverUrl;
-  if (!album.artworkPath) return "";
-  return isTauriRuntime ? convertFileSrc(album.artworkPath) : album.artworkPath;
-}
-
-function getAlbumStartTrack(album: Album, isShuffle: boolean) {
-  if (album.tracks.length === 0) return null;
-  if (!isShuffle || album.tracks.length === 1) return album.tracks[0];
-  return album.tracks[Math.floor(Math.random() * album.tracks.length)] ?? album.tracks[0];
-}
-
-function compareAlbums(firstAlbum: Album, secondAlbum: Album, sortMode: AlbumSortMode, t: TFunction) {
-  const titleCompare = localizeLibraryText(firstAlbum.title, t).localeCompare(localizeLibraryText(secondAlbum.title, t), undefined, {
-    sensitivity: "base",
-    numeric: true,
-  });
-  const artistCompare = localizeLibraryText(firstAlbum.artist, t).localeCompare(
-    localizeLibraryText(secondAlbum.artist, t),
-    undefined,
-    {
-      sensitivity: "base",
-      numeric: true,
-    },
-  );
-
-  if (sortMode === "artist") return artistCompare || titleCompare;
-
-  if (sortMode === "year-desc" || sortMode === "year-asc") {
-    const unknownYear = sortMode === "year-desc" ? Number.NEGATIVE_INFINITY : Number.POSITIVE_INFINITY;
-    const firstYear = firstAlbum.year ?? unknownYear;
-    const secondYear = secondAlbum.year ?? unknownYear;
-    const yearCompare = sortMode === "year-desc" ? secondYear - firstYear : firstYear - secondYear;
-    return yearCompare || titleCompare;
-  }
-
-  return titleCompare || artistCompare;
-}
-
-function getAlbumJumpTarget(albums: Album[], letter: string, t: TFunction) {
-  const targetLetter = letter.toUpperCase();
-  const albumKeys = albums
-    .map((album) => ({
-      album,
-      key: getAlbumJumpKey(localizeLibraryText(album.title, t)),
-    }))
-    .filter((item) => item.key);
-
-  if (albumKeys.length === 0) return null;
-
-  const exactMatch = albumKeys
-    .filter((item) => item.key.startsWith(targetLetter))
-    .sort((left, right) => left.key.localeCompare(right.key, undefined, { sensitivity: "base", numeric: true }))[0];
-  if (exactMatch) return exactMatch.album;
-
-  const sortedAlbums = albumKeys.sort((left, right) =>
-    left.key.localeCompare(right.key, undefined, { sensitivity: "base", numeric: true }),
-  );
-  return sortedAlbums.find((item) => item.key > targetLetter)?.album ?? sortedAlbums[sortedAlbums.length - 1]?.album ?? null;
-}
-
-function getAlbumJumpKey(title: string) {
-  return title
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .trim()
-    .replace(/^[^a-zA-Z0-9]+/, "")
-    .toUpperCase();
-}
-
-function getAudioErrorMessage(audio: HTMLAudioElement, track: Track | null) {
-  const codeMessages: Record<number, string> = {
-    1: "aborted",
-    2: "network or asset protocol error",
-    3: "decode error",
-    4: "unsupported source or codec",
-  };
-  const code = audio.error?.code ?? 0;
-  const source = audio.currentSrc || audio.src || track?.filePath || "no source";
-  return `${codeMessages[code] ?? "unknown audio error"} / ${source}`;
-}
-
-function toI18nError(error: unknown): I18nMessage {
-  const message = String(error);
-  const [key, folderPath, reason] = message.split("\t");
-
-  if (key === "library.error.folderOpen") {
-    return { key: "status.folderOpenError", values: { folderPath, reason } };
-  }
-
-  if (key === "library.error.notFolder") {
-    return { key: "status.notFolderError", values: { folderPath } };
-  }
-
-  if (key === "library.error.albumNotFound") {
-    return { key: "status.albumNotFound", values: { albumId: folderPath } };
-  }
-
-  if (key === "library.error.albumHasNoTracks") {
-    return { key: "status.albumHasNoTracks", values: { albumId: folderPath } };
-  }
-
-  if (key === "library.error.emptyAlbumTitle") {
-    return { key: "status.emptyAlbumTitle" };
-  }
-
-  return { key: "status.error", values: { message } };
-}
-
-function makeAlbumTagDraft(album: Album | null | undefined): AlbumTagDraft {
-  return {
-    album: album?.title ?? "",
-    albumArtist: album?.artist ?? "",
-    artist: album?.artist ?? "",
-    year: album?.year ? String(album.year) : "",
-    genre: album?.genre ?? "",
-  };
-}
-
-function isAlbumTagDraftChanged(draft: AlbumTagDraft, album: Album) {
-  const normalizedDraft = normalizeAlbumTagDraft(draft);
-  const normalizedAlbum = normalizeAlbumTagDraft(makeAlbumTagDraft(album));
-  return (
-    normalizedDraft.album !== normalizedAlbum.album ||
-    normalizedDraft.albumArtist !== normalizedAlbum.albumArtist ||
-    normalizedDraft.artist !== normalizedAlbum.artist ||
-    normalizedDraft.year !== normalizedAlbum.year ||
-    normalizedDraft.genre !== normalizedAlbum.genre
-  );
-}
-
-function normalizeAlbumTagDraft(draft: AlbumTagDraft) {
-  return {
-    album: draft.album.trim(),
-    albumArtist: draft.albumArtist.trim(),
-    artist: draft.artist.trim(),
-    year: draft.year.trim(),
-    genre: draft.genre.trim(),
-  };
-}
-
-function parseOptionalYear(value: string) {
-  const trimmedValue = value.trim();
-  if (!trimmedValue) return null;
-  const parsedValue = Number.parseInt(trimmedValue, 10);
-  return Number.isFinite(parsedValue) ? parsedValue : null;
-}
-
-function isThemeName(value: string | null): value is ThemeName {
-  return themeOptions.some((theme) => theme.name === value);
-}
-
-function formatTrackDuration(track: Track) {
-  if (track.durationLabel) return track.durationLabel;
-  if (typeof track.durationSeconds === "number") return formatSeconds(track.durationSeconds);
-  return "--:--";
-}
-
-function getTrackDurationSeconds(track: Track | null) {
-  if (!track) return 0;
-  if (typeof track.durationSeconds === "number") return track.durationSeconds;
-  if (!track.durationLabel) return 0;
-
-  const [minutes, seconds] = track.durationLabel.split(":").map(Number);
-  if (!Number.isFinite(minutes) || !Number.isFinite(seconds)) return 0;
-  return minutes * 60 + seconds;
-}
-
-function formatSeconds(totalSeconds: number) {
-  const minutes = Math.floor(totalSeconds / 60);
-  const seconds = totalSeconds % 60;
-  return `${minutes}:${String(seconds).padStart(2, "0")}`;
 }
 
 export default App;

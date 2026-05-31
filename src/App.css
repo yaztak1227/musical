@@ -188,7 +188,7 @@ select:focus-visible {
   min-width: 0;
   min-height: 0;
   padding: 28px;
-  overflow-x: hidden;
+  overflow-x: auto;
   overflow-y: auto;
 }
 
@@ -234,6 +234,30 @@ select:focus-visible {
   flex: 1 1 190px;
   width: min(360px, 100%);
   min-width: 150px;
+}
+
+.lyrics-filter-toggle {
+  flex: 0 0 auto;
+  width: 40px;
+  min-width: 0;
+  min-height: 40px;
+  border: 1px solid color-mix(in oklch, var(--primary), transparent 34%);
+  border-radius: 8px;
+  padding: 0;
+  color: var(--primary);
+  background: color-mix(in oklch, var(--primary), transparent 92%);
+  font-weight: 900;
+}
+
+.lyrics-filter-toggle svg {
+  width: 17px;
+  height: 17px;
+}
+
+.lyrics-filter-toggle[data-state="on"] {
+  color: var(--primary-foreground);
+  background: linear-gradient(135deg, var(--primary), color-mix(in oklch, var(--primary), var(--foreground) 24%));
+  box-shadow: 0 7px 18px color-mix(in oklch, var(--primary), transparent 78%);
 }
 
 .section-heading,
@@ -323,7 +347,7 @@ h2 {
   display: grid;
   flex: 0 0 auto;
   gap: 12px;
-  padding: 2;
+  padding: 2px;
   background: var(--app-surface);
   overflow-x: scroll;
 }
@@ -359,6 +383,20 @@ h2 {
   width: 40px;
   min-width: 40px;
   padding: 0;
+}
+
+.list-mode-buttons {
+  display: inline-grid;
+  grid-template-columns: repeat(2, minmax(68px, auto));
+  gap: 6px;
+  width: max-content;
+  padding: 4px;
+}
+
+.list-mode-buttons [role="tab"] {
+  min-width: 68px;
+  padding-inline: 10px;
+  font-weight: 800;
 }
 
 .album-sort-trigger [data-slot="select-value"] {
@@ -465,6 +503,163 @@ h2 {
   align-content: start;
 }
 
+.album-list-table {
+  display: grid;
+  min-width: 560px;
+  overflow: hidden;
+  border: 1px solid var(--app-line);
+  border-radius: 8px;
+  background: var(--card);
+}
+
+.album-list-table.albums .album-table-header,
+.album-list-table.albums .album-table-row {
+  grid-template-columns: minmax(180px, 1.35fr) minmax(150px, 1fr) minmax(82px, 0.45fr) minmax(82px, 0.45fr) 40px;
+}
+
+.album-list-table.tracks .album-table-header,
+.album-list-table.tracks .album-table-row {
+  grid-template-columns: minmax(200px, 1.35fr) minmax(140px, 0.85fr) minmax(150px, 0.9fr) minmax(72px, 0.38fr);
+}
+
+.album-table-header,
+.album-table-row {
+  display: grid;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+
+.album-table-header {
+  min-height: 38px;
+  padding: 0 14px;
+  color: var(--app-muted);
+  background: color-mix(in oklch, var(--muted), var(--background) 36%);
+  border-bottom: 1px solid var(--app-line);
+  font-size: 0.76rem;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.album-table-row {
+  width: 100%;
+  min-height: 46px;
+  border: 0;
+  border-bottom: 1px solid color-mix(in oklch, var(--border), transparent 28%);
+  border-radius: 0;
+  padding: 0 14px;
+  color: var(--foreground);
+  background: transparent;
+  font-size: 0.9rem;
+  text-align: left;
+  cursor: pointer;
+}
+
+.album-table-row:last-child {
+  border-bottom: 0;
+}
+
+.album-table-row:hover {
+  background: color-mix(in oklch, var(--accent), transparent 28%);
+}
+
+.album-table-row.active {
+  color: var(--foreground);
+  background: var(--app-accent-soft);
+  box-shadow: inset 3px 0 0 var(--app-accent);
+}
+
+.album-table-header span,
+.album-table-row span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.marquee-wrap {
+  position: relative;
+  display: block;
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+}
+
+.marquee-text {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.album-table-row .table-primary {
+  font-weight: 850;
+}
+
+.album-table-select-button {
+  width: 100%;
+  min-width: 0;
+  border: 0;
+  padding: 0;
+  color: inherit;
+  background: transparent;
+  font: inherit;
+  font-weight: inherit;
+  text-align: left;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.album-table-play-button {
+  display: inline-grid;
+  place-items: center;
+  width: 32px;
+  min-width: 32px;
+  height: 32px;
+  border: 1px solid color-mix(in oklch, var(--primary), transparent 34%);
+  border-radius: 999px;
+  color: var(--primary);
+  background: color-mix(in oklch, var(--primary), transparent 92%);
+}
+
+.album-table-play-button:hover {
+  color: var(--primary-foreground);
+  background: var(--primary);
+}
+
+.album-table-play-button svg {
+  width: 15px;
+  height: 15px;
+  margin-left: 1px;
+}
+
+.table-track-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.table-track-title .marquee-text {
+  flex: 1 1 auto;
+}
+
+.album-card:hover .marquee-wrap[data-marquee="true"] .marquee-text,
+.album-card:focus-visible .marquee-wrap[data-marquee="true"] .marquee-text,
+.album-card:focus-within .marquee-wrap[data-marquee="true"] .marquee-text,
+.album-table-select-button:hover .marquee-wrap[data-marquee="true"] .marquee-text,
+.album-table-select-button:focus-visible .marquee-wrap[data-marquee="true"] .marquee-text,
+.album-table-row:hover .table-track-title[data-marquee="true"] .marquee-text,
+.album-table-row:focus-visible .table-track-title[data-marquee="true"] .marquee-text,
+.album-table-row:focus-within .table-track-title[data-marquee="true"] .marquee-text {
+  max-width: none;
+  width: max-content;
+  overflow: visible;
+  text-overflow: clip;
+  animation: track-title-marquee 7s ease-in-out infinite;
+}
+
 button.album-card {
   display: grid;
   grid-template-columns: 64px minmax(0, 1fr);
@@ -489,11 +684,13 @@ button.album-card {
 }
 
 .album-grid.large button.album-card {
-  grid-template-columns: 1fr;
-  grid-template-rows: auto auto auto;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
   gap: 8px;
   min-height: 0;
   padding: 12px;
+  overflow: visible;
 }
 
 .album-cover-wrap {
@@ -509,6 +706,7 @@ button.album-card {
 }
 
 .album-grid.large .album-cover-wrap {
+  flex: none;
   grid-row: auto;
   width: 100%;
   height: auto;
@@ -582,6 +780,7 @@ button.album-card {
 
 .album-grid.large .album-card img,
 .album-grid.large .album-placeholder {
+  flex: none;
   grid-row: auto;
   width: 100%;
   height: auto;
@@ -640,8 +839,8 @@ button.album-card {
     linear-gradient(135deg, var(--app-accent), var(--app-teal));
 }
 
-.album-card span,
-.album-card small,
+.album-card-title,
+.album-card-meta,
 .player-bar strong,
 .player-bar span {
   overflow: hidden;
@@ -649,8 +848,8 @@ button.album-card {
   white-space: nowrap;
 }
 
-.album-card span,
-.album-card small {
+.album-card-title,
+.album-card-meta {
   display: block;
   width: 100%;
   min-width: 0;
@@ -664,14 +863,20 @@ button.album-card {
   height: 42px;
 }
 
-.album-card span {
+.album-card-title {
+  flex: none;
   align-self: end;
+  min-height: 1.25rem;
   font-weight: 800;
+  line-height: 1.25;
 }
 
-.album-card small {
+.album-card-meta {
+  flex: none;
   align-self: start;
+  min-height: 1.15rem;
   color: var(--app-muted);
+  line-height: 1.25;
 }
 
 .album-panel {
@@ -816,13 +1021,34 @@ button.album-card {
 }
 
 .track-title {
-  display: block;
+  display: flex;
+  align-items: center;
+  gap: 7px;
   width: 100%;
+  min-width: 0;
+  overflow: hidden;
+  font-weight: 800;
+}
+
+.track-name {
+  display: block;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-weight: 800;
+}
+
+.track-lyrics-badge {
+  flex: none;
+  border: 1px solid color-mix(in oklch, var(--primary), transparent 26%);
+  border-radius: 999px;
+  padding: 2px 7px;
+  color: var(--primary-foreground);
+  background: linear-gradient(135deg, var(--primary), color-mix(in oklch, var(--primary), var(--foreground) 24%));
+  font-size: 0.7rem;
+  font-weight: 900;
+  line-height: 1.25;
+  box-shadow: 0 4px 12px color-mix(in oklch, var(--primary), transparent 78%);
 }
 
 .track-list button:hover .track-title-wrap[data-marquee="true"] .track-title,
@@ -835,9 +1061,138 @@ button.album-card {
   animation: track-title-marquee 7s ease-in-out infinite;
 }
 
+.track-list button:hover .track-title-wrap[data-marquee="true"] .track-name,
+.track-list button:focus-visible .track-title-wrap[data-marquee="true"] .track-name,
+.track-list button:focus-within .track-title-wrap[data-marquee="true"] .track-name {
+  width: max-content;
+  overflow: visible;
+  text-overflow: clip;
+}
+
 .track-list small {
   flex: none;
   color: var(--app-muted);
+}
+
+.track-detail-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: color-mix(in oklch, black, transparent 38%);
+}
+
+.track-detail-dialog {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  gap: 16px;
+  width: min(760px, 100%);
+  max-height: min(760px, calc(100dvh - 48px));
+  min-width: 0;
+  padding: 22px;
+  overflow: hidden;
+  border: 1px solid color-mix(in oklch, var(--border), transparent 20%);
+  border-radius: 8px;
+  color: var(--foreground);
+  background: var(--card);
+  box-shadow: 0 24px 80px color-mix(in oklch, black, transparent 58%);
+}
+
+.track-detail-header {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 14px;
+  min-width: 0;
+}
+
+.track-detail-title {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.track-detail-title h2 {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.track-detail-tabs {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  gap: 14px;
+  min-height: 0;
+}
+
+.track-detail-tab-list {
+  width: max-content;
+}
+
+.track-detail-tab-panel {
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+}
+
+.track-tag-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  min-width: 0;
+}
+
+.track-tag-field {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+  color: var(--app-muted);
+  font-size: 0.78rem;
+  font-weight: 800;
+}
+
+.track-tag-field.wide {
+  grid-column: 1 / -1;
+}
+
+.track-tag-field input,
+.track-tag-value {
+  min-height: 40px;
+}
+
+.track-tag-value,
+.track-tag-field.readonly strong {
+  display: block;
+  width: 100%;
+  min-width: 0;
+  border: 1px solid var(--app-line);
+  border-radius: 8px;
+  padding: 9px 11px;
+  color: var(--foreground);
+  background: var(--background);
+  font-size: 0.95rem;
+  font-weight: 700;
+  text-align: left;
+  overflow-wrap: anywhere;
+}
+
+.track-tag-value:hover {
+  background: var(--app-accent-soft);
+}
+
+.lyrics-panel {
+  min-height: 320px;
+  margin: 0;
+  padding: 16px;
+  overflow: auto;
+  border: 1px solid var(--app-line);
+  border-radius: 8px;
+  color: var(--foreground);
+  background: var(--background);
+  font: inherit;
+  line-height: 1.7;
+  white-space: pre-wrap;
 }
 
 @keyframes track-title-marquee {
@@ -855,7 +1210,15 @@ button.album-card {
 @media (prefers-reduced-motion: reduce) {
   .track-list button:hover .track-title-wrap[data-marquee="true"] .track-title,
   .track-list button:focus-visible .track-title-wrap[data-marquee="true"] .track-title,
-  .track-list button:focus-within .track-title-wrap[data-marquee="true"] .track-title {
+  .track-list button:focus-within .track-title-wrap[data-marquee="true"] .track-title,
+  .album-card:hover .marquee-wrap[data-marquee="true"] .marquee-text,
+  .album-card:focus-visible .marquee-wrap[data-marquee="true"] .marquee-text,
+  .album-card:focus-within .marquee-wrap[data-marquee="true"] .marquee-text,
+  .album-table-select-button:hover .marquee-wrap[data-marquee="true"] .marquee-text,
+  .album-table-select-button:focus-visible .marquee-wrap[data-marquee="true"] .marquee-text,
+  .album-table-row:hover .table-track-title[data-marquee="true"] .marquee-text,
+  .album-table-row:focus-visible .table-track-title[data-marquee="true"] .marquee-text,
+  .album-table-row:focus-within .table-track-title[data-marquee="true"] .marquee-text {
     animation: none;
   }
 }
@@ -1000,12 +1363,27 @@ button.album-card {
   pointer-events: none;
 }
 
+.seek-slider [data-slot="slider-range"] {
+  right: auto !important;
+  width: var(--seek-progress, 0%) !important;
+}
+
 .seek-slider [data-slot="slider-range"],
 .volume-slider [data-slot="slider-range"] {
   background: var(--app-on-player);
 }
 
 .seek-slider [data-slot="slider-thumb"] {
+  width: 0;
+  height: 0;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.volume-slider [data-slot="slider-thumb"] {
   width: 16px;
   height: 16px;
   border-color: var(--app-on-player);
@@ -1049,7 +1427,9 @@ button.album-card {
 @media (max-width: 980px) {
   .app-shell {
     grid-template-columns: 1fr;
-    grid-template-rows: auto minmax(370px, 1fr) minmax(120px, 0.45fr) auto;
+    grid-template-rows: auto auto auto auto;
+    overflow-x: hidden;
+    overflow-y: auto;
   }
 
   .app-shell.sidebar-collapsed {
@@ -1129,6 +1509,7 @@ button.album-card {
   }
 
   .albums-panel {
+    min-height: 320px;
     border-right: 0;
     border-bottom: 1px solid var(--app-line);
   }
@@ -1161,6 +1542,7 @@ button.album-card {
     grid-template-columns: 112px minmax(0, 1fr);
     grid-template-rows: auto minmax(0, 1fr);
     gap: 18px;
+    min-height: 360px;
     overflow-x: hidden;
     overflow-y: auto;
   }
@@ -1183,8 +1565,10 @@ button.album-card {
   }
 
   .player-bar {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 0.9fr) minmax(220px, 1.4fr);
     gap: 12px;
+    min-height: 210px;
+    overflow: visible;
     padding: 14px 20px;
   }
 
@@ -1197,6 +1581,7 @@ button.album-card {
   }
 
   .player-options {
+    grid-column: 1 / -1;
     justify-content: flex-start;
   }
 
@@ -1206,6 +1591,18 @@ button.album-card {
 
   .album-grid.large {
     grid-template-columns: repeat(auto-fill, minmax(min(100%, 140px), 1fr));
+  }
+
+  .track-detail-backdrop {
+    padding: 14px;
+  }
+
+  .track-tag-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .track-tag-field.wide {
+    grid-column: auto;
   }
 }
 
@@ -1246,6 +1643,10 @@ button.album-card {
 }
 
 @media (max-width: 560px) {
+  .app-shell {
+    grid-template-rows: auto auto auto auto;
+  }
+
   .album-grid.large {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
@@ -1261,6 +1662,25 @@ button.album-card {
 
   .album-search-field {
     flex-basis: 100%;
+  }
+
+  .lyrics-filter-toggle {
+    flex: 0 0 40px;
+  }
+
+  .player-bar {
+    grid-template-columns: 1fr;
+    min-height: 300px;
+  }
+
+  .player-options {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .volume-control,
+  .queue-count {
+    grid-column: 1 / -1;
   }
 }
 
@@ -1302,9 +1722,8 @@ button.album-card {
 
 @media (max-width: 720px) {
   .player-bar {
-    max-height: 32dvh;
-    overflow-x: hidden;
-    overflow-y: auto;
+    max-height: none;
+    overflow: visible;
   }
 
   .transport-controls,
