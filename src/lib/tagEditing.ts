@@ -34,6 +34,12 @@ export type TrackTagUpdateResult = {
   albumId: number;
 };
 
+export type TrackArtworkUpdateResult = {
+  trackId: number;
+  albumId: number;
+  artworkPath: string;
+};
+
 export async function updateAlbumTags(albumId: number, draft: AlbumTagDraft) {
   return invoke<AlbumTagUpdateResult>("update_album_tags", {
     request: {
@@ -58,6 +64,15 @@ export async function updateTrackTags(trackId: number, draft: TrackTagDraft) {
       genre: draft.genre.trim(),
       trackNumber: parsePositiveInteger(draft.trackNumber),
       discNumber: parsePositiveInteger(draft.discNumber),
+    },
+  });
+}
+
+export async function updateTrackArtwork(trackId: number, artworkPath: string) {
+  return invoke<TrackArtworkUpdateResult>("update_track_artwork", {
+    request: {
+      trackId,
+      artworkPath: artworkPath.trim(),
     },
   });
 }

@@ -1,6 +1,6 @@
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { type Album, type Track } from "../types/audio";
-import { type AlbumSortMode, type I18nMessage } from "../types/app";
+import { type AlbumSortDirection, type AlbumSortMode, type I18nMessage } from "../types/app";
 import { type TranslationKey } from "../i18n";
 
 type TFunction = (key: TranslationKey, values?: Record<string, string | number>) => string;
@@ -26,7 +26,13 @@ export function getAlbumStartTrack(album: Album, isShuffle: boolean) {
   return album.tracks[Math.floor(Math.random() * album.tracks.length)] ?? album.tracks[0];
 }
 
-export function compareAlbums(firstAlbum: Album, secondAlbum: Album, sortMode: AlbumSortMode, t: TFunction) {
+export function compareAlbums(
+  firstAlbum: Album,
+  secondAlbum: Album,
+  sortMode: AlbumSortMode,
+  sortDirection: AlbumSortDirection,
+  t: TFunction,
+) {
   const titleCompare = localizeLibraryText(firstAlbum.title, t).localeCompare(localizeLibraryText(secondAlbum.title, t), undefined, {
     sensitivity: "base",
     numeric: true,
@@ -40,17 +46,19 @@ export function compareAlbums(firstAlbum: Album, secondAlbum: Album, sortMode: A
     },
   );
 
-  if (sortMode === "artist") return artistCompare || titleCompare;
+  const directionMultiplier = sortDirection === "asc" ? 1 : -1;
 
-  if (sortMode === "year-desc" || sortMode === "year-asc") {
-    const unknownYear = sortMode === "year-desc" ? Number.NEGATIVE_INFINITY : Number.POSITIVE_INFINITY;
+  if (sortMode === "artist") return (artistCompare || titleCompare) * directionMultiplier;
+
+  if (sortMode === "year") {
+    const unknownYear = sortDirection === "desc" ? Number.NEGATIVE_INFINITY : Number.POSITIVE_INFINITY;
     const firstYear = firstAlbum.year ?? unknownYear;
     const secondYear = secondAlbum.year ?? unknownYear;
-    const yearCompare = sortMode === "year-desc" ? secondYear - firstYear : firstYear - secondYear;
+    const yearCompare = sortDirection === "desc" ? secondYear - firstYear : firstYear - secondYear;
     return yearCompare || titleCompare;
   }
 
-  return titleCompare || artistCompare;
+  return (titleCompare || artistCompare) * directionMultiplier;
 }
 
 export function getAlbumJumpTarget(albums: Album[], letter: string, t: TFunction) {
@@ -126,6 +134,14 @@ export function toI18nError(error: unknown): I18nMessage {
 
   if (key === "library.error.emptyAlbumTitle") {
     return { key: "status.emptyAlbumTitle" };
+  }
+
+  if (key === "library.error.emptyArtworkPath") {
+    return { key: "status.emptyArtworkPath" };
+  }
+
+  if (key === "library.error.unsupportedArtwork") {
+    return { key: "status.unsupportedArtwork" };
   }
 
   return { key: "status.error", values: { message } };

@@ -9,12 +9,22 @@ import { Separator } from "@/components/ui/separator";
 import { Slider } from "@/components/ui/slider";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Toggle } from "@/components/ui/toggle";
-import { ChevronLeft, ChevronRight, FolderOpen, ListMusic, PanelLeftClose, PanelLeftOpen, Pause, Pencil, Play, Repeat, Repeat1, Save, Shuffle, Volume2, VolumeX, X } from "lucide-react";
+import { ChevronLeft, ChevronRight, FolderOpen, ListMusic, PanelLeftClose, PanelLeftOpen, Pause, Pencil, Play, Repeat, Repeat1, Save, ScrollText, Shuffle, Volume2, VolumeX, X } from "lucide-react";
 import "./App.css";
 import { getInitialLocale, getLocaleLabel, locales, translate, type Locale, type TranslationKey } from "./i18n";
 import type { Album, Track, LibrarySnapshot, ScanSummary } from "./types/audio";
-import { themeOptions, type AlbumListMode, type AlbumSortMode, type AlbumViewMode, type I18nMessage, type RepeatMode, type ThemeName, isThemeName } from "./types/app";
-import { updateAlbumTags, updateTrackTags, type AlbumTagDraft, type TrackTagDraft } from "./lib/tagEditing";
+import {
+  themeOptions,
+  type AlbumListMode,
+  type AlbumSortDirection,
+  type AlbumSortMode,
+  type AlbumViewMode,
+  type I18nMessage,
+  type RepeatMode,
+  type ThemeName,
+  isThemeName,
+} from "./types/app";
+import { updateAlbumTags, updateTrackArtwork, updateTrackTags, type AlbumTagDraft, type TrackTagDraft } from "./lib/tagEditing";
 import { useGlobalMediaKeys } from "./lib/useGlobalMediaKeys";
 import { mockAlbums } from "./lib/mockData";
 import { formatSeconds, formatTrackDuration, getTrackDurationSeconds } from "./lib/formatUtils";
@@ -88,6 +98,7 @@ function App() {
   const [albumViewMode, setAlbumViewMode] = useState<AlbumViewMode>("large");
   const [albumListMode, setAlbumListMode] = useState<AlbumListMode>("album");
   const [albumSortMode, setAlbumSortMode] = useState<AlbumSortMode>("title");
+  const [albumSortDirection, setAlbumSortDirection] = useState<AlbumSortDirection>("asc");
   const [lyricsOnly, setLyricsOnly] = useState(false);
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const [isLibraryMenuOpen, setIsLibraryMenuOpen] = useState(false);
@@ -97,10 +108,14 @@ function App() {
   const [isSavingAlbumTags, setIsSavingAlbumTags] = useState(false);
   const [albumTagMessage, setAlbumTagMessage] = useState<I18nMessage | null>(null);
   const [detailTrackId, setDetailTrackId] = useState<number | null>(null);
+  const [trackDetailTab, setTrackDetailTab] = useState<"info" | "lyrics" | "artwork">("info");
   const [trackTagDraft, setTrackTagDraft] = useState<TrackTagDraft>(() => makeTrackTagDraft(null, mockAlbums[0] ?? null));
   const [editingTrackTag, setEditingTrackTag] = useState<keyof TrackTagDraft | null>(null);
   const [isSavingTrackTags, setIsSavingTrackTags] = useState(false);
   const [trackTagMessage, setTrackTagMessage] = useState<I18nMessage | null>(null);
+  const [artworkDraftPath, setArtworkDraftPath] = useState("");
+  const [artworkPreviewSrc, setArtworkPreviewSrc] = useState("");
+  const [isSavingArtwork, setIsSavingArtwork] = useState(false);
 
   useEffect(() => {
     document.documentElement.lang = locale;
@@ -232,8 +247,8 @@ function App() {
   }, [currentTrack, duration, isPlaying]);
 
   const filteredAlbums = useMemo(
-    () => filterAndSortAlbums(albums, query, albumSortMode, t, lyricsOnly),
-    [albumSortMode, albums, lyricsOnly, query, t],
+    () => filterAndSortAlbums(albums, query, albumSortMode, albumSortDirection, t, lyricsOnly),
+    [albumSortDirection, albumSortMode, albums, lyricsOnly, query, t],
   );
 
   const selectedAlbum =
@@ -251,6 +266,7 @@ function App() {
     albums.find((album) => album.tracks.some((track) => track.id === detailTrackId)) ?? selectedAlbum;
   const detailTrack =
     detailAlbum?.tracks.find((track) => track.id === detailTrackId) ?? null;
+  const detailArtworkSrc = detailAlbum ? getArtworkSrc(detailAlbum, isTauriRuntime) : "";
   const hasTrackTagChanges = detailTrack
     ? isTrackTagDraftChanged(trackTagDraft, detailTrack, detailAlbum)
     : false;
@@ -266,6 +282,8 @@ function App() {
     setTrackTagDraft(makeTrackTagDraft(detailTrack, detailAlbum));
     setEditingTrackTag(null);
     setTrackTagMessage(null);
+    setArtworkDraftPath("");
+    setArtworkPreviewSrc("");
   }, [detailAlbum, detailTrack]);
 
   async function refreshLibrary() {
@@ -370,15 +388,19 @@ function App() {
     setIsPlaying(false);
   }
 
-  function openTrackDetail(track: Track) {
+  function openTrackDetail(track: Track, tab: "info" | "lyrics" | "artwork" = "info") {
     setDetailTrackId(track.id);
+    setTrackDetailTab(tab);
   }
 
   function closeTrackDetail() {
-    if (isSavingTrackTags) return;
+    if (isSavingTrackTags || isSavingArtwork) return;
     setDetailTrackId(null);
+    setTrackDetailTab("info");
     setEditingTrackTag(null);
     setTrackTagMessage(null);
+    setArtworkDraftPath("");
+    setArtworkPreviewSrc("");
   }
 
   function togglePlayback() {
@@ -593,6 +615,61 @@ function App() {
     }
   }
 
+  async function chooseArtwork() {
+    setTrackTagMessage(null);
+
+    if (!isTauriRuntime) {
+      setTrackTagMessage({ key: "trackDetail.artworkDesktopOnly" });
+      return;
+    }
+
+    try {
+      const selectedPath = await openDialog({
+        filters: [
+          {
+            name: "Images",
+            extensions: ["jpg", "jpeg", "png", "gif", "bmp", "tif", "tiff"],
+          },
+        ],
+        multiple: false,
+      });
+
+      if (typeof selectedPath === "string") {
+        setArtworkDraftPath(selectedPath);
+        setArtworkPreviewSrc(convertFileSrc(selectedPath));
+      }
+    } catch (error) {
+      setTrackTagMessage(toI18nError(error));
+    }
+  }
+
+  async function saveTrackArtwork() {
+    if (!detailTrack || !detailAlbum || isSavingArtwork) return;
+
+    if (!artworkDraftPath.trim()) {
+      setTrackTagMessage({ key: "trackDetail.artworkRequired" });
+      return;
+    }
+
+    try {
+      setIsSavingArtwork(true);
+      setTrackTagMessage(null);
+
+      const result = await updateTrackArtwork(detailTrack.id, artworkDraftPath);
+      const snapshot = await invoke<LibrarySnapshot>("library_snapshot");
+      applyLibrarySnapshot(snapshot, { resetPlayback: false });
+      setSelectedAlbumId(result.albumId);
+      setDetailTrackId(result.trackId);
+      setArtworkDraftPath("");
+      setArtworkPreviewSrc("");
+      setTrackTagMessage({ key: "tags.artworkSaved" });
+    } catch (error) {
+      setTrackTagMessage(toI18nError(error));
+    } finally {
+      setIsSavingArtwork(false);
+    }
+  }
+
   const mediaKeyHandlers = useMemo(
     () => ({
       onTogglePlayback: togglePlayback,
@@ -722,6 +799,7 @@ function App() {
       </section>
 
       <AlbumBrowser
+        albumSortDirection={albumSortDirection}
         albumSortMode={albumSortMode}
         albumListMode={albumListMode}
         albums={filteredAlbums}
@@ -731,8 +809,11 @@ function App() {
         onPlayAlbum={playAlbum}
         onListModeChange={setAlbumListMode}
         onLyricsOnlyChange={setLyricsOnly}
+        onOpenTrackLyrics={(track) => openTrackDetail(track, "lyrics")}
+        onPlayTrack={playTrack}
         onQueryChange={setQuery}
         onSelectAlbum={selectAlbum}
+        onSortDirectionChange={setAlbumSortDirection}
         onSortModeChange={setAlbumSortMode}
         onViewModeChange={setAlbumViewMode}
         panelRef={albumsPanelRef}
@@ -857,30 +938,43 @@ function App() {
             <Separator />
             <ol className="track-list">
               {selectedAlbum.tracks.map((track) => (
-                <li key={track.id}>
-                  <Button
-                    className={track.id === currentTrack?.id ? "active-track" : undefined}
-                    onFocus={prepareMarquee}
-                    onMouseEnter={prepareMarquee}
-                    onClick={() => selectTrack(track, selectedAlbum.id)}
-                    onContextMenu={(event) => {
-                      event.preventDefault();
-                      openTrackDetail(track);
-                    }}
-                    variant="outline"
-                    type="button"
-                  >
-                    <span className="track-title-wrap marquee-wrap">
-                      <span className="track-title marquee-text">
-                        <span className="track-name">
-                          {track.trackNumber ? `${track.trackNumber}. ` : ""}
-                          {localizeLibraryText(track.title, t)}
+                <li className={track.id === currentTrack?.id ? "track-list-row active-track-row" : "track-list-row"} key={track.id}>
+                  <span className="track-title-cell">
+                    <Button
+                      className="track-select-button"
+                      onFocus={prepareMarquee}
+                      onMouseEnter={prepareMarquee}
+                      onClick={() => selectTrack(track, selectedAlbum.id)}
+                      onContextMenu={(event) => {
+                        event.preventDefault();
+                        openTrackDetail(track);
+                      }}
+                      variant="outline"
+                      type="button"
+                    >
+                      <span className="track-title-wrap marquee-wrap">
+                        <span className="track-title marquee-text">
+                          <span className="track-name">
+                            {track.trackNumber ? `${track.trackNumber}. ` : ""}
+                            {localizeLibraryText(track.title, t)}
+                          </span>
                         </span>
-                        {track.lyrics?.trim() ? <span className="track-lyrics-badge">歌詞</span> : null}
                       </span>
-                    </span>
-                    <small>{formatTrackDuration(track)}</small>
-                  </Button>
+                    </Button>
+                    {track.lyrics?.trim() ? (
+                      <button
+                        aria-label={t("trackDetail.showLyrics", { track: localizeLibraryText(track.title, t) })}
+                        className="track-lyrics-button"
+                        onClick={() => openTrackDetail(track, "lyrics")}
+                        title={t("trackDetail.lyricsTab")}
+                        type="button"
+                      >
+                        <ScrollText aria-hidden="true" />
+                        <span className="sr-only">{t("trackDetail.lyricsTab")}</span>
+                      </button>
+                    ) : null}
+                  </span>
+                  <small>{formatTrackDuration(track)}</small>
                 </li>
               ))}
             </ol>
@@ -1004,10 +1098,15 @@ function App() {
               </Button>
             </div>
 
-            <Tabs className="track-detail-tabs" defaultValue="info">
+            <Tabs
+              className="track-detail-tabs"
+              onValueChange={(value) => setTrackDetailTab(value as "info" | "lyrics" | "artwork")}
+              value={trackDetailTab}
+            >
               <TabsList className="track-detail-tab-list">
                 <TabsTrigger value="info">{t("trackDetail.infoTab")}</TabsTrigger>
                 <TabsTrigger value="lyrics">{t("trackDetail.lyricsTab")}</TabsTrigger>
+                <TabsTrigger value="artwork">{t("trackDetail.artworkTab")}</TabsTrigger>
               </TabsList>
               <TabsContent className="track-detail-tab-panel" value="info">
                 <div className="track-tag-grid">
@@ -1078,6 +1177,52 @@ function App() {
               </TabsContent>
               <TabsContent className="track-detail-tab-panel" value="lyrics">
                 <pre className="lyrics-panel">{detailTrack.lyrics?.trim() || t("trackDetail.noLyrics")}</pre>
+              </TabsContent>
+              <TabsContent className="track-detail-tab-panel" value="artwork">
+                <div className="artwork-edit-panel">
+                  <div className="artwork-preview-card">
+                    <span>{t("trackDetail.currentArtwork")}</span>
+                    {detailArtworkSrc ? (
+                      <img
+                        alt={t("album.artworkAlt", { album: localizeLibraryText(detailAlbum.title, t) })}
+                        src={detailArtworkSrc}
+                      />
+                    ) : (
+                      <div className="artwork-empty-state">{t("trackDetail.noArtwork")}</div>
+                    )}
+                  </div>
+                  <div className="artwork-preview-card">
+                    <span>{t("trackDetail.selectedArtwork")}</span>
+                    {artworkPreviewSrc ? (
+                      <img
+                        alt={t("trackDetail.selectedArtwork")}
+                        src={artworkPreviewSrc}
+                      />
+                    ) : (
+                      <div className="artwork-empty-state">{t("trackDetail.artworkRequired")}</div>
+                    )}
+                  </div>
+                  <div className="album-tag-actions artwork-actions">
+                    <Button disabled={isSavingArtwork} onClick={() => void chooseArtwork()} type="button" variant="outline">
+                      <FolderOpen />
+                      {t("trackDetail.chooseArtwork")}
+                    </Button>
+                    <Button
+                      disabled={!artworkDraftPath || isSavingArtwork || !isTauriRuntime}
+                      onClick={() => void saveTrackArtwork()}
+                      type="button"
+                    >
+                      <Save />
+                      {isSavingArtwork ? t("tags.saving") : t("trackDetail.saveArtwork")}
+                    </Button>
+                  </div>
+                  {!isTauriRuntime ? <p className="tag-edit-message">{t("trackDetail.artworkDesktopOnly")}</p> : null}
+                  {trackTagMessage ? (
+                    <p className="tag-edit-message" aria-live="polite">
+                      {t(trackTagMessage.key, trackTagMessage.values)}
+                    </p>
+                  ) : null}
+                </div>
               </TabsContent>
             </Tabs>
           </section>

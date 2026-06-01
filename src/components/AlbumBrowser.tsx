@@ -1,13 +1,14 @@
 import { type RefObject, useMemo } from "react";
-import { ArrowDownAZ, ListMusic, Maximize2, Minimize2, Play, ScrollText, Search } from "lucide-react";
+import { ArrowDownAZ, ArrowUpAZ, ListMusic, Maximize2, Minimize2, Play, ScrollText, Search } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Toggle } from "@/components/ui/toggle";
 import type { TranslationKey } from "@/i18n";
-import type { Album } from "@/types/audio";
-import type { AlbumListMode, AlbumSortMode, AlbumViewMode } from "@/types/app";
+import type { Album, Track } from "@/types/audio";
+import type { AlbumListMode, AlbumSortDirection, AlbumSortMode, AlbumViewMode } from "@/types/app";
 import { AlbumCard, AlbumCardFactory } from "@/components/AlbumCard";
 import { formatTrackDuration } from "@/lib/formatUtils";
 import { localizeLibraryText } from "@/lib/libraryUtils";
@@ -18,6 +19,7 @@ type TFunction = (key: TranslationKey, values?: Record<string, string | number>)
 type AlbumBrowserProps = {
   albums: Album[];
   albumListMode: AlbumListMode;
+  albumSortDirection: AlbumSortDirection;
   albumSortMode: AlbumSortMode;
   albumViewMode: AlbumViewMode;
   isTauriRuntime: boolean;
@@ -30,7 +32,10 @@ type AlbumBrowserProps = {
   onQueryChange: (query: string) => void;
   onLyricsOnlyChange: (lyricsOnly: boolean) => void;
   onListModeChange: (listMode: AlbumListMode) => void;
+  onOpenTrackLyrics: (track: Track) => void;
   onSelectAlbum: (album: Album) => void;
+  onPlayTrack: (track: Track, albumId: number) => void;
+  onSortDirectionChange: (sortDirection: AlbumSortDirection) => void;
   onSortModeChange: (sortMode: AlbumSortMode) => void;
   onViewModeChange: (viewMode: AlbumViewMode) => void;
 };
@@ -38,6 +43,7 @@ type AlbumBrowserProps = {
 export function AlbumBrowser({
   albums,
   albumListMode,
+  albumSortDirection,
   albumSortMode,
   albumViewMode,
   isTauriRuntime,
@@ -50,15 +56,26 @@ export function AlbumBrowser({
   onQueryChange,
   onLyricsOnlyChange,
   onListModeChange,
+  onOpenTrackLyrics,
   onSelectAlbum,
+  onPlayTrack,
+  onSortDirectionChange,
   onSortModeChange,
   onViewModeChange,
 }: AlbumBrowserProps) {
   const albumCardVariant = useMemo(() => AlbumCardFactory.create(albumViewMode), [albumViewMode]);
   const trackRows = useMemo(
-    () => albums.flatMap((album) => album.tracks.map((track) => ({ album, track }))),
-    [albums],
+    () =>
+      albums.flatMap((album) =>
+        album.tracks
+          .filter((track) => !lyricsOnly || Boolean(track.lyrics?.trim()))
+          .map((track) => ({ album, track })),
+      ),
+    [albums, lyricsOnly],
   );
+  const nextSortDirection = albumSortDirection === "asc" ? "desc" : "asc";
+  const sortDirectionLabel =
+    albumSortDirection === "asc" ? t("sort.ascending") : t("sort.descending");
 
   return (
     <section className="albums-panel" aria-label={t("library.albumListLabel")} ref={panelRef}>
@@ -68,18 +85,28 @@ export function AlbumBrowser({
         </div>
         <div className="album-toolbar">
           <div className="album-sort-field" aria-label={t("sort.label")}>
-            <Select value={albumSortMode} onValueChange={(value) => onSortModeChange(value as AlbumSortMode)}>
-              <SelectTrigger aria-label={t("sort.label")} className="album-sort-trigger" title={t("sort.label")}>
-                <ArrowDownAZ aria-hidden="true" />
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent align="end">
-                <SelectItem value="title">{t("sort.title")}</SelectItem>
-                <SelectItem value="artist">{t("sort.artist")}</SelectItem>
-                <SelectItem value="year-desc">{t("sort.yearDesc")}</SelectItem>
-                <SelectItem value="year-asc">{t("sort.yearAsc")}</SelectItem>
-              </SelectContent>
-            </Select>
+            <div className="album-sort-control">
+              <Button
+                aria-label={t("sort.toggleDirection", { direction: sortDirectionLabel })}
+                className="sort-direction-button"
+                onClick={() => onSortDirectionChange(nextSortDirection)}
+                title={t("sort.toggleDirection", { direction: sortDirectionLabel })}
+                type="button"
+                variant="outline"
+              >
+                {albumSortDirection === "asc" ? <ArrowUpAZ aria-hidden="true" /> : <ArrowDownAZ aria-hidden="true" />}
+              </Button>
+              <Select value={albumSortMode} onValueChange={(value) => onSortModeChange(value as AlbumSortMode)}>
+                <SelectTrigger aria-label={t("sort.label")} className="album-sort-trigger" title={t("sort.label")}>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent align="end">
+                  <SelectItem value="title">{t("sort.title")}</SelectItem>
+                  <SelectItem value="artist">{t("sort.artist")}</SelectItem>
+                  <SelectItem value="year">{t("sort.year")}</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
           </div>
           <label className="album-search-field">
             <span className="sr-only">{t("search.label")}</span>
@@ -186,33 +213,71 @@ export function AlbumBrowser({
           ) : (
             <div className="album-list-table tracks" role="table" aria-label={t("listMode.trackTable")}>
               <div className="album-table-header" role="row">
+                <span aria-hidden="true" role="columnheader" />
                 <span role="columnheader">{t("tags.title")}</span>
                 <span role="columnheader">{t("tags.artist")}</span>
                 <span role="columnheader">{t("tags.album")}</span>
                 <span role="columnheader">{t("trackDetail.duration")}</span>
+                <span aria-hidden="true" role="columnheader" />
               </div>
               {trackRows.map(({ album, track }) => (
-                <button
+                <div
                   className={album.id === selectedAlbumId ? "album-table-row active" : "album-table-row"}
                   data-album-id={album.id}
                   key={track.id}
                   onFocus={prepareMarquee}
                   onMouseEnter={prepareMarquee}
                   onClick={() => onSelectAlbum(album)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter" || event.key === " ") {
+                      event.preventDefault();
+                      onSelectAlbum(album);
+                    }
+                  }}
                   role="row"
-                  type="button"
+                  tabIndex={0}
                 >
+                  <span className="table-track-lyrics-cell" role="cell">
+                    {track.lyrics?.trim() ? (
+                      <Button
+                        aria-label={t("trackDetail.showLyrics", { track: localizeLibraryText(track.title, t) })}
+                        className="track-lyrics-table-button"
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          onOpenTrackLyrics(track);
+                        }}
+                        title={t("trackDetail.lyricsTab")}
+                        type="button"
+                        variant="outline"
+                      >
+                        <ScrollText aria-hidden="true" />
+                        <span className="sr-only">{t("trackDetail.lyricsTab")}</span>
+                      </Button>
+                    ) : null}
+                  </span>
                   <span className="table-primary table-track-title marquee-wrap" role="cell">
                     <span className="marquee-text">
                       {track.trackNumber ? `${track.trackNumber}. ` : ""}
                       {localizeLibraryText(track.title, t)}
                     </span>
-                    {track.lyrics?.trim() ? <span className="track-lyrics-badge">歌詞</span> : null}
                   </span>
                   <span role="cell">{localizeLibraryText(track.artist, t)}</span>
                   <span role="cell">{localizeLibraryText(album.title, t)}</span>
                   <span role="cell">{formatTrackDuration(track)}</span>
-                </button>
+                  <Button
+                    aria-label={t("player.play")}
+                    className="album-table-play-button"
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      onPlayTrack(track, album.id);
+                    }}
+                    title={t("player.play")}
+                    type="button"
+                    variant="outline"
+                  >
+                    <Play aria-hidden="true" />
+                  </Button>
+                </div>
               ))}
             </div>
           )

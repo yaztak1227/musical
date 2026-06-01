@@ -2,7 +2,8 @@ mod library;
 
 use library::{
     AlbumTagUpdateRequest, AlbumTagUpdateResult, LibrarySnapshot, ScanSummary,
-    TrackTagUpdateRequest, TrackTagUpdateResult,
+    TrackArtworkUpdateRequest, TrackArtworkUpdateResult, TrackTagUpdateRequest,
+    TrackTagUpdateResult,
 };
 
 #[tauri::command]
@@ -36,6 +37,14 @@ fn update_track_tags(
     library::update_track_tags(&app, request)
 }
 
+#[tauri::command]
+fn update_track_artwork(
+    app: tauri::AppHandle,
+    request: TrackArtworkUpdateRequest,
+) -> Result<TrackArtworkUpdateResult, String> {
+    library::update_track_artwork(&app, request)
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -46,6 +55,7 @@ pub fn run() {
             library_snapshot,
             scan_music_folder,
             update_album_tags,
+            update_track_artwork,
             update_track_tags
         ])
         .run(tauri::generate_context!())

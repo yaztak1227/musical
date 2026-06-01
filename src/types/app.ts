@@ -10,7 +10,8 @@ export type TFunction = (key: TranslationKey, values?: Record<string, string | n
 export type RepeatMode = "off" | "all" | "one";
 export type AlbumViewMode = "large" | "small" | "list";
 export type AlbumListMode = "album" | "track";
-export type AlbumSortMode = "title" | "artist" | "year-desc" | "year-asc";
+export type AlbumSortMode = "title" | "artist" | "year";
+export type AlbumSortDirection = "asc" | "desc";
 export type ThemeName = "crimson" | "ocean" | "violet" | "forest" | "amber" | "mono";
 
 export const themeOptions = [

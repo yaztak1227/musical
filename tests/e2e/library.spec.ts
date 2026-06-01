@@ -7,7 +7,12 @@ test("filters albums, selects a track, and opens track details", async ({ page }
   await expect(page.getByText("3 albums")).toBeVisible();
   await expect(page.getByRole("button", { name: /Midnight Transit/ })).toBeVisible();
   await expect(page.getByRole("tab", { name: "Large icons" })).toBeVisible();
-  await expect(page.getByLabel("Selected album").getByRole("button", { name: /Station Lights.*歌詞/ })).toBeVisible();
+  await expect(page.getByLabel("Selected album").getByRole("button", { name: "Station Lights", exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Show lyrics for Station Lights" })).toBeVisible();
+  await page.getByRole("button", { name: "Show lyrics for Station Lights" }).click();
+  await expect(page.getByRole("dialog", { name: "Track details" })).toBeVisible();
+  await expect(page.getByText("Station lights are passing slow")).toBeVisible();
+  await page.getByRole("button", { name: "Close track details" }).click();
 
   await page.getByRole("button", { name: "Show albums with lyrics" }).click();
   await expect(page.getByText("1 albums")).toBeVisible();
@@ -20,6 +25,10 @@ test("filters albums, selects a track, and opens track details", async ({ page }
   await page.getByRole("tab", { name: "Tracks" }).click();
   await expect(page.getByRole("table", { name: "Track table" })).toBeVisible();
   await expect(page.getByRole("row", { name: /Station Lights/ })).toBeVisible();
+  await page.getByRole("button", { name: "Show albums with lyrics" }).click();
+  await expect(page.getByRole("row", { name: /Station Lights/ })).toBeVisible();
+  await expect(page.getByRole("row", { name: /Last Train Home/ })).toHaveCount(0);
+  await page.getByRole("button", { name: "Show albums with lyrics" }).click();
   await page.getByRole("tab", { name: "Albums" }).click();
   const northWindowRow = page.getByRole("row", { name: /North Window/ });
   await northWindowRow.click();

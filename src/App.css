@@ -220,9 +220,39 @@ select:focus-visible {
   min-width: 0;
 }
 
-.album-sort-trigger {
-  width: 154px;
+.album-sort-control {
+  display: inline-grid;
+  grid-template-columns: 40px minmax(0, 118px);
+  align-items: stretch;
+  width: 158px;
   min-width: 0;
+}
+
+.sort-direction-button {
+  flex: 0 0 auto;
+  width: 40px;
+  min-width: 40px;
+  min-height: 40px;
+  height: 40px;
+  border-right: 0;
+  border-top-right-radius: 0;
+  border-bottom-right-radius: 0;
+  padding: 0;
+  color: var(--primary);
+  background: color-mix(in oklch, var(--primary), transparent 92%);
+}
+
+.sort-direction-button svg {
+  width: 17px;
+  height: 17px;
+}
+
+.album-sort-trigger {
+  width: 100%;
+  min-width: 0;
+  height: 40px;
+  border-top-left-radius: 0;
+  border-bottom-left-radius: 0;
 }
 
 .album-sort-trigger svg {
@@ -519,7 +549,7 @@ h2 {
 
 .album-list-table.tracks .album-table-header,
 .album-list-table.tracks .album-table-row {
-  grid-template-columns: minmax(200px, 1.35fr) minmax(140px, 0.85fr) minmax(150px, 0.9fr) minmax(72px, 0.38fr);
+  grid-template-columns: 32px minmax(180px, 1.35fr) minmax(130px, 0.82fr) minmax(140px, 0.9fr) minmax(64px, 0.34fr) 40px;
 }
 
 .album-table-header,
@@ -639,10 +669,41 @@ h2 {
   display: inline-flex;
   align-items: center;
   gap: 7px;
+  min-width: 0;
 }
 
 .table-track-title .marquee-text {
   flex: 1 1 auto;
+  min-width: 0;
+}
+
+.table-track-lyrics-cell {
+  display: inline-grid;
+  place-items: center;
+  min-width: 0;
+}
+
+.track-lyrics-table-button {
+  flex: none;
+  width: 28px;
+  min-width: 28px;
+  height: 28px;
+  min-height: 28px;
+  padding: 0;
+  border-color: color-mix(in oklch, var(--primary), transparent 26%);
+  border-radius: 999px;
+  color: var(--primary-foreground);
+  background: linear-gradient(135deg, var(--primary), color-mix(in oklch, var(--primary), var(--foreground) 24%));
+}
+
+.track-lyrics-table-button svg {
+  width: 15px;
+  height: 15px;
+}
+
+.track-lyrics-table-button:hover {
+  color: var(--primary-foreground);
+  background: linear-gradient(135deg, color-mix(in oklch, var(--primary), white 8%), var(--primary));
 }
 
 .album-card:hover .marquee-wrap[data-marquee="true"] .marquee-text,
@@ -684,8 +745,9 @@ button.album-card {
 }
 
 .album-grid.large button.album-card {
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: minmax(0, auto) auto auto;
   align-items: stretch;
   gap: 8px;
   min-height: 0;
@@ -709,8 +771,9 @@ button.album-card {
   flex: none;
   grid-row: auto;
   width: 100%;
-  height: auto;
-  aspect-ratio: 1;
+  height: 0;
+  padding-bottom: 100%;
+  aspect-ratio: auto;
 }
 
 .album-grid.list .album-cover-wrap {
@@ -823,6 +886,14 @@ button.album-card {
   height: 100%;
 }
 
+.album-grid.large .album-cover-wrap img,
+.album-grid.large .album-cover-wrap .album-placeholder {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
 .album-placeholder,
 .placeholder-art {
   display: grid;
@@ -864,7 +935,6 @@ button.album-card {
 }
 
 .album-card-title {
-  flex: none;
   align-self: end;
   min-height: 1.25rem;
   font-weight: 800;
@@ -872,7 +942,6 @@ button.album-card {
 }
 
 .album-card-meta {
-  flex: none;
   align-self: start;
   min-height: 1.15rem;
   color: var(--app-muted);
@@ -983,38 +1052,67 @@ button.album-card {
   list-style: none;
 }
 
-.track-list li {
-  min-width: 0;
-}
-
-.track-list button {
-  display: flex;
+.track-list-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
-  justify-content: space-between;
   gap: 12px;
-  width: 100%;
-  max-width: 100%;
+  min-width: 0;
   min-height: 54px;
   border: 1px solid var(--app-line);
-  padding: 12px 14px;
-  color: var(--foreground);
+  border-radius: 8px;
+  padding-right: 14px;
   background: var(--card);
+  overflow: hidden;
+}
+
+.track-list-row.active-track-row {
+  border-color: var(--primary);
+  background: var(--app-accent-soft);
+  box-shadow: inset 3px 0 0 var(--app-accent);
+}
+
+.track-list-row:hover,
+.track-list-row:focus-within {
+  border-color: var(--app-teal);
+  background: var(--app-accent-soft);
+}
+
+.track-title-cell {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+}
+
+.track-list .track-select-button {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  flex: 0 1 auto;
+  width: auto;
+  max-width: 100%;
+  min-height: 54px;
+  border: 0;
+  padding: 12px 0 12px 14px;
+  color: var(--foreground);
+  background: transparent;
   text-align: left;
   min-width: 0;
   overflow: hidden;
 }
 
-.track-list button.active-track {
-  border-color: var(--primary);
-  background: var(--app-accent-soft);
-  box-shadow: inset 3px 0 0 var(--app-accent);
+.track-list .track-select-button:hover {
+  background: color-mix(in oklch, var(--accent), transparent 28%);
 }
 
 .track-title-wrap {
   position: relative;
   display: block;
   flex: 1 1 auto;
-  width: 100%;
+  width: auto;
   max-width: 100%;
   min-width: 0;
   overflow: hidden;
@@ -1038,22 +1136,36 @@ button.album-card {
   white-space: nowrap;
 }
 
-.track-lyrics-badge {
+.track-lyrics-button {
   flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  min-width: 0;
+  height: 28px;
+  min-height: 28px;
   border: 1px solid color-mix(in oklch, var(--primary), transparent 26%);
   border-radius: 999px;
-  padding: 2px 7px;
+  padding: 0;
   color: var(--primary-foreground);
   background: linear-gradient(135deg, var(--primary), color-mix(in oklch, var(--primary), var(--foreground) 24%));
-  font-size: 0.7rem;
-  font-weight: 900;
-  line-height: 1.25;
   box-shadow: 0 4px 12px color-mix(in oklch, var(--primary), transparent 78%);
 }
 
-.track-list button:hover .track-title-wrap[data-marquee="true"] .track-title,
-.track-list button:focus-visible .track-title-wrap[data-marquee="true"] .track-title,
-.track-list button:focus-within .track-title-wrap[data-marquee="true"] .track-title {
+.track-lyrics-button:hover {
+  color: var(--primary-foreground);
+  background: linear-gradient(135deg, color-mix(in oklch, var(--primary), white 8%), var(--primary));
+}
+
+.track-lyrics-button svg {
+  width: 16px;
+  height: 16px;
+}
+
+.track-list .track-select-button:hover .track-title-wrap[data-marquee="true"] .track-title,
+.track-list .track-select-button:focus-visible .track-title-wrap[data-marquee="true"] .track-title,
+.track-list .track-select-button:focus-within .track-title-wrap[data-marquee="true"] .track-title {
   max-width: none;
   width: max-content;
   overflow: visible;
@@ -1061,9 +1173,9 @@ button.album-card {
   animation: track-title-marquee 7s ease-in-out infinite;
 }
 
-.track-list button:hover .track-title-wrap[data-marquee="true"] .track-name,
-.track-list button:focus-visible .track-title-wrap[data-marquee="true"] .track-name,
-.track-list button:focus-within .track-title-wrap[data-marquee="true"] .track-name {
+.track-list .track-select-button:hover .track-title-wrap[data-marquee="true"] .track-name,
+.track-list .track-select-button:focus-visible .track-title-wrap[data-marquee="true"] .track-name,
+.track-list .track-select-button:focus-within .track-title-wrap[data-marquee="true"] .track-name {
   width: max-content;
   overflow: visible;
   text-overflow: clip;
@@ -1195,6 +1307,49 @@ button.album-card {
   white-space: pre-wrap;
 }
 
+.artwork-edit-panel {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+  min-width: 0;
+}
+
+.artwork-preview-card {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  gap: 8px;
+  min-width: 0;
+  color: var(--app-muted);
+  font-size: 0.78rem;
+  font-weight: 800;
+}
+
+.artwork-preview-card img,
+.artwork-empty-state {
+  width: 100%;
+  aspect-ratio: 1;
+  border: 1px solid var(--app-line);
+  border-radius: 8px;
+  background: var(--background);
+}
+
+.artwork-preview-card img {
+  display: block;
+  object-fit: cover;
+}
+
+.artwork-empty-state {
+  display: grid;
+  place-items: center;
+  padding: 14px;
+  color: var(--app-muted);
+  text-align: center;
+}
+
+.artwork-actions {
+  grid-column: 1 / -1;
+}
+
 @keyframes track-title-marquee {
   0%,
   12% {
@@ -1208,9 +1363,9 @@ button.album-card {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .track-list button:hover .track-title-wrap[data-marquee="true"] .track-title,
-  .track-list button:focus-visible .track-title-wrap[data-marquee="true"] .track-title,
-  .track-list button:focus-within .track-title-wrap[data-marquee="true"] .track-title,
+  .track-list .track-select-button:hover .track-title-wrap[data-marquee="true"] .track-title,
+  .track-list .track-select-button:focus-visible .track-title-wrap[data-marquee="true"] .track-title,
+  .track-list .track-select-button:focus-within .track-title-wrap[data-marquee="true"] .track-title,
   .album-card:hover .marquee-wrap[data-marquee="true"] .marquee-text,
   .album-card:focus-visible .marquee-wrap[data-marquee="true"] .marquee-text,
   .album-card:focus-within .marquee-wrap[data-marquee="true"] .marquee-text,
@@ -1601,6 +1756,10 @@ button.album-card {
     grid-template-columns: 1fr;
   }
 
+  .artwork-edit-panel {
+    grid-template-columns: 1fr;
+  }
+
   .track-tag-field.wide {
     grid-column: auto;
   }
@@ -1656,8 +1815,13 @@ button.album-card {
   }
 
   .album-sort-field,
+  .album-sort-control,
   .album-sort-trigger {
     width: 100%;
+  }
+
+  .album-sort-control {
+    grid-template-columns: 40px minmax(0, 1fr);
   }
 
   .album-search-field {

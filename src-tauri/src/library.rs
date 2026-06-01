@@ -93,6 +93,13 @@ pub struct TrackTagUpdateRequest {
     pub disc_number: Option<i64>,
 }
 
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TrackArtworkUpdateRequest {
+    pub track_id: i64,
+    pub artwork_path: String,
+}
+
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AlbumTagUpdateResult {
@@ -106,6 +113,14 @@ pub struct AlbumTagUpdateResult {
 pub struct TrackTagUpdateResult {
     pub track_id: i64,
     pub album_id: i64,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TrackArtworkUpdateResult {
+    pub track_id: i64,
+    pub album_id: i64,
+    pub artwork_path: String,
 }
 
 #[derive(Debug, Serialize)]
@@ -405,6 +420,41 @@ pub fn update_track_tags(
     })
 }
 
+pub fn update_track_artwork(
+    app: &AppHandle,
+    request: TrackArtworkUpdateRequest,
+) -> Result<TrackArtworkUpdateResult, String> {
+    let artwork_source_path = request.artwork_path.trim();
+    if artwork_source_path.is_empty() {
+        return Err("library.error.emptyArtworkPath".to_owned());
+    }
+
+    let database_path = app_database_path(app)?;
+    let mut connection = open_database(&database_path)?;
+    let existing_track = load_track_for_update(&connection, request.track_id)?;
+    let artwork_bytes = fs::read(artwork_source_path).map_err(to_error_string)?;
+    let picture = make_front_cover_picture(artwork_bytes.clone())?;
+
+    write_track_artwork_to_file(&existing_track.file_path, picture)?;
+
+    let artwork_dir = artwork_cache_dir(app)?;
+    fs::create_dir_all(&artwork_dir).map_err(to_error_string)?;
+    allow_asset_directory(app, &artwork_dir)?;
+    let cached_artwork_path = write_artwork_bytes(
+        &artwork_bytes,
+        &artwork_dir,
+        &format!("album-{}-{}", existing_track.album_id, stable_hash(artwork_source_path)),
+    )?;
+
+    persist_track_artwork_update(&mut connection, existing_track.album_id, &cached_artwork_path)?;
+
+    Ok(TrackArtworkUpdateResult {
+        track_id: existing_track.id,
+        album_id: existing_track.album_id,
+        artwork_path: cached_artwork_path,
+    })
+}
+
 fn read_snapshot(connection: &Connection, database_path: &Path) -> Result<LibrarySnapshot, String> {
     let last_scan_path = connection
         .query_row(
@@ -651,6 +701,27 @@ fn write_track_tags_to_file(
         .map_err(to_error_string)
 }
 
+fn write_track_artwork_to_file(file_path: &str, picture: Picture) -> Result<(), String> {
+    let path = Path::new(file_path);
+    let mut tagged_file = read_from_path(path).map_err(to_error_string)?;
+    let tag_type = tagged_file.primary_tag_type();
+
+    if tagged_file.primary_tag_mut().is_none() {
+        tagged_file.insert_tag(Tag::new(tag_type));
+    }
+
+    let tag = tagged_file
+        .primary_tag_mut()
+        .ok_or_else(|| "No writable tag is available for this file".to_owned())?;
+
+    tag.remove_picture_type(PictureType::CoverFront);
+    tag.push_picture(picture);
+
+    tagged_file
+        .save_to_path(path, WriteOptions::default())
+        .map_err(to_error_string)
+}
+
 fn persist_album_tag_update(
     connection: &mut Connection,
     existing_album: &ExistingAlbum,
@@ -822,6 +893,20 @@ fn persist_track_tag_update(
         .map_err(to_error_string)?;
 
     transaction.commit().map_err(to_error_string)
+}
+
+fn persist_track_artwork_update(
+    connection: &mut Connection,
+    album_id: i64,
+    artwork_path: &str,
+) -> Result<(), String> {
+    connection
+        .execute(
+            "UPDATE albums SET artwork_path = ?1 WHERE id = ?2",
+            params![artwork_path, album_id],
+        )
+        .map_err(to_error_string)?;
+    Ok(())
 }
 
 fn valid_year(year: i64) -> Option<u16> {
@@ -1166,6 +1251,47 @@ fn write_artwork_file(
     Ok(path.to_string_lossy().into_owned())
 }
 
+fn write_artwork_bytes(
+    bytes: &[u8],
+    artwork_dir: &Path,
+    artwork_key: &str,
+) -> Result<String, String> {
+    if bytes.is_empty() {
+        return Err("empty artwork".to_owned());
+    }
+
+    let extension = sniff_picture_extension(bytes).unwrap_or("bin");
+    let file_name = format!(
+        "{:016x}-{:016x}.{extension}",
+        stable_hash(artwork_key),
+        stable_hash_bytes(bytes),
+    );
+    let path = artwork_dir.join(file_name);
+    fs::write(&path, bytes).map_err(to_error_string)?;
+    Ok(path.to_string_lossy().into_owned())
+}
+
+fn make_front_cover_picture(bytes: Vec<u8>) -> Result<Picture, String> {
+    let mime_type = sniff_picture_mime_type(&bytes)
+        .ok_or_else(|| "library.error.unsupportedArtwork".to_owned())?;
+
+    Ok(Picture::unchecked(bytes)
+        .pic_type(PictureType::CoverFront)
+        .mime_type(mime_type)
+        .build())
+}
+
+fn sniff_picture_mime_type(bytes: &[u8]) -> Option<MimeType> {
+    match bytes {
+        [0xFF, 0xD8, ..] => Some(MimeType::Jpeg),
+        [0x89, b'P', b'N', b'G', ..] => Some(MimeType::Png),
+        [b'G', b'I', b'F', ..] => Some(MimeType::Gif),
+        [b'B', b'M', ..] => Some(MimeType::Bmp),
+        [b'I', b'I', b'*', 0x00, ..] | [b'M', b'M', 0x00, b'*', ..] => Some(MimeType::Tiff),
+        _ => None,
+    }
+}
+
 fn sniff_picture_extension(bytes: &[u8]) -> Option<&'static str> {
     match bytes {
         [0xFF, 0xD8, ..] => Some("jpg"),
@@ -1180,6 +1306,12 @@ fn sniff_picture_extension(bytes: &[u8]) -> Option<&'static str> {
 fn stable_hash(value: &str) -> u64 {
     value.bytes().fold(0xcbf29ce484222325, |hash, byte| {
         (hash ^ u64::from(byte)).wrapping_mul(0x100000001b3)
+    })
+}
+
+fn stable_hash_bytes(bytes: &[u8]) -> u64 {
+    bytes.iter().fold(0xcbf29ce484222325, |hash, byte| {
+        (hash ^ u64::from(*byte)).wrapping_mul(0x100000001b3)
     })
 }
 

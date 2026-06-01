@@ -1,6 +1,6 @@
 import type { TranslationKey } from "@/i18n";
 import type { Album } from "@/types/audio";
-import type { AlbumSortMode } from "@/types/app";
+import type { AlbumSortDirection, AlbumSortMode } from "@/types/app";
 import { localizeLibraryText } from "@/lib/libraryUtils";
 
 type TFunction = (key: TranslationKey, values?: Record<string, string | number>) => string;
@@ -45,7 +45,7 @@ export class AlbumModel {
     return !normalizedQuery || this.searchableText.includes(normalizedQuery);
   }
 
-  compareTo(other: AlbumModel, sortMode: AlbumSortMode) {
+  compareTo(other: AlbumModel, sortMode: AlbumSortMode, sortDirection: AlbumSortDirection) {
     const titleCompare = this.localizedTitle.localeCompare(other.localizedTitle, undefined, {
       sensitivity: "base",
       numeric: true,
@@ -55,17 +55,19 @@ export class AlbumModel {
       numeric: true,
     });
 
-    if (sortMode === "artist") return artistCompare || titleCompare;
+    const directionMultiplier = sortDirection === "asc" ? 1 : -1;
 
-    if (sortMode === "year-desc" || sortMode === "year-asc") {
-      const unknownYear = sortMode === "year-desc" ? Number.NEGATIVE_INFINITY : Number.POSITIVE_INFINITY;
+    if (sortMode === "artist") return (artistCompare || titleCompare) * directionMultiplier;
+
+    if (sortMode === "year") {
+      const unknownYear = sortDirection === "desc" ? Number.NEGATIVE_INFINITY : Number.POSITIVE_INFINITY;
       const firstYear = this.album.year ?? unknownYear;
       const secondYear = other.album.year ?? unknownYear;
-      const yearCompare = sortMode === "year-desc" ? secondYear - firstYear : firstYear - secondYear;
+      const yearCompare = sortDirection === "desc" ? secondYear - firstYear : firstYear - secondYear;
       return yearCompare || titleCompare;
     }
 
-    return titleCompare || artistCompare;
+    return (titleCompare || artistCompare) * directionMultiplier;
   }
 }
 
@@ -76,11 +78,11 @@ export class AlbumCollection {
     this.models = albums.map((album) => new AlbumModel(album, t));
   }
 
-  filterAndSort(query: string, sortMode: AlbumSortMode, lyricsOnly = false) {
+  filterAndSort(query: string, sortMode: AlbumSortMode, sortDirection: AlbumSortDirection, lyricsOnly = false) {
     return this.models
       .filter((album) => album.matches(query))
       .filter((album) => !lyricsOnly || album.hasLyrics)
-      .sort((firstAlbum, secondAlbum) => firstAlbum.compareTo(secondAlbum, sortMode))
+      .sort((firstAlbum, secondAlbum) => firstAlbum.compareTo(secondAlbum, sortMode, sortDirection))
       .map((album) => album.album);
   }
 }
