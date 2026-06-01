@@ -1,6 +1,6 @@
 import { convertFileSrc, invoke } from "@tauri-apps/api/core";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
-import { type CSSProperties, useEffect, useMemo, useRef, useState } from "react";
+import { type CSSProperties, useEffect, useEffectEvent, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -38,6 +38,13 @@ const isTauriRuntime = typeof window !== "undefined" && "__TAURI_INTERNALS__" in
 
 function releaseAudioSource(audio: HTMLAudioElement) {
   audio.pause();
+
+  try {
+    audio.currentTime = 0;
+  } catch {
+    // Reset can fail when the media pipeline is already detached.
+  }
+
   audio.removeAttribute("src");
   audio.load();
 }
@@ -95,6 +102,7 @@ function App() {
   );
   const [currentTrack, setCurrentTrack] = useState<Track | null>(isTauriRuntime ? null : mockAlbums[0]?.tracks[0] ?? null);
   const [isPlaying, setIsPlaying] = useState(false);
+  const [audioSourceKey, setAudioSourceKey] = useState<string | null>(null);
   const [isScanning, setIsScanning] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(() => getTrackDurationSeconds(isTauriRuntime ? null : mockAlbums[0]?.tracks[0] ?? null));
@@ -138,19 +146,37 @@ function App() {
     void refreshLibrary();
   }, []);
 
+  const handleAudioLoadedMetadata = useEffectEvent(() => {
+    const audio = audioRef.current;
+    if (!audio) return;
+    setDuration(Number.isFinite(audio.duration) ? audio.duration : getTrackDurationSeconds(currentTrack));
+  });
+
+  const handleAudioTimeUpdate = useEffectEvent(() => {
+    const audio = audioRef.current;
+    if (!audio) return;
+    setCurrentTime(audio.currentTime);
+  });
+
+  const handleAudioEnded = useEffectEvent(() => {
+    handleTrackEnded();
+  });
+
+  const handleAudioError = useEffectEvent(() => {
+    const audio = audioRef.current;
+    if (!audio) return;
+    setIsPlaying(false);
+    setPlaybackError(getAudioErrorMessage(audio, currentTrack));
+  });
+
   useEffect(() => {
     const audio = audioRef.current;
     if (!audio) return;
 
-    const handleLoadedMetadata = () => {
-      setDuration(Number.isFinite(audio.duration) ? audio.duration : getTrackDurationSeconds(currentTrack));
-    };
-    const handleTimeUpdate = () => setCurrentTime(audio.currentTime);
-    const handleEnded = () => handleTrackEnded();
-    const handleError = () => {
-      setIsPlaying(false);
-      setPlaybackError(getAudioErrorMessage(audio, currentTrack));
-    };
+    const handleLoadedMetadata = () => handleAudioLoadedMetadata();
+    const handleTimeUpdate = () => handleAudioTimeUpdate();
+    const handleEnded = () => handleAudioEnded();
+    const handleError = () => handleAudioError();
 
     audio.addEventListener("loadedmetadata", handleLoadedMetadata);
     audio.addEventListener("timeupdate", handleTimeUpdate);
@@ -163,7 +189,7 @@ function App() {
       audio.removeEventListener("ended", handleEnded);
       audio.removeEventListener("error", handleError);
     };
-  });
+  }, []);
 
   useEffect(() => {
     const audio = audioRef.current;
@@ -201,6 +227,7 @@ function App() {
     setPlaybackError(null);
     setCurrentTime(0);
     setDuration(getTrackDurationSeconds(currentTrack));
+    setAudioSourceKey(null);
 
     const audio = audioRef.current;
     if (!audio) return;
@@ -210,6 +237,7 @@ function App() {
     if (isTauriRuntime && currentTrack?.filePath) {
       audio.src = convertFileSrc(currentTrack.filePath);
       audio.load();
+      setAudioSourceKey(currentTrack.filePath);
     }
 
     return () => releaseAudioSource(audio);
@@ -217,17 +245,22 @@ function App() {
 
   useEffect(() => {
     const audio = audioRef.current;
-    if (!audio || !isTauriRuntime || !currentTrack?.filePath) return;
+    if (!audio || !isTauriRuntime) return;
+
+    if (!audioSourceKey) {
+      audio.pause();
+      return;
+    }
 
     if (isPlaying) {
       void audio.play().catch((error: unknown) => {
         setIsPlaying(false);
-        setPlaybackError(`${String(error)} / ${audio.src}`);
+        setPlaybackError(`${String(error)} / ${audio.currentSrc || audio.src}`);
       });
     } else {
       audio.pause();
     }
-  }, [currentTrack, isPlaying]);
+  }, [audioSourceKey, isPlaying]);
 
   useEffect(() => {
     if (!isPlaying || (isTauriRuntime && currentTrack?.filePath)) return;
