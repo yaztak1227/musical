@@ -36,6 +36,12 @@ import { AlbumBrowser } from "./components/AlbumBrowser";
 
 const isTauriRuntime = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 
+function releaseAudioSource(audio: HTMLAudioElement) {
+  audio.pause();
+  audio.removeAttribute("src");
+  audio.load();
+}
+
 const trackTagFields = [
   { key: "title", labelKey: "tags.title" },
   { key: "artist", labelKey: "tags.artist" },
@@ -199,19 +205,14 @@ function App() {
     const audio = audioRef.current;
     if (!audio) return;
 
-    audio.pause();
-    audio.removeAttribute("src");
+    releaseAudioSource(audio);
 
     if (isTauriRuntime && currentTrack?.filePath) {
       audio.src = convertFileSrc(currentTrack.filePath);
       audio.load();
-      if (isPlaying) {
-        void audio.play().catch((error: unknown) => {
-          setIsPlaying(false);
-          setPlaybackError(`${String(error)} / ${audio.src}`);
-        });
-      }
     }
+
+    return () => releaseAudioSource(audio);
   }, [currentTrack]);
 
   useEffect(() => {
