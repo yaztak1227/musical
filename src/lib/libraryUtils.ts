@@ -1,7 +1,7 @@
-import { convertFileSrc } from "@tauri-apps/api/core";
 import { type Album, type Track } from "../types/audio";
 import { type AlbumSortDirection, type AlbumSortMode, type I18nMessage } from "../types/app";
 import { type TranslationKey } from "../i18n";
+import { getBackendMediaSrc, hasRealBackend } from "./backend";
 
 type TFunction = (key: TranslationKey, values?: Record<string, string | number>) => string;
 
@@ -14,10 +14,10 @@ export function localizeLibraryText(value: string, t: TFunction) {
   return value;
 }
 
-export function getArtworkSrc(album: Album, isTauriRuntime: boolean) {
+export function getArtworkSrc(album: Album) {
   if (album.coverUrl) return album.coverUrl;
   if (!album.artworkPath) return "";
-  return isTauriRuntime ? convertFileSrc(album.artworkPath) : album.artworkPath;
+  return hasRealBackend ? getBackendMediaSrc(album.artworkPath) : album.artworkPath;
 }
 
 export function getAlbumStartTrack(album: Album, isShuffle: boolean) {

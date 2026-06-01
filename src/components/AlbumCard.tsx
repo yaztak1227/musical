@@ -73,7 +73,7 @@ function AlbumCardComponent({ album, isActive, isPlaying, isTauriRuntime, varian
   const albumYear = album.yearLabel ?? album.year;
   const hoverActionLabel = isPlaying ? t("player.pause") : t("album.playSelected");
   const artworkSrc = useMemo(
-    () => getArtworkSrc(album, isTauriRuntime),
+    () => getArtworkSrc(album),
     [album.artworkPath, album.coverUrl, isTauriRuntime],
   );
 

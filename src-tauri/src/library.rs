@@ -191,9 +191,11 @@ pub fn load_track_lyrics(app: &AppHandle, track_id: i64) -> Result<Option<String
     let connection = open_database(&database_path)?;
 
     connection
-        .query_row("SELECT lyrics FROM tracks WHERE id = ?1", [track_id], |row| {
-            row.get::<_, Option<String>>(0)
-        })
+        .query_row(
+            "SELECT lyrics FROM tracks WHERE id = ?1",
+            [track_id],
+            |row| row.get::<_, Option<String>>(0),
+        )
         .optional()
         .map_err(to_error_string)?
         .ok_or_else(|| format!("library.error.trackNotFound\t{track_id}"))
@@ -456,10 +458,18 @@ pub fn update_track_artwork(
     let cached_artwork_path = write_artwork_bytes(
         &artwork_bytes,
         &artwork_dir,
-        &format!("album-{}-{}", existing_track.album_id, stable_hash(artwork_source_path)),
+        &format!(
+            "album-{}-{}",
+            existing_track.album_id,
+            stable_hash(artwork_source_path)
+        ),
     )?;
 
-    persist_track_artwork_update(&mut connection, existing_track.album_id, &cached_artwork_path)?;
+    persist_track_artwork_update(
+        &mut connection,
+        existing_track.album_id,
+        &cached_artwork_path,
+    )?;
 
     Ok(TrackArtworkUpdateResult {
         track_id: existing_track.id,

@@ -13,8 +13,10 @@ type TFunction = (key: TranslationKey, values?: Record<string, string | number>)
 
 export type PlayerBarHandle = {
   getCurrentTime: () => number;
+  getVolume: () => number;
   resetPosition: () => void;
   seekTo: (nextTime: number, source?: string) => void;
+  setVolume: (nextVolume: number) => void;
   stepVolume: (delta: number) => void;
   toggleMute: () => void;
 };
@@ -63,6 +65,7 @@ export const PlayerBar = forwardRef<PlayerBarHandle, PlayerBarProps>(function Pl
 ) {
   const currentTimeRef = useRef(0);
   const durationRef = useRef(0);
+  const hasRequestedEndedRef = useRef(false);
   const lastTimeUpdateRef = useRef(0);
   const publishedTimeSecondRef = useRef(0);
   const [currentTime, setCurrentTime] = useState(0);
@@ -105,16 +108,39 @@ export const PlayerBar = forwardRef<PlayerBarHandle, PlayerBarProps>(function Pl
   }
 
   function resetPosition() {
+    hasRequestedEndedRef.current = false;
     publishedTimeSecondRef.current = 0;
     publishPosition(0, getTrackDurationSeconds(currentTrack));
+  }
+
+  function requestEnded() {
+    if (hasRequestedEndedRef.current) return;
+    hasRequestedEndedRef.current = true;
+    onEnded();
+  }
+
+  function getAudioDuration(audio: HTMLAudioElement) {
+    return Number.isFinite(audio.duration) ? audio.duration : durationRef.current;
+  }
+
+  function requestEndedIfAudioIsComplete(audio: HTMLAudioElement) {
+    const audioDuration = getAudioDuration(audio);
+    if (audio.ended || (audioDuration > 0 && audio.currentTime >= audioDuration - 0.2)) {
+      requestEnded();
+      return true;
+    }
+
+    return false;
   }
 
   useImperativeHandle(
     ref,
     () => ({
       getCurrentTime: () => currentTimeRef.current,
+      getVolume: () => volume,
       resetPosition,
       seekTo,
+      setVolume: changeVolume,
       stepVolume: (delta: number) => changeVolume(volume + delta),
       toggleMute: () => changeVolume(volume > 0 ? 0 : 0.85),
     }),
@@ -144,6 +170,10 @@ export const PlayerBar = forwardRef<PlayerBarHandle, PlayerBarProps>(function Pl
 
     const now = performance.now();
     currentTimeRef.current = audio.currentTime;
+    if (requestEndedIfAudioIsComplete(audio)) {
+      return;
+    }
+
     if (now - lastTimeUpdateRef.current < 500) return;
 
     lastTimeUpdateRef.current = now;
@@ -151,7 +181,7 @@ export const PlayerBar = forwardRef<PlayerBarHandle, PlayerBarProps>(function Pl
   });
 
   const handleAudioEnded = useEffectEvent(() => {
-    onEnded();
+    requestEnded();
   });
 
   const handleAudioError = useEffectEvent(() => {
@@ -184,6 +214,19 @@ export const PlayerBar = forwardRef<PlayerBarHandle, PlayerBarProps>(function Pl
   }, [audioRef]);
 
   useEffect(() => {
+    if (!isPlaying || !isTauriRuntime || !currentTrack?.filePath) return;
+
+    const timer = window.setInterval(() => {
+      const audio = audioRef.current;
+      if (!audio) return;
+      currentTimeRef.current = audio.currentTime;
+      requestEndedIfAudioIsComplete(audio);
+    }, 250);
+
+    return () => window.clearInterval(timer);
+  }, [audioRef, currentTrack, isPlaying, isTauriRuntime, onEnded]);
+
+  useEffect(() => {
     if (!isPlaying || (isTauriRuntime && currentTrack?.filePath)) return;
     const mockDuration = effectiveDuration || getTrackDurationSeconds(currentTrack);
     const timer = window.setInterval(() => {
@@ -193,7 +236,7 @@ export const PlayerBar = forwardRef<PlayerBarHandle, PlayerBarProps>(function Pl
       if (mockDuration > 0 && nextValue >= mockDuration) {
         publishPosition(mockDuration, mockDuration);
         window.clearInterval(timer);
-        window.setTimeout(() => onEnded(), 0);
+        window.setTimeout(() => requestEnded(), 0);
       }
     }, 1000);
 

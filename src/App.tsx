@@ -1,6 +1,5 @@
-import { convertFileSrc, invoke } from "@tauri-apps/api/core";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
-import { type CSSProperties, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { type CSSProperties, useCallback, useEffect, useEffectEvent, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -23,6 +22,19 @@ import {
   isThemeName,
 } from "./types/app";
 import { updateAlbumTags, updateTrackArtwork, updateTrackTags, type AlbumTagDraft, type TrackTagDraft } from "./lib/tagEditing";
+import {
+  backendInvoke,
+  getBackendMediaSrc,
+  getRemotePlayerCommands,
+  getRemotePlayerState,
+  hasRealBackend,
+  isLocalBrowserRuntime,
+  isTauriRuntime,
+  publishRemotePlayerState,
+  sendRemotePlayerCommand,
+  type QueuedRemotePlayerCommand,
+  type RemotePlayerState,
+} from "./lib/backend";
 import { useGlobalMediaKeys } from "./lib/useGlobalMediaKeys";
 import { mockAlbums } from "./lib/mockData";
 import { formatTrackDuration } from "./lib/formatUtils";
@@ -33,7 +45,6 @@ import { makeAlbumTagDraft, isAlbumTagDraftChanged, parseOptionalYear } from "./
 import { AlbumBrowser } from "./components/AlbumBrowser";
 import { PlayerBar, type PlayerBarHandle } from "./components/PlayerBar";
 
-const isTauriRuntime = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 const playbackPreferencesKey = "musical.playbackPreferences";
 
 type PlaybackPreferences = {
@@ -145,6 +156,8 @@ function App() {
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const playerBarRef = useRef<PlayerBarHandle | null>(null);
   const albumsPanelRef = useRef<HTMLElement | null>(null);
+  const lastLibraryCommandIdRef = useRef(0);
+  const lastRemoteCommandIdRef = useRef(0);
   const renderCountRef = useRef(0);
   const [locale, setLocale] = useState<Locale>(() => getInitialLocale());
   const [themeName, setThemeName] = useState<ThemeName>(() => {
@@ -159,17 +172,17 @@ function App() {
   const storedPlaybackPreferences = useMemo(() => getStoredPlaybackPreferences(), []);
   const [libraryPath, setLibraryPath] = useState("");
   const [libraryInfo, setLibraryInfo] = useState<I18nMessage | null>(
-    isTauriRuntime ? { key: "status.noLibraryScanned" } : { key: "status.webMockMode" },
+    hasRealBackend ? { key: "status.noLibraryScanned" } : { key: "status.webMockMode" },
   );
-  const [albums, setAlbums] = useState<Album[]>(isTauriRuntime ? [] : mockAlbums);
+  const [albums, setAlbums] = useState<Album[]>(hasRealBackend ? [] : mockAlbums);
   const [selectedAlbumId, setSelectedAlbumId] = useState<number | null>(() =>
-    isTauriRuntime ? null : getInitialAlbumId(mockAlbums, storedPlaybackPreferences.selectedAlbumId),
+    hasRealBackend ? null : getInitialAlbumId(mockAlbums, storedPlaybackPreferences.selectedAlbumId),
   );
   const [playbackAlbumId, setPlaybackAlbumId] = useState<number | null>(() =>
-    isTauriRuntime ? null : getInitialAlbumId(mockAlbums, storedPlaybackPreferences.playbackAlbumId),
+    hasRealBackend ? null : getInitialAlbumId(mockAlbums, storedPlaybackPreferences.playbackAlbumId),
   );
   const [currentTrack, setCurrentTrack] = useState<Track | null>(() =>
-    isTauriRuntime ? null : getInitialTrack(mockAlbums, getInitialAlbumId(mockAlbums, storedPlaybackPreferences.playbackAlbumId)),
+    hasRealBackend ? null : getInitialTrack(mockAlbums, getInitialAlbumId(mockAlbums, storedPlaybackPreferences.playbackAlbumId)),
   );
   const [isPlaying, setIsPlaying] = useState(false);
   const [audioSourceKey, setAudioSourceKey] = useState<string | null>(null);
@@ -221,7 +234,7 @@ function App() {
   }, [isShuffle, playbackAlbumId, repeatMode, selectedAlbumId]);
 
   useEffect(() => {
-    if (!isTauriRuntime) return;
+    if (!hasRealBackend) return;
     void refreshLibrary();
   }, []);
 
@@ -262,7 +275,7 @@ function App() {
     releaseAudioSource(audio);
 
     if (isTauriRuntime && currentTrack?.filePath) {
-      audio.src = convertFileSrc(currentTrack.filePath);
+      audio.src = getBackendMediaSrc(currentTrack.filePath);
       audio.load();
       setAudioSourceKey(currentTrack.filePath);
     }
@@ -308,11 +321,11 @@ function App() {
   const detailTrack =
     detailAlbum?.tracks.find((track) => track.id === detailTrackId) ?? null;
   const selectedAlbumArtworkSrc = useMemo(
-    () => (selectedAlbum ? getArtworkSrc(selectedAlbum, isTauriRuntime) : ""),
+    () => (selectedAlbum ? getArtworkSrc(selectedAlbum) : ""),
     [selectedAlbum?.artworkPath, selectedAlbum?.coverUrl],
   );
   const detailArtworkSrc = useMemo(
-    () => (detailAlbum ? getArtworkSrc(detailAlbum, isTauriRuntime) : ""),
+    () => (detailAlbum ? getArtworkSrc(detailAlbum) : ""),
     [detailAlbum?.artworkPath, detailAlbum?.coverUrl],
   );
   const detailLyrics = detailTrack ? trackLyricsById[detailTrack.id] : null;
@@ -362,7 +375,7 @@ function App() {
 
   async function refreshLibrary() {
     try {
-      const snapshot = await invoke<LibrarySnapshot>("library_snapshot");
+      const snapshot = await backendInvoke<LibrarySnapshot>("library_snapshot");
       applyLibrarySnapshot(snapshot, { resetPlayback: true });
     } catch (error) {
       setLibraryInfo(toI18nError(error));
@@ -388,8 +401,47 @@ function App() {
     );
   }
 
+  function sendRemoteCommand(commandType: QueuedRemotePlayerCommand["commandType"], payload?: Record<string, unknown>) {
+    if (!isLocalBrowserRuntime) return false;
+    void sendRemotePlayerCommand(commandType, payload).catch((error: unknown) => {
+      setPlaybackError(String(error));
+    });
+    return true;
+  }
+
+  function findTrackById(trackId: number | null) {
+    if (trackId === null) return null;
+    for (const album of albums) {
+      const track = album.tracks.find((track) => track.id === trackId);
+      if (track) return track;
+    }
+    return null;
+  }
+
+  function findAlbumByTrackId(trackId: number | null) {
+    if (trackId === null) return null;
+    return albums.find((album) => album.tracks.some((track) => track.id === trackId)) ?? null;
+  }
+
+  function applyRemotePlayerState(state: RemotePlayerState) {
+    setSelectedAlbumId(state.selectedAlbumId);
+    setPlaybackAlbumId(state.playbackAlbumId);
+    setCurrentTrack(findTrackById(state.currentTrackId));
+    setIsPlaying(state.isPlaying);
+    setIsShuffle(state.isShuffle);
+    setRepeatMode(isRepeatMode(state.repeatMode) ? state.repeatMode : "off");
+    playerBarRef.current?.seekTo(state.currentTime, "remote-sync");
+    playerBarRef.current?.setVolume(state.volume);
+  }
+
+  function notifyLibraryChanged() {
+    void sendRemotePlayerCommand("refresh-library").catch((error: unknown) => {
+      setPlaybackError(String(error));
+    });
+  }
+
   async function handleScan() {
-    if (!isTauriRuntime) {
+    if (!hasRealBackend) {
       setLibraryInfo({ key: "status.desktopOnly" });
       return;
     }
@@ -402,10 +454,11 @@ function App() {
 
     try {
       setIsScanning(true);
-      const summary = await invoke<ScanSummary>("scan_music_folder", {
+      const summary = await backendInvoke<ScanSummary>("scan_music_folder", {
         folderPath: normalizedPath,
       });
       await refreshLibrary();
+      notifyLibraryChanged();
       setLibraryInfo({
         key: "status.scanComplete",
         values: { albums: summary.albums, tracks: summary.importedTracks, libraryPath: summary.libraryPath },
@@ -439,12 +492,16 @@ function App() {
   }
 
   const selectAlbum = useCallback((album: Album) => {
+    if (sendRemoteCommand("select-album", { albumId: album.id })) return;
+
     setSelectedAlbumId(album.id);
     setIsAlbumTagEditing(false);
     setAlbumTagMessage(null);
   }, []);
 
   const playAlbum = useCallback((album: Album) => {
+    if (sendRemoteCommand("play-album", { albumId: album.id })) return;
+
     const firstTrack = getAlbumStartTrack(album, isShuffle);
     setSelectedAlbumId(album.id);
     setPlaybackAlbumId(album.id);
@@ -454,12 +511,16 @@ function App() {
   }, [isShuffle]);
 
   const playTrack = useCallback((track: Track, albumId = selectedAlbumId) => {
+    if (sendRemoteCommand("play-track", { albumId, trackId: track.id })) return;
+
     setPlaybackAlbumId(albumId);
     setCurrentTrack(track);
     setIsPlaying(true);
   }, [selectedAlbumId]);
 
   function selectTrack(track: Track, albumId = selectedAlbumId) {
+    if (sendRemoteCommand("select-track", { albumId, trackId: track.id })) return;
+
     setPlaybackAlbumId(albumId);
     setCurrentTrack(track);
     playerBarRef.current?.resetPosition();
@@ -478,6 +539,12 @@ function App() {
     openTrackDetail(track, "lyrics");
   }, [openTrackDetail]);
 
+  const openSelectedAlbumArtworkEditor = useCallback(() => {
+    const track = selectedAlbum?.tracks[0];
+    if (!track) return;
+    openTrackDetail(track, "artwork");
+  }, [openTrackDetail, selectedAlbum]);
+
   async function loadTrackLyrics(track: Track) {
     if (!track.hasLyrics && !track.lyrics?.trim()) {
       setTrackLyricsById((current) => ({ ...current, [track.id]: null }));
@@ -486,13 +553,13 @@ function App() {
 
     if (track.id in trackLyricsById) return;
 
-    if (!isTauriRuntime) {
+    if (!hasRealBackend) {
       setTrackLyricsById((current) => ({ ...current, [track.id]: track.lyrics ?? null }));
       return;
     }
 
     try {
-      const lyrics = await invoke<string | null>("track_lyrics", { trackId: track.id });
+      const lyrics = await backendInvoke<string | null>("track_lyrics", { trackId: track.id });
       setTrackLyricsById((current) => ({ ...current, [track.id]: lyrics }));
     } catch (error) {
       setTrackTagMessage(toI18nError(error));
@@ -518,6 +585,8 @@ function App() {
   }
 
   function togglePlayback() {
+    if (sendRemoteCommand("toggle-playback")) return;
+
     if (!currentTrack && selectedAlbum) {
       playAlbum(selectedAlbum);
       return;
@@ -526,6 +595,8 @@ function App() {
   }
 
   function playPlayback() {
+    if (sendRemoteCommand("play")) return;
+
     if (!currentTrack && selectedAlbum) {
       playAlbum(selectedAlbum);
       return;
@@ -534,10 +605,14 @@ function App() {
   }
 
   function pausePlayback() {
+    if (sendRemoteCommand("pause")) return;
+
     setIsPlaying(false);
   }
 
   function playPreviousTrack() {
+    if (sendRemoteCommand("previous")) return;
+
     if (queue.length === 0) return;
     if ((playerBarRef.current?.getCurrentTime() ?? 0) > 3) {
       seekTo(0);
@@ -549,6 +624,8 @@ function App() {
   }
 
   function playNextTrack(options: { autoplay?: boolean } = {}) {
+    if (sendRemoteCommand("next")) return;
+
     if (queue.length === 0) return;
     const nextTrack = getNextTrack();
     if (!nextTrack) {
@@ -589,6 +666,8 @@ function App() {
   }
 
   function cycleRepeatMode() {
+    if (sendRemoteCommand("cycle-repeat")) return;
+
     setRepeatMode((value) => {
       if (value === "off") return "all";
       if (value === "all") return "one";
@@ -596,15 +675,33 @@ function App() {
     });
   }
 
+  function toggleShuffle() {
+    if (sendRemoteCommand("toggle-shuffle")) return;
+
+    setIsShuffle((value) => !value);
+  }
+
+  function changePlaying(isNextPlaying: boolean) {
+    if (sendRemoteCommand(isNextPlaying ? "play" : "pause")) return;
+
+    setIsPlaying(isNextPlaying);
+  }
+
   function toggleMute() {
+    if (sendRemoteCommand("toggle-mute")) return;
+
     playerBarRef.current?.toggleMute();
   }
 
   function stepVolume(delta: number) {
+    if (sendRemoteCommand("volume-step", { delta })) return;
+
     playerBarRef.current?.stepVolume(delta);
   }
 
   function seekTo(nextTime: number, source = "programmatic") {
+    if (source !== "remote-sync" && sendRemoteCommand("seek", { time: nextTime })) return;
+
     playerBarRef.current?.seekTo(nextTime, source);
   }
 
@@ -647,7 +744,7 @@ function App() {
 
     try {
       setIsSavingAlbumTags(true);
-      if (!isTauriRuntime) {
+      if (!hasRealBackend) {
         setAlbums((currentAlbums) =>
           currentAlbums.map((album) =>
             album.id === selectedAlbum.id
@@ -668,8 +765,9 @@ function App() {
         setAlbumTagMessage({ key: "tags.mockSaved" });
       } else {
         const result = await updateAlbumTags(selectedAlbum.id, albumTagDraft);
-        const snapshot = await invoke<LibrarySnapshot>("library_snapshot");
+        const snapshot = await backendInvoke<LibrarySnapshot>("library_snapshot");
         applyLibrarySnapshot(snapshot, { resetPlayback: false });
+        notifyLibraryChanged();
         setSelectedAlbumId(result.albumId);
         setAlbumTagMessage(
           result.failedFiles.length > 0
@@ -698,7 +796,7 @@ function App() {
 
     try {
       setIsSavingTrackTags(true);
-      if (!isTauriRuntime) {
+      if (!hasRealBackend) {
         setAlbums((currentAlbums) =>
           currentAlbums.map((album) => ({
             ...album,
@@ -721,8 +819,9 @@ function App() {
         setTrackTagMessage({ key: "tags.mockSaved" });
       } else {
         const result = await updateTrackTags(detailTrack.id, trackTagDraft);
-        const snapshot = await invoke<LibrarySnapshot>("library_snapshot");
+        const snapshot = await backendInvoke<LibrarySnapshot>("library_snapshot");
         applyLibrarySnapshot(snapshot, { resetPlayback: false });
+        notifyLibraryChanged();
         setSelectedAlbumId(result.albumId);
         setDetailTrackId(result.trackId);
         setTrackTagMessage({ key: "tags.trackSaved" });
@@ -756,7 +855,7 @@ function App() {
 
       if (typeof selectedPath === "string") {
         setArtworkDraftPath(selectedPath);
-        setArtworkPreviewSrc(convertFileSrc(selectedPath));
+        setArtworkPreviewSrc(getBackendMediaSrc(selectedPath));
       }
     } catch (error) {
       setTrackTagMessage(toI18nError(error));
@@ -776,8 +875,9 @@ function App() {
       setTrackTagMessage(null);
 
       const result = await updateTrackArtwork(detailTrack.id, artworkDraftPath);
-      const snapshot = await invoke<LibrarySnapshot>("library_snapshot");
+      const snapshot = await backendInvoke<LibrarySnapshot>("library_snapshot");
       applyLibrarySnapshot(snapshot, { resetPlayback: false });
+      notifyLibraryChanged();
       setSelectedAlbumId(result.albumId);
       setDetailTrackId(result.trackId);
       setArtworkDraftPath("");
@@ -790,6 +890,159 @@ function App() {
     }
   }
 
+  function getCommandNumber(command: QueuedRemotePlayerCommand, key: string) {
+    const value = command.payload?.[key];
+    return typeof value === "number" && Number.isFinite(value) ? value : null;
+  }
+
+  const handleRemoteCommand = useEffectEvent((command: QueuedRemotePlayerCommand) => {
+    switch (command.commandType) {
+      case "cycle-repeat":
+        cycleRepeatMode();
+        break;
+      case "next":
+        playNextTrack();
+        break;
+      case "pause":
+        pausePlayback();
+        break;
+      case "play":
+        playPlayback();
+        break;
+      case "play-album": {
+        const albumId = getCommandNumber(command, "albumId");
+        const album = albums.find((album) => album.id === albumId);
+        if (album) playAlbum(album);
+        break;
+      }
+      case "play-track": {
+        const trackId = getCommandNumber(command, "trackId");
+        const albumId = getCommandNumber(command, "albumId") ?? findAlbumByTrackId(trackId)?.id;
+        const track = findTrackById(trackId);
+        if (track) playTrack(track, albumId);
+        break;
+      }
+      case "previous":
+        playPreviousTrack();
+        break;
+      case "refresh-library":
+        void refreshLibrary();
+        break;
+      case "seek": {
+        const time = getCommandNumber(command, "time");
+        if (time !== null) seekTo(time);
+        break;
+      }
+      case "select-album": {
+        const albumId = getCommandNumber(command, "albumId");
+        const album = albums.find((album) => album.id === albumId);
+        if (album) selectAlbum(album);
+        break;
+      }
+      case "select-track": {
+        const trackId = getCommandNumber(command, "trackId");
+        const albumId = getCommandNumber(command, "albumId") ?? findAlbumByTrackId(trackId)?.id;
+        const track = findTrackById(trackId);
+        if (track) selectTrack(track, albumId);
+        break;
+      }
+      case "toggle-mute":
+        toggleMute();
+        break;
+      case "toggle-playback":
+        togglePlayback();
+        break;
+      case "toggle-shuffle":
+        setIsShuffle((value) => !value);
+        break;
+      case "volume-step": {
+        const delta = getCommandNumber(command, "delta");
+        if (delta !== null) stepVolume(delta);
+        break;
+      }
+    }
+  });
+
+  const publishCurrentRemotePlayerState = useEffectEvent(() => {
+    const state: RemotePlayerState = {
+      currentTime: playerBarRef.current?.getCurrentTime() ?? 0,
+      currentTrackId: currentTrack?.id ?? null,
+      isPlaying,
+      isShuffle,
+      playbackAlbumId,
+      repeatMode,
+      selectedAlbumId,
+      volume: playerBarRef.current?.getVolume() ?? 0.85,
+    };
+    void publishRemotePlayerState(state).catch(() => {
+      // State publication is best-effort; playback should not be interrupted.
+    });
+  });
+
+  const syncRemotePlayerState = useEffectEvent(() => {
+    void getRemotePlayerState()
+      .then((state) => {
+        if (state) applyRemotePlayerState(state);
+      })
+      .catch((error: unknown) => setPlaybackError(String(error)));
+  });
+
+  useEffect(() => {
+    if (!isTauriRuntime) return;
+
+    publishCurrentRemotePlayerState();
+    const timer = window.setInterval(() => publishCurrentRemotePlayerState(), 500);
+    return () => window.clearInterval(timer);
+  }, []);
+
+  useEffect(() => {
+    if (!isTauriRuntime) return;
+
+    const pollCommands = () => {
+      void getRemotePlayerCommands(lastRemoteCommandIdRef.current)
+        .then(({ commands }) => {
+          for (const command of commands) {
+            lastRemoteCommandIdRef.current = Math.max(lastRemoteCommandIdRef.current, command.id);
+            handleRemoteCommand(command);
+          }
+        })
+        .catch((error: unknown) => setPlaybackError(String(error)));
+    };
+
+    pollCommands();
+    const timer = window.setInterval(pollCommands, 250);
+    return () => window.clearInterval(timer);
+  }, []);
+
+  useEffect(() => {
+    if (!isLocalBrowserRuntime) return;
+
+    syncRemotePlayerState();
+    const timer = window.setInterval(() => syncRemotePlayerState(), 500);
+    return () => window.clearInterval(timer);
+  }, []);
+
+  useEffect(() => {
+    if (!isLocalBrowserRuntime) return;
+
+    const pollLibraryCommands = () => {
+      void getRemotePlayerCommands(lastLibraryCommandIdRef.current)
+        .then(({ commands }) => {
+          for (const command of commands) {
+            lastLibraryCommandIdRef.current = Math.max(lastLibraryCommandIdRef.current, command.id);
+            if (command.commandType === "refresh-library") {
+              void refreshLibrary();
+            }
+          }
+        })
+        .catch((error: unknown) => setPlaybackError(String(error)));
+    };
+
+    pollLibraryCommands();
+    const timer = window.setInterval(pollLibraryCommands, 1000);
+    return () => window.clearInterval(timer);
+  }, []);
+
   const mediaKeyHandlers = useMemo(
     () => ({
       onPlayPlayback: playPlayback,
@@ -799,7 +1052,7 @@ function App() {
       onNextTrack: () => playNextTrack(),
       onVolumeStep: stepVolume,
       onToggleMute: toggleMute,
-      onToggleShuffle: () => setIsShuffle((value) => !value),
+      onToggleShuffle: toggleShuffle,
       onCycleRepeat: cycleRepeatMode,
       onToggleSidebar: () => setIsSidebarCollapsed((value) => !value),
       onJumpToAlbumLetter: jumpToAlbumLetter,
@@ -927,7 +1180,7 @@ function App() {
         albums={filteredAlbums}
         albumViewMode={albumViewMode}
         isPlaying={isPlaying}
-        isTauriRuntime={isTauriRuntime}
+        isTauriRuntime={hasRealBackend}
         lyricsOnly={lyricsOnly}
         playbackAlbumId={playbackAlbum?.id ?? null}
         onPausePlayback={pausePlayback}
@@ -950,17 +1203,31 @@ function App() {
       <section className="album-panel" aria-label={t("library.selectedAlbumLabel")}>
         {selectedAlbum ? (
           <>
-            {selectedAlbumArtworkSrc ? (
-              <img
-                className="album-art"
-                alt={t("album.artworkAlt", { album: localizeLibraryText(selectedAlbum.title, t) })}
-                src={selectedAlbumArtworkSrc}
-              />
-            ) : (
-              <div className="album-art placeholder-art" aria-hidden="true">
-                {selectedAlbum.title.charAt(0).toUpperCase()}
-              </div>
-            )}
+            <div className="album-artwork-edit-target">
+              {selectedAlbumArtworkSrc ? (
+                <img
+                  className="album-art"
+                  alt={t("album.artworkAlt", { album: localizeLibraryText(selectedAlbum.title, t) })}
+                  src={selectedAlbumArtworkSrc}
+                />
+              ) : (
+                <div className="album-art placeholder-art" aria-hidden="true">
+                  {selectedAlbum.title.charAt(0).toUpperCase()}
+                </div>
+              )}
+              {selectedAlbum.tracks.length > 0 ? (
+                <Button
+                  aria-label={t("trackDetail.editArtwork")}
+                  className="album-artwork-edit-button icon-button"
+                  onClick={openSelectedAlbumArtworkEditor}
+                  title={t("trackDetail.editArtwork")}
+                  type="button"
+                  variant="outline"
+                >
+                  <Pencil />
+                </Button>
+              ) : null}
+            </div>
 
             <div className="album-detail">
               {isAlbumTagEditing ? (
@@ -1117,14 +1384,14 @@ function App() {
         currentTrack={currentTrack}
         isPlaying={isPlaying}
         isShuffle={isShuffle}
-        isTauriRuntime={isTauriRuntime}
+        isTauriRuntime={hasRealBackend}
         onCycleRepeat={cycleRepeatMode}
         onEnded={handleTrackEnded}
         onNextTrack={() => playNextTrack()}
         onPlaybackError={setPlaybackError}
-        onPlayingChange={setIsPlaying}
+        onPlayingChange={changePlaying}
         onPreviousTrack={playPreviousTrack}
-        onShuffleChange={setIsShuffle}
+        onShuffleChange={toggleShuffle}
         onTogglePlayback={togglePlayback}
         playbackError={playbackError}
         queueLength={queue.length}
@@ -1261,7 +1528,7 @@ function App() {
                       {t("trackDetail.chooseArtwork")}
                     </Button>
                     <Button
-                      disabled={!artworkDraftPath || isSavingArtwork || !isTauriRuntime}
+                      disabled={!artworkDraftPath || isSavingArtwork || !hasRealBackend}
                       onClick={() => void saveTrackArtwork()}
                       type="button"
                     >

@@ -81,6 +81,7 @@
   <message key="trackDetail.currentArtwork">Current artwork</message>
   <message key="trackDetail.selectedArtwork">Selected artwork</message>
   <message key="trackDetail.noArtwork">No artwork is saved for this album.</message>
+  <message key="trackDetail.editArtwork">Edit artwork</message>
   <message key="trackDetail.chooseArtwork">Choose image</message>
   <message key="trackDetail.saveArtwork">Save artwork</message>
   <message key="trackDetail.artworkDesktopOnly">Artwork editing is available in the desktop app.</message>

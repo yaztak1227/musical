@@ -1,4 +1,4 @@
-import { invoke } from "@tauri-apps/api/core";
+import { backendInvoke } from "./backend";
 
 export type AlbumTagDraft = {
   album: string;
@@ -41,7 +41,7 @@ export type TrackArtworkUpdateResult = {
 };
 
 export async function updateAlbumTags(albumId: number, draft: AlbumTagDraft) {
-  return invoke<AlbumTagUpdateResult>("update_album_tags", {
+  return backendInvoke<AlbumTagUpdateResult>("update_album_tags", {
     request: {
       albumId,
       albumTitle: draft.album.trim(),
@@ -54,7 +54,7 @@ export async function updateAlbumTags(albumId: number, draft: AlbumTagDraft) {
 }
 
 export async function updateTrackTags(trackId: number, draft: TrackTagDraft) {
-  return invoke<TrackTagUpdateResult>("update_track_tags", {
+  return backendInvoke<TrackTagUpdateResult>("update_track_tags", {
     request: {
       trackId,
       title: draft.title.trim(),
@@ -69,7 +69,7 @@ export async function updateTrackTags(trackId: number, draft: TrackTagDraft) {
 }
 
 export async function updateTrackArtwork(trackId: number, artworkPath: string) {
-  return invoke<TrackArtworkUpdateResult>("update_track_artwork", {
+  return backendInvoke<TrackArtworkUpdateResult>("update_track_artwork", {
     request: {
       trackId,
       artworkPath: artworkPath.trim(),

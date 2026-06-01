@@ -1,4 +1,5 @@
 mod library;
+mod local_server;
 
 use library::{
     AlbumTagUpdateRequest, AlbumTagUpdateResult, LibrarySnapshot, ScanSummary,
@@ -55,6 +56,23 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
+        .setup(|app| {
+            match local_server::start(app.handle().clone()) {
+                Ok(url) => eprintln!("local browser API is available at {url}"),
+                Err(error) => eprintln!("failed to start local browser API: {error}"),
+            }
+
+            #[cfg(debug_assertions)]
+            {
+                use tauri_plugin_opener::OpenerExt;
+
+                if let Err(error) = app.opener().open_url("http://localhost:1420", None::<&str>) {
+                    eprintln!("failed to open controller browser: {error}");
+                }
+            }
+
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![
             app_status,
             library_snapshot,

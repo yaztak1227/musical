@@ -81,6 +81,7 @@
   <message key="trackDetail.currentArtwork">現在のアートワーク</message>
   <message key="trackDetail.selectedArtwork">選択中のアートワーク</message>
   <message key="trackDetail.noArtwork">このアルバムにはアートワークが保存されていません。</message>
+  <message key="trackDetail.editArtwork">アートワークを編集</message>
   <message key="trackDetail.chooseArtwork">画像を選択</message>
   <message key="trackDetail.saveArtwork">アートワークを保存</message>
   <message key="trackDetail.artworkDesktopOnly">アートワーク編集はデスクトップアプリで利用できます。</message>

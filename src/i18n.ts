@@ -88,6 +88,7 @@ export const translationKeys = [
   "trackDetail.currentArtwork",
   "trackDetail.selectedArtwork",
   "trackDetail.noArtwork",
+  "trackDetail.editArtwork",
   "trackDetail.chooseArtwork",
   "trackDetail.saveArtwork",
   "trackDetail.artworkDesktopOnly",

@@ -156,3 +156,28 @@ test("syncs system media session playback actions", async ({ page }) => {
   await expect(page.getByLabel("Player").getByRole("button", { name: "Play", exact: true })).toBeVisible();
   await expect(page.getByLabel("Player")).toContainText("Station Lights");
 });
+
+test("advances to the next track when playback reaches the end", async ({ page }) => {
+  await page.addInitScript(() => window.localStorage.setItem("musical.locale", "en"));
+  await page.goto("/");
+
+  await page.getByLabel("Player").getByRole("button", { name: "Play", exact: true }).click();
+  const seekSlider = page.getByLabel("Seek");
+  const seekSliderBox = await seekSlider.boundingBox();
+  expect(seekSliderBox).not.toBeNull();
+  await seekSlider.click({ position: { x: (seekSliderBox?.width ?? 1) - 1, y: (seekSliderBox?.height ?? 1) / 2 } });
+
+  await expect(page.getByLabel("Player")).toContainText("Last Train Home", { timeout: 2500 });
+  await expect(page.getByLabel("Player").getByRole("button", { name: "Pause" })).toBeVisible();
+});
+
+test("advances to the next track on the audio ended event", async ({ page }) => {
+  await page.addInitScript(() => window.localStorage.setItem("musical.locale", "en"));
+  await page.goto("/");
+
+  await page.getByLabel("Player").getByRole("button", { name: "Play", exact: true }).click();
+  await page.locator("audio").evaluate((audio) => audio.dispatchEvent(new Event("ended")));
+
+  await expect(page.getByLabel("Player")).toContainText("Last Train Home");
+  await expect(page.getByLabel("Player").getByRole("button", { name: "Pause" })).toBeVisible();
+});
