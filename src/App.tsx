@@ -1,6 +1,6 @@
 import { convertFileSrc, invoke } from "@tauri-apps/api/core";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
-import { type CSSProperties, useEffect, useEffectEvent, useMemo, useRef, useState } from "react";
+import { type CSSProperties, useCallback, useEffect, useEffectEvent, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -35,6 +35,28 @@ import { makeAlbumTagDraft, isAlbumTagDraftChanged, parseOptionalYear } from "./
 import { AlbumBrowser } from "./components/AlbumBrowser";
 
 const isTauriRuntime = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
+
+type PlaybackRenderCause =
+  | { type: "initial" }
+  | { eventId: number; source: string; time: number; type: "seek" };
+
+function getHeapUsageMb() {
+  const performanceWithMemory = performance as Performance & {
+    memory?: { usedJSHeapSize: number };
+  };
+
+  return performanceWithMemory.memory
+    ? Math.round(performanceWithMemory.memory.usedJSHeapSize / 1024 / 1024)
+    : null;
+}
+
+function logRenderDiagnostic(label: string, payload: Record<string, unknown>) {
+  const message = `[render-diagnostics] ${label} ${JSON.stringify(payload)}`;
+  const windowWithDiagnostics = window as Window & { __renderDiagnostics?: string[] };
+  windowWithDiagnostics.__renderDiagnostics = [...(windowWithDiagnostics.__renderDiagnostics ?? []), message].slice(-300);
+  document.documentElement.dataset.renderDiagnostics = JSON.stringify(windowWithDiagnostics.__renderDiagnostics);
+  console.debug(message);
+}
 
 function releaseAudioSource(audio: HTMLAudioElement) {
   audio.pause();
@@ -79,6 +101,15 @@ function isTrackTagDraftChanged(draft: TrackTagDraft, track: Track, album: Album
 function App() {
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const albumsPanelRef = useRef<HTMLElement | null>(null);
+  const currentTimeLabelRef = useRef<HTMLSpanElement | null>(null);
+  const durationLabelRef = useRef<HTMLSpanElement | null>(null);
+  const progressControlRef = useRef<HTMLLabelElement | null>(null);
+  const renderCountRef = useRef(0);
+  const playbackEventCountRef = useRef(0);
+  const currentTimeRef = useRef(0);
+  const durationRef = useRef(0);
+  const publishedTimeSecondRef = useRef(0);
+  const lastPlaybackRenderCauseRef = useRef<PlaybackRenderCause>({ type: "initial" });
   const [locale, setLocale] = useState<Locale>(() => getInitialLocale());
   const [themeName, setThemeName] = useState<ThemeName>(() => {
     const storedTheme = window.localStorage.getItem("musical.theme");
@@ -130,6 +161,25 @@ function App() {
   const [artworkDraftPath, setArtworkDraftPath] = useState("");
   const [artworkPreviewSrc, setArtworkPreviewSrc] = useState("");
   const [isSavingArtwork, setIsSavingArtwork] = useState(false);
+  renderCountRef.current += 1;
+  durationRef.current = duration;
+
+  function updatePlaybackPositionView(nextTime: number, nextDuration = durationRef.current) {
+    const boundedDuration = Math.max(0, nextDuration);
+    const boundedTime = Math.max(0, Math.min(nextTime, boundedDuration || nextTime));
+    const progress = boundedDuration > 0 ? Math.min(100, Math.max(0, (boundedTime / boundedDuration) * 100)) : 0;
+
+    if (currentTimeLabelRef.current) {
+      currentTimeLabelRef.current.textContent = formatSeconds(Math.floor(boundedTime));
+    }
+    if (durationLabelRef.current) {
+      durationLabelRef.current.textContent = formatSeconds(Math.floor(boundedDuration));
+    }
+
+    progressControlRef.current
+      ?.querySelector<HTMLElement>(".seek-slider")
+      ?.style.setProperty("--seek-progress", `${progress}%`);
+  }
 
   useEffect(() => {
     document.documentElement.lang = locale;
@@ -149,13 +199,17 @@ function App() {
   const handleAudioLoadedMetadata = useEffectEvent(() => {
     const audio = audioRef.current;
     if (!audio) return;
-    setDuration(Number.isFinite(audio.duration) ? audio.duration : getTrackDurationSeconds(currentTrack));
+    const nextDuration = Number.isFinite(audio.duration) ? audio.duration : getTrackDurationSeconds(currentTrack);
+    durationRef.current = nextDuration;
+    updatePlaybackPositionView(currentTimeRef.current, nextDuration);
+    setDuration(nextDuration);
   });
 
   const handleAudioTimeUpdate = useEffectEvent(() => {
     const audio = audioRef.current;
     if (!audio) return;
-    setCurrentTime(audio.currentTime);
+    currentTimeRef.current = audio.currentTime;
+    updatePlaybackPositionView(audio.currentTime);
   });
 
   const handleAudioEnded = useEffectEvent(() => {
@@ -225,6 +279,9 @@ function App() {
 
   useEffect(() => {
     setPlaybackError(null);
+    currentTimeRef.current = 0;
+    publishedTimeSecondRef.current = 0;
+    updatePlaybackPositionView(0, getTrackDurationSeconds(currentTrack));
     setCurrentTime(0);
     setDuration(getTrackDurationSeconds(currentTrack));
     setAudioSourceKey(null);
@@ -266,15 +323,17 @@ function App() {
     if (!isPlaying || (isTauriRuntime && currentTrack?.filePath)) return;
     const mockDuration = duration || getTrackDurationSeconds(currentTrack);
     const timer = window.setInterval(() => {
-      setCurrentTime((value) => {
-        const nextValue = value + 1;
-        if (mockDuration > 0 && nextValue >= mockDuration) {
-          window.clearInterval(timer);
-          window.setTimeout(() => handleTrackEnded(), 0);
-          return mockDuration;
-        }
-        return nextValue;
-      });
+      const nextValue = currentTimeRef.current + 1;
+      currentTimeRef.current = nextValue;
+      updatePlaybackPositionView(nextValue, mockDuration);
+
+      if (mockDuration > 0 && nextValue >= mockDuration) {
+        currentTimeRef.current = mockDuration;
+        publishedTimeSecondRef.current = Math.floor(mockDuration);
+        updatePlaybackPositionView(mockDuration, mockDuration);
+        window.clearInterval(timer);
+        window.setTimeout(() => handleTrackEnded(), 0);
+      }
     }, 1000);
 
     return () => window.clearInterval(timer);
@@ -304,6 +363,20 @@ function App() {
   const hasTrackTagChanges = detailTrack
     ? isTrackTagDraftChanged(trackTagDraft, detailTrack, detailAlbum)
     : false;
+
+  useEffect(() => {
+    logRenderDiagnostic("App committed", {
+      albums: albums.length,
+      cause: lastPlaybackRenderCauseRef.current,
+      currentTime,
+      filteredAlbums: filteredAlbums.length,
+      heapMb: getHeapUsageMb(),
+      isPlaying,
+      render: renderCountRef.current,
+      selectedAlbumId: selectedAlbum?.id ?? null,
+      trackId: currentTrack?.id ?? null,
+    });
+  });
 
   useEffect(() => {
     if (!selectedAlbum || isAlbumTagEditing) return;
@@ -394,38 +467,48 @@ function App() {
     }
   }
 
-  function selectAlbum(album: Album) {
+  const selectAlbum = useCallback((album: Album) => {
     setSelectedAlbumId(album.id);
     setIsAlbumTagEditing(false);
     setAlbumTagMessage(null);
-  }
+  }, []);
 
-  function playAlbum(album: Album) {
+  const playAlbum = useCallback((album: Album) => {
     const firstTrack = getAlbumStartTrack(album, isShuffle);
     setSelectedAlbumId(album.id);
     setPlaybackAlbumId(album.id);
     setCurrentTrack(firstTrack);
+    currentTimeRef.current = 0;
+    publishedTimeSecondRef.current = 0;
+    updatePlaybackPositionView(0, getTrackDurationSeconds(firstTrack));
     setCurrentTime(0);
     setIsPlaying(Boolean(firstTrack));
-  }
+  }, [isShuffle]);
 
-  function playTrack(track: Track, albumId = selectedAlbumId) {
+  const playTrack = useCallback((track: Track, albumId = selectedAlbumId) => {
     setPlaybackAlbumId(albumId);
     setCurrentTrack(track);
     setIsPlaying(true);
-  }
+  }, [selectedAlbumId]);
 
   function selectTrack(track: Track, albumId = selectedAlbumId) {
     setPlaybackAlbumId(albumId);
     setCurrentTrack(track);
+    currentTimeRef.current = 0;
+    publishedTimeSecondRef.current = 0;
+    updatePlaybackPositionView(0, getTrackDurationSeconds(track));
     setCurrentTime(0);
     setIsPlaying(false);
   }
 
-  function openTrackDetail(track: Track, tab: "info" | "lyrics" | "artwork" = "info") {
+  const openTrackDetail = useCallback((track: Track, tab: "info" | "lyrics" | "artwork" = "info") => {
     setDetailTrackId(track.id);
     setTrackDetailTab(tab);
-  }
+  }, []);
+
+  const openTrackLyrics = useCallback((track: Track) => {
+    openTrackDetail(track, "lyrics");
+  }, [openTrackDetail]);
 
   function closeTrackDetail() {
     if (isSavingTrackTags || isSavingArtwork) return;
@@ -447,7 +530,7 @@ function App() {
 
   function playPreviousTrack() {
     if (queue.length === 0) return;
-    if (currentTime > 3) {
+    if (currentTimeRef.current > 3) {
       seekTo(0);
       return;
     }
@@ -466,6 +549,9 @@ function App() {
     }
 
     setCurrentTrack(nextTrack);
+    currentTimeRef.current = 0;
+    publishedTimeSecondRef.current = 0;
+    updatePlaybackPositionView(0, getTrackDurationSeconds(nextTrack));
     setCurrentTime(0);
     setIsPlaying(options.autoplay ?? true);
   }
@@ -512,8 +598,28 @@ function App() {
     setVolume((value) => Math.min(1, Math.max(0, value + delta)));
   }
 
-  function seekTo(nextTime: number) {
+  function seekTo(nextTime: number, source = "programmatic") {
     const boundedTime = Math.max(0, Math.min(nextTime, effectiveDuration || 0));
+    const boundedSecond = Math.floor(boundedTime);
+    if (source === "seek-slider" && boundedSecond === publishedTimeSecondRef.current) return;
+
+    const eventId = playbackEventCountRef.current + 1;
+    playbackEventCountRef.current = eventId;
+    lastPlaybackRenderCauseRef.current = {
+      eventId,
+      source,
+      time: boundedTime,
+      type: "seek",
+    };
+    currentTimeRef.current = boundedTime;
+    publishedTimeSecondRef.current = boundedSecond;
+    updatePlaybackPositionView(boundedTime);
+    logRenderDiagnostic("seekTo", {
+      eventId,
+      source,
+      time: boundedTime,
+      trackId: currentTrack?.id ?? null,
+    });
     setCurrentTime(boundedTime);
 
     const audio = audioRef.current;
@@ -843,7 +949,7 @@ function App() {
         onPlayAlbum={playAlbum}
         onListModeChange={setAlbumListMode}
         onLyricsOnlyChange={setLyricsOnly}
-        onOpenTrackLyrics={(track) => openTrackDetail(track, "lyrics")}
+        onOpenTrackLyrics={openTrackLyrics}
         onPlayTrack={playTrack}
         onQueryChange={setQuery}
         onSelectAlbum={selectAlbum}
@@ -1065,20 +1171,20 @@ function App() {
               <ChevronRight />
             </Button>
           </div>
-          <label className="progress-control">
-            <span>{formatSeconds(Math.floor(currentTime))}</span>
+          <label className="progress-control" ref={progressControlRef}>
+            <span ref={currentTimeLabelRef}>{formatSeconds(Math.floor(currentTime))}</span>
             <Slider
               aria-label={t("player.seek")}
               className="seek-slider"
               disabled={!currentTrack}
               max={Math.max(1, Math.floor(effectiveDuration))}
               min={0}
-              onValueChange={(value) => seekTo(value[0] ?? 0)}
+              onValueChange={(value) => seekTo(value[0] ?? 0, "seek-slider")}
               step={1}
               style={{ "--seek-progress": `${seekProgress}%` } as CSSProperties}
               value={[Math.floor(currentTime)]}
             />
-            <span>{formatSeconds(Math.floor(effectiveDuration))}</span>
+            <span ref={durationLabelRef}>{formatSeconds(Math.floor(effectiveDuration))}</span>
           </label>
         </div>
         <div className="player-options">

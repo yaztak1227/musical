@@ -1,4 +1,4 @@
-import { type RefObject, useMemo } from "react";
+import { memo, type RefObject, useEffect, useMemo, useRef } from "react";
 import { ArrowDownAZ, ArrowUpAZ, ListMusic, Maximize2, Minimize2, Play, ScrollText, Search } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -15,6 +15,14 @@ import { localizeLibraryText } from "@/lib/libraryUtils";
 import { prepareMarquee } from "@/lib/marqueeUtils";
 
 type TFunction = (key: TranslationKey, values?: Record<string, string | number>) => string;
+
+function logRenderDiagnostic(label: string, payload: Record<string, unknown>) {
+  const message = `[render-diagnostics] ${label} ${JSON.stringify(payload)}`;
+  const windowWithDiagnostics = window as Window & { __renderDiagnostics?: string[] };
+  windowWithDiagnostics.__renderDiagnostics = [...(windowWithDiagnostics.__renderDiagnostics ?? []), message].slice(-300);
+  document.documentElement.dataset.renderDiagnostics = JSON.stringify(windowWithDiagnostics.__renderDiagnostics);
+  console.debug(message);
+}
 
 type AlbumBrowserProps = {
   albums: Album[];
@@ -40,7 +48,7 @@ type AlbumBrowserProps = {
   onViewModeChange: (viewMode: AlbumViewMode) => void;
 };
 
-export function AlbumBrowser({
+function AlbumBrowserComponent({
   albums,
   albumListMode,
   albumSortDirection,
@@ -63,6 +71,8 @@ export function AlbumBrowser({
   onSortModeChange,
   onViewModeChange,
 }: AlbumBrowserProps) {
+  const renderCountRef = useRef(0);
+  renderCountRef.current += 1;
   const albumCardVariant = useMemo(() => AlbumCardFactory.create(albumViewMode), [albumViewMode]);
   const trackRows = useMemo(
     () =>
@@ -76,6 +86,18 @@ export function AlbumBrowser({
   const nextSortDirection = albumSortDirection === "asc" ? "desc" : "asc";
   const sortDirectionLabel =
     albumSortDirection === "asc" ? t("sort.ascending") : t("sort.descending");
+
+  useEffect(() => {
+    logRenderDiagnostic("AlbumBrowser committed", {
+      albumListMode,
+      albums: albums.length,
+      albumViewMode,
+      lyricsOnly,
+      query,
+      render: renderCountRef.current,
+      selectedAlbumId,
+    });
+  });
 
   return (
     <section className="albums-panel" aria-label={t("library.albumListLabel")} ref={panelRef}>
@@ -305,3 +327,5 @@ export function AlbumBrowser({
     </section>
   );
 }
+
+export const AlbumBrowser = memo(AlbumBrowserComponent);
