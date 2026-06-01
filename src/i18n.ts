@@ -144,15 +144,36 @@ export type TranslationKey = (typeof translationKeys)[number];
 
 type TranslationValues = Record<string, string | number>;
 type TranslationMap = Record<TranslationKey, string>;
+type PartialTranslationMap = Partial<Record<TranslationKey, string>>;
 
 type LocaleResource = {
   label: string;
   messages: TranslationMap;
 };
 
-const localeEntries = Object.entries(localeFiles)
+type ParsedLocaleResource = {
+  label: string;
+  messages: PartialTranslationMap;
+};
+
+const parsedLocaleEntries = Object.entries(localeFiles)
   .map(([filePath, xml]) => parseLocaleXml(String(xml), filePath))
   .sort(([leftLocale], [rightLocale]) => leftLocale.localeCompare(rightLocale));
+
+const englishMessages = makeEnglishBaseMessages(parsedLocaleEntries);
+const localeEntries = parsedLocaleEntries.map(
+  ([locale, resource]) =>
+    [
+      locale,
+      {
+        label: resource.label,
+        messages: {
+          ...englishMessages,
+          ...resource.messages,
+        },
+      },
+    ] as [Locale, LocaleResource],
+);
 
 const localeResources = Object.fromEntries(localeEntries) as Record<Locale, LocaleResource>;
 
@@ -178,7 +199,7 @@ export function translate(locale: Locale, key: TranslationKey, values: Translati
   );
 }
 
-function parseLocaleXml(xml: string, filePath: string): [Locale, LocaleResource] {
+function parseLocaleXml(xml: string, filePath: string): [Locale, ParsedLocaleResource] {
   const document = new DOMParser().parseFromString(xml, "application/xml");
   const parserError = document.querySelector("parsererror");
   if (parserError) {
@@ -199,10 +220,20 @@ function parseLocaleXml(xml: string, filePath: string): [Locale, LocaleResource]
     {
       label,
       messages: Object.fromEntries(
-        translationKeys.map((key) => [key, messages.get(key) ?? key]),
-      ) as TranslationMap,
+        translationKeys.flatMap((key) => {
+          const value = messages.get(key);
+          return value === undefined ? [] : [[key, value]];
+        }),
+      ) as PartialTranslationMap,
     },
   ];
+}
+
+function makeEnglishBaseMessages(localeEntries: Array<[Locale, ParsedLocaleResource]>) {
+  const englishResource = localeEntries.find(([locale]) => locale === "en")?.[1];
+  return Object.fromEntries(
+    translationKeys.map((key) => [key, englishResource?.messages[key] ?? key]),
+  ) as TranslationMap;
 }
 
 function getLocaleFromPath(filePath: string) {
