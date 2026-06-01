@@ -7,6 +7,7 @@ export type Track = {
   trackNumber?: number | null;
   discNumber?: number | null;
   filePath?: string;
+  hasLyrics?: boolean;
   lyrics?: string | null;
 };
 

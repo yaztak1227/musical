@@ -37,7 +37,7 @@ export class AlbumModel {
   }
 
   get hasLyrics() {
-    return this.album.tracks.some((track) => Boolean(track.lyrics?.trim()));
+    return this.album.tracks.some((track) => track.hasLyrics || Boolean(track.lyrics?.trim()));
   }
 
   matches(query: string) {

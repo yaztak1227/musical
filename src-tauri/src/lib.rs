@@ -17,6 +17,11 @@ fn library_snapshot(app: tauri::AppHandle) -> Result<LibrarySnapshot, String> {
 }
 
 #[tauri::command]
+fn track_lyrics(app: tauri::AppHandle, track_id: i64) -> Result<Option<String>, String> {
+    library::load_track_lyrics(&app, track_id)
+}
+
+#[tauri::command]
 fn scan_music_folder(app: tauri::AppHandle, folder_path: String) -> Result<ScanSummary, String> {
     library::scan_folder(&app, &folder_path)
 }
@@ -54,6 +59,7 @@ pub fn run() {
             app_status,
             library_snapshot,
             scan_music_folder,
+            track_lyrics,
             update_album_tags,
             update_track_artwork,
             update_track_tags

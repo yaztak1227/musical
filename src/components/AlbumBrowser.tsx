@@ -78,7 +78,7 @@ function AlbumBrowserComponent({
     () =>
       albums.flatMap((album) =>
         album.tracks
-          .filter((track) => !lyricsOnly || Boolean(track.lyrics?.trim()))
+          .filter((track) => !lyricsOnly || track.hasLyrics || Boolean(track.lyrics?.trim()))
           .map((track) => ({ album, track })),
       ),
     [albums, lyricsOnly],
@@ -260,7 +260,7 @@ function AlbumBrowserComponent({
                   tabIndex={0}
                 >
                   <span className="table-track-lyrics-cell" role="cell">
-                    {track.lyrics?.trim() ? (
+                    {track.hasLyrics || track.lyrics?.trim() ? (
                       <Button
                         aria-label={t("trackDetail.showLyrics", { track: localizeLibraryText(track.title, t) })}
                         className="track-lyrics-table-button"

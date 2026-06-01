@@ -1,4 +1,4 @@
-import { memo, useEffect } from "react";
+import { memo, useEffect, useMemo } from "react";
 import { Button } from "@/components/ui/button";
 import { Play } from "lucide-react";
 import type { TranslationKey } from "@/i18n";
@@ -69,7 +69,10 @@ function AlbumCardComponent({ album, isActive, isTauriRuntime, variant, t, onPla
   const albumTitle = localizeLibraryText(album.title, t);
   const albumArtist = localizeLibraryText(album.artist, t);
   const albumYear = album.yearLabel ?? album.year;
-  const artworkSrc = getArtworkSrc(album, isTauriRuntime);
+  const artworkSrc = useMemo(
+    () => getArtworkSrc(album, isTauriRuntime),
+    [album.artworkPath, album.coverUrl, isTauriRuntime],
+  );
 
   useEffect(() => {
     logAlbumCardCommit(album, isActive);

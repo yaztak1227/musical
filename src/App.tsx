@@ -1,15 +1,13 @@
 import { convertFileSrc, invoke } from "@tauri-apps/api/core";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
-import { type CSSProperties, useCallback, useEffect, useEffectEvent, useMemo, useRef, useState } from "react";
+import { type CSSProperties, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
-import { Slider } from "@/components/ui/slider";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Toggle } from "@/components/ui/toggle";
-import { ChevronLeft, ChevronRight, FolderOpen, ListMusic, PanelLeftClose, PanelLeftOpen, Pause, Pencil, Play, Repeat, Repeat1, Save, ScrollText, Shuffle, Volume2, VolumeX, X } from "lucide-react";
+import { FolderOpen, ListMusic, PanelLeftClose, PanelLeftOpen, Pencil, Save, ScrollText, X } from "lucide-react";
 import "./App.css";
 import { getInitialLocale, getLocaleLabel, locales, translate, type Locale, type TranslationKey } from "./i18n";
 import type { Album, Track, LibrarySnapshot, ScanSummary } from "./types/audio";
@@ -27,18 +25,15 @@ import {
 import { updateAlbumTags, updateTrackArtwork, updateTrackTags, type AlbumTagDraft, type TrackTagDraft } from "./lib/tagEditing";
 import { useGlobalMediaKeys } from "./lib/useGlobalMediaKeys";
 import { mockAlbums } from "./lib/mockData";
-import { formatSeconds, formatTrackDuration, getTrackDurationSeconds } from "./lib/formatUtils";
+import { formatTrackDuration } from "./lib/formatUtils";
 import { filterAndSortAlbums } from "./lib/albumFilters";
-import { localizeLibraryText, getArtworkSrc, getAlbumStartTrack, getAlbumJumpTarget, getAudioErrorMessage, toI18nError } from "./lib/libraryUtils";
+import { localizeLibraryText, getArtworkSrc, getAlbumStartTrack, getAlbumJumpTarget, toI18nError } from "./lib/libraryUtils";
 import { prepareMarquee } from "./lib/marqueeUtils";
 import { makeAlbumTagDraft, isAlbumTagDraftChanged, parseOptionalYear } from "./lib/tagDraftUtils";
 import { AlbumBrowser } from "./components/AlbumBrowser";
+import { PlayerBar, type PlayerBarHandle } from "./components/PlayerBar";
 
 const isTauriRuntime = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
-
-type PlaybackRenderCause =
-  | { type: "initial" }
-  | { eventId: number; source: string; time: number; type: "seek" };
 
 function getHeapUsageMb() {
   const performanceWithMemory = performance as Performance & {
@@ -100,16 +95,9 @@ function isTrackTagDraftChanged(draft: TrackTagDraft, track: Track, album: Album
 
 function App() {
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  const playerBarRef = useRef<PlayerBarHandle | null>(null);
   const albumsPanelRef = useRef<HTMLElement | null>(null);
-  const currentTimeLabelRef = useRef<HTMLSpanElement | null>(null);
-  const durationLabelRef = useRef<HTMLSpanElement | null>(null);
-  const progressControlRef = useRef<HTMLLabelElement | null>(null);
   const renderCountRef = useRef(0);
-  const playbackEventCountRef = useRef(0);
-  const currentTimeRef = useRef(0);
-  const durationRef = useRef(0);
-  const publishedTimeSecondRef = useRef(0);
-  const lastPlaybackRenderCauseRef = useRef<PlaybackRenderCause>({ type: "initial" });
   const [locale, setLocale] = useState<Locale>(() => getInitialLocale());
   const [themeName, setThemeName] = useState<ThemeName>(() => {
     const storedTheme = window.localStorage.getItem("musical.theme");
@@ -135,9 +123,6 @@ function App() {
   const [isPlaying, setIsPlaying] = useState(false);
   const [audioSourceKey, setAudioSourceKey] = useState<string | null>(null);
   const [isScanning, setIsScanning] = useState(false);
-  const [currentTime, setCurrentTime] = useState(0);
-  const [duration, setDuration] = useState(() => getTrackDurationSeconds(isTauriRuntime ? null : mockAlbums[0]?.tracks[0] ?? null));
-  const [volume, setVolume] = useState(0.85);
   const [isShuffle, setIsShuffle] = useState(false);
   const [repeatMode, setRepeatMode] = useState<RepeatMode>("off");
   const [albumViewMode, setAlbumViewMode] = useState<AlbumViewMode>("large");
@@ -154,6 +139,7 @@ function App() {
   const [albumTagMessage, setAlbumTagMessage] = useState<I18nMessage | null>(null);
   const [detailTrackId, setDetailTrackId] = useState<number | null>(null);
   const [trackDetailTab, setTrackDetailTab] = useState<"info" | "lyrics" | "artwork">("info");
+  const [trackLyricsById, setTrackLyricsById] = useState<Record<number, string | null>>({});
   const [trackTagDraft, setTrackTagDraft] = useState<TrackTagDraft>(() => makeTrackTagDraft(null, mockAlbums[0] ?? null));
   const [editingTrackTag, setEditingTrackTag] = useState<keyof TrackTagDraft | null>(null);
   const [isSavingTrackTags, setIsSavingTrackTags] = useState(false);
@@ -162,24 +148,6 @@ function App() {
   const [artworkPreviewSrc, setArtworkPreviewSrc] = useState("");
   const [isSavingArtwork, setIsSavingArtwork] = useState(false);
   renderCountRef.current += 1;
-  durationRef.current = duration;
-
-  function updatePlaybackPositionView(nextTime: number, nextDuration = durationRef.current) {
-    const boundedDuration = Math.max(0, nextDuration);
-    const boundedTime = Math.max(0, Math.min(nextTime, boundedDuration || nextTime));
-    const progress = boundedDuration > 0 ? Math.min(100, Math.max(0, (boundedTime / boundedDuration) * 100)) : 0;
-
-    if (currentTimeLabelRef.current) {
-      currentTimeLabelRef.current.textContent = formatSeconds(Math.floor(boundedTime));
-    }
-    if (durationLabelRef.current) {
-      durationLabelRef.current.textContent = formatSeconds(Math.floor(boundedDuration));
-    }
-
-    progressControlRef.current
-      ?.querySelector<HTMLElement>(".seek-slider")
-      ?.style.setProperty("--seek-progress", `${progress}%`);
-  }
 
   useEffect(() => {
     document.documentElement.lang = locale;
@@ -195,61 +163,6 @@ function App() {
     if (!isTauriRuntime) return;
     void refreshLibrary();
   }, []);
-
-  const handleAudioLoadedMetadata = useEffectEvent(() => {
-    const audio = audioRef.current;
-    if (!audio) return;
-    const nextDuration = Number.isFinite(audio.duration) ? audio.duration : getTrackDurationSeconds(currentTrack);
-    durationRef.current = nextDuration;
-    updatePlaybackPositionView(currentTimeRef.current, nextDuration);
-    setDuration(nextDuration);
-  });
-
-  const handleAudioTimeUpdate = useEffectEvent(() => {
-    const audio = audioRef.current;
-    if (!audio) return;
-    currentTimeRef.current = audio.currentTime;
-    updatePlaybackPositionView(audio.currentTime);
-  });
-
-  const handleAudioEnded = useEffectEvent(() => {
-    handleTrackEnded();
-  });
-
-  const handleAudioError = useEffectEvent(() => {
-    const audio = audioRef.current;
-    if (!audio) return;
-    setIsPlaying(false);
-    setPlaybackError(getAudioErrorMessage(audio, currentTrack));
-  });
-
-  useEffect(() => {
-    const audio = audioRef.current;
-    if (!audio) return;
-
-    const handleLoadedMetadata = () => handleAudioLoadedMetadata();
-    const handleTimeUpdate = () => handleAudioTimeUpdate();
-    const handleEnded = () => handleAudioEnded();
-    const handleError = () => handleAudioError();
-
-    audio.addEventListener("loadedmetadata", handleLoadedMetadata);
-    audio.addEventListener("timeupdate", handleTimeUpdate);
-    audio.addEventListener("ended", handleEnded);
-    audio.addEventListener("error", handleError);
-
-    return () => {
-      audio.removeEventListener("loadedmetadata", handleLoadedMetadata);
-      audio.removeEventListener("timeupdate", handleTimeUpdate);
-      audio.removeEventListener("ended", handleEnded);
-      audio.removeEventListener("error", handleError);
-    };
-  }, []);
-
-  useEffect(() => {
-    const audio = audioRef.current;
-    if (!audio) return;
-    audio.volume = volume;
-  }, [volume]);
 
   useEffect(() => {
     if (albums.length === 0) {
@@ -279,11 +192,7 @@ function App() {
 
   useEffect(() => {
     setPlaybackError(null);
-    currentTimeRef.current = 0;
-    publishedTimeSecondRef.current = 0;
-    updatePlaybackPositionView(0, getTrackDurationSeconds(currentTrack));
-    setCurrentTime(0);
-    setDuration(getTrackDurationSeconds(currentTrack));
+    playerBarRef.current?.resetPosition();
     setAudioSourceKey(null);
 
     const audio = audioRef.current;
@@ -319,26 +228,6 @@ function App() {
     }
   }, [audioSourceKey, isPlaying]);
 
-  useEffect(() => {
-    if (!isPlaying || (isTauriRuntime && currentTrack?.filePath)) return;
-    const mockDuration = duration || getTrackDurationSeconds(currentTrack);
-    const timer = window.setInterval(() => {
-      const nextValue = currentTimeRef.current + 1;
-      currentTimeRef.current = nextValue;
-      updatePlaybackPositionView(nextValue, mockDuration);
-
-      if (mockDuration > 0 && nextValue >= mockDuration) {
-        currentTimeRef.current = mockDuration;
-        publishedTimeSecondRef.current = Math.floor(mockDuration);
-        updatePlaybackPositionView(mockDuration, mockDuration);
-        window.clearInterval(timer);
-        window.setTimeout(() => handleTrackEnded(), 0);
-      }
-    }, 1000);
-
-    return () => window.clearInterval(timer);
-  }, [currentTrack, duration, isPlaying]);
-
   const filteredAlbums = useMemo(
     () => filterAndSortAlbums(albums, query, albumSortMode, albumSortDirection, t, lyricsOnly),
     [albumSortDirection, albumSortMode, albums, lyricsOnly, query, t],
@@ -352,14 +241,20 @@ function App() {
     selectedAlbum;
   const queue = playbackAlbum?.tracks ?? [];
   const currentTrackIndex = currentTrack ? queue.findIndex((track) => track.id === currentTrack.id) : -1;
-  const effectiveDuration = duration || getTrackDurationSeconds(currentTrack);
-  const seekProgress = effectiveDuration > 0 ? Math.min(100, Math.max(0, (currentTime / effectiveDuration) * 100)) : 0;
   const hasAlbumTagChanges = selectedAlbum ? isAlbumTagDraftChanged(albumTagDraft, selectedAlbum) : false;
   const detailAlbum =
     albums.find((album) => album.tracks.some((track) => track.id === detailTrackId)) ?? selectedAlbum;
   const detailTrack =
     detailAlbum?.tracks.find((track) => track.id === detailTrackId) ?? null;
-  const detailArtworkSrc = detailAlbum ? getArtworkSrc(detailAlbum, isTauriRuntime) : "";
+  const selectedAlbumArtworkSrc = useMemo(
+    () => (selectedAlbum ? getArtworkSrc(selectedAlbum, isTauriRuntime) : ""),
+    [selectedAlbum?.artworkPath, selectedAlbum?.coverUrl],
+  );
+  const detailArtworkSrc = useMemo(
+    () => (detailAlbum ? getArtworkSrc(detailAlbum, isTauriRuntime) : ""),
+    [detailAlbum?.artworkPath, detailAlbum?.coverUrl],
+  );
+  const detailLyrics = detailTrack ? trackLyricsById[detailTrack.id] : null;
   const hasTrackTagChanges = detailTrack
     ? isTrackTagDraftChanged(trackTagDraft, detailTrack, detailAlbum)
     : false;
@@ -367,8 +262,6 @@ function App() {
   useEffect(() => {
     logRenderDiagnostic("App committed", {
       albums: albums.length,
-      cause: lastPlaybackRenderCauseRef.current,
-      currentTime,
       filteredAlbums: filteredAlbums.length,
       heapMb: getHeapUsageMb(),
       isPlaying,
@@ -404,6 +297,7 @@ function App() {
 
   function applyLibrarySnapshot(snapshot: LibrarySnapshot, options: { resetPlayback: boolean }) {
     setAlbums(snapshot.albums);
+    setTrackLyricsById({});
     setLibraryPath(snapshot.lastScanPath ?? "");
     if (options.resetPlayback) {
       setSelectedAlbumId(snapshot.albums[0]?.id ?? null);
@@ -478,10 +372,7 @@ function App() {
     setSelectedAlbumId(album.id);
     setPlaybackAlbumId(album.id);
     setCurrentTrack(firstTrack);
-    currentTimeRef.current = 0;
-    publishedTimeSecondRef.current = 0;
-    updatePlaybackPositionView(0, getTrackDurationSeconds(firstTrack));
-    setCurrentTime(0);
+    playerBarRef.current?.resetPosition();
     setIsPlaying(Boolean(firstTrack));
   }, [isShuffle]);
 
@@ -494,21 +385,50 @@ function App() {
   function selectTrack(track: Track, albumId = selectedAlbumId) {
     setPlaybackAlbumId(albumId);
     setCurrentTrack(track);
-    currentTimeRef.current = 0;
-    publishedTimeSecondRef.current = 0;
-    updatePlaybackPositionView(0, getTrackDurationSeconds(track));
-    setCurrentTime(0);
+    playerBarRef.current?.resetPosition();
     setIsPlaying(false);
   }
 
   const openTrackDetail = useCallback((track: Track, tab: "info" | "lyrics" | "artwork" = "info") => {
     setDetailTrackId(track.id);
     setTrackDetailTab(tab);
-  }, []);
+    if (tab === "lyrics") {
+      void loadTrackLyrics(track);
+    }
+  }, [trackLyricsById]);
 
   const openTrackLyrics = useCallback((track: Track) => {
     openTrackDetail(track, "lyrics");
   }, [openTrackDetail]);
+
+  async function loadTrackLyrics(track: Track) {
+    if (!track.hasLyrics && !track.lyrics?.trim()) {
+      setTrackLyricsById((current) => ({ ...current, [track.id]: null }));
+      return;
+    }
+
+    if (track.id in trackLyricsById) return;
+
+    if (!isTauriRuntime) {
+      setTrackLyricsById((current) => ({ ...current, [track.id]: track.lyrics ?? null }));
+      return;
+    }
+
+    try {
+      const lyrics = await invoke<string | null>("track_lyrics", { trackId: track.id });
+      setTrackLyricsById((current) => ({ ...current, [track.id]: lyrics }));
+    } catch (error) {
+      setTrackTagMessage(toI18nError(error));
+      setTrackLyricsById((current) => ({ ...current, [track.id]: null }));
+    }
+  }
+
+  function changeTrackDetailTab(tab: "info" | "lyrics" | "artwork") {
+    setTrackDetailTab(tab);
+    if (tab === "lyrics" && detailTrack) {
+      void loadTrackLyrics(detailTrack);
+    }
+  }
 
   function closeTrackDetail() {
     if (isSavingTrackTags || isSavingArtwork) return;
@@ -530,7 +450,7 @@ function App() {
 
   function playPreviousTrack() {
     if (queue.length === 0) return;
-    if (currentTimeRef.current > 3) {
+    if ((playerBarRef.current?.getCurrentTime() ?? 0) > 3) {
       seekTo(0);
       return;
     }
@@ -549,10 +469,7 @@ function App() {
     }
 
     setCurrentTrack(nextTrack);
-    currentTimeRef.current = 0;
-    publishedTimeSecondRef.current = 0;
-    updatePlaybackPositionView(0, getTrackDurationSeconds(nextTrack));
-    setCurrentTime(0);
+    playerBarRef.current?.resetPosition();
     setIsPlaying(options.autoplay ?? true);
   }
 
@@ -591,41 +508,15 @@ function App() {
   }
 
   function toggleMute() {
-    setVolume((value) => (value > 0 ? 0 : 0.85));
+    playerBarRef.current?.toggleMute();
   }
 
   function stepVolume(delta: number) {
-    setVolume((value) => Math.min(1, Math.max(0, value + delta)));
+    playerBarRef.current?.stepVolume(delta);
   }
 
   function seekTo(nextTime: number, source = "programmatic") {
-    const boundedTime = Math.max(0, Math.min(nextTime, effectiveDuration || 0));
-    const boundedSecond = Math.floor(boundedTime);
-    if (source === "seek-slider" && boundedSecond === publishedTimeSecondRef.current) return;
-
-    const eventId = playbackEventCountRef.current + 1;
-    playbackEventCountRef.current = eventId;
-    lastPlaybackRenderCauseRef.current = {
-      eventId,
-      source,
-      time: boundedTime,
-      type: "seek",
-    };
-    currentTimeRef.current = boundedTime;
-    publishedTimeSecondRef.current = boundedSecond;
-    updatePlaybackPositionView(boundedTime);
-    logRenderDiagnostic("seekTo", {
-      eventId,
-      source,
-      time: boundedTime,
-      trackId: currentTrack?.id ?? null,
-    });
-    setCurrentTime(boundedTime);
-
-    const audio = audioRef.current;
-    if (audio && isTauriRuntime && currentTrack?.filePath) {
-      audio.currentTime = boundedTime;
-    }
+    playerBarRef.current?.seekTo(nextTime, source);
   }
 
   function jumpToAlbumLetter(letter: string) {
@@ -822,7 +713,7 @@ function App() {
       onToggleSidebar: () => setIsSidebarCollapsed((value) => !value),
       onJumpToAlbumLetter: jumpToAlbumLetter,
     }),
-    [currentTime, currentTrack, currentTrackIndex, effectiveDuration, filteredAlbums, isPlaying, isShuffle, playbackAlbum?.id, queue, repeatMode, selectedAlbum, selectedAlbumId, t],
+    [currentTrack, currentTrackIndex, filteredAlbums, isPlaying, isShuffle, playbackAlbum?.id, queue, repeatMode, selectedAlbum, selectedAlbumId, t],
   );
 
   useGlobalMediaKeys(mediaKeyHandlers);
@@ -965,11 +856,11 @@ function App() {
       <section className="album-panel" aria-label={t("library.selectedAlbumLabel")}>
         {selectedAlbum ? (
           <>
-            {getArtworkSrc(selectedAlbum, isTauriRuntime) ? (
+            {selectedAlbumArtworkSrc ? (
               <img
                 className="album-art"
                 alt={t("album.artworkAlt", { album: localizeLibraryText(selectedAlbum.title, t) })}
-                src={getArtworkSrc(selectedAlbum, isTauriRuntime)}
+                src={selectedAlbumArtworkSrc}
               />
             ) : (
               <div className="album-art placeholder-art" aria-hidden="true">
@@ -1101,7 +992,7 @@ function App() {
                         </span>
                       </span>
                     </Button>
-                    {track.lyrics?.trim() ? (
+                    {track.hasLyrics || track.lyrics?.trim() ? (
                       <button
                         aria-label={t("trackDetail.showLyrics", { track: localizeLibraryText(track.title, t) })}
                         className="track-lyrics-button"
@@ -1127,98 +1018,26 @@ function App() {
         )}
       </section>
 
-      <section className="player-bar" aria-label={t("player.label")}>
-        <div className="player-track">
-          <p className="eyebrow">{t("player.nowPlaying")}</p>
-          <strong>{currentTrack ? localizeLibraryText(currentTrack.title, t) : t("player.nothingSelected")}</strong>
-          <span>{currentTrack ? localizeLibraryText(currentTrack.artist, t) : t("player.pickPrompt")}</span>
-          {playbackError ? (
-            <small role="alert">{t("player.playbackError", { message: playbackError })}</small>
-          ) : null}
-        </div>
-        <div className="player-main">
-          <div className="transport-controls">
-            <Button
-              aria-label={t("player.previous")}
-              className="control-button icon-button"
-              disabled={!currentTrack}
-              onClick={playPreviousTrack}
-              title={t("player.previous")}
-              type="button"
-              variant="outline"
-            >
-              <ChevronLeft />
-            </Button>
-            <Button
-              aria-label={currentTrack ? (isPlaying ? t("player.pause") : t("player.play")) : t("player.idle")}
-              className="play-button icon-button"
-              disabled={!currentTrack}
-              onClick={togglePlayback}
-              title={currentTrack ? (isPlaying ? t("player.pause") : t("player.play")) : t("player.idle")}
-              type="button"
-            >
-              {isPlaying ? <Pause /> : <Play />}
-            </Button>
-            <Button
-              aria-label={t("player.next")}
-              className="control-button icon-button"
-              disabled={!currentTrack}
-              onClick={() => playNextTrack()}
-              title={t("player.next")}
-              type="button"
-              variant="outline"
-            >
-              <ChevronRight />
-            </Button>
-          </div>
-          <label className="progress-control" ref={progressControlRef}>
-            <span ref={currentTimeLabelRef}>{formatSeconds(Math.floor(currentTime))}</span>
-            <Slider
-              aria-label={t("player.seek")}
-              className="seek-slider"
-              disabled={!currentTrack}
-              max={Math.max(1, Math.floor(effectiveDuration))}
-              min={0}
-              onValueChange={(value) => seekTo(value[0] ?? 0, "seek-slider")}
-              step={1}
-              style={{ "--seek-progress": `${seekProgress}%` } as CSSProperties}
-              value={[Math.floor(currentTime)]}
-            />
-            <span ref={durationLabelRef}>{formatSeconds(Math.floor(effectiveDuration))}</span>
-          </label>
-        </div>
-        <div className="player-options">
-          <Toggle
-            className={isShuffle ? "option-button active" : "option-button"}
-            disabled={queue.length < 2}
-            pressed={isShuffle}
-            onPressedChange={setIsShuffle}
-          >
-            <Shuffle />
-            {t("player.shuffle")}
-          </Toggle>
-          <Button className={repeatMode !== "off" ? "option-button active" : "option-button"} onClick={cycleRepeatMode} type="button" variant="outline">
-            {repeatMode === "one" ? <Repeat1 /> : <Repeat />}
-            {repeatMode === "off" ? t("player.repeatOff") : repeatMode === "all" ? t("player.repeatAll") : t("player.repeatOne")}
-          </Button>
-          <label className="volume-control">
-            {volume > 0 ? <Volume2 aria-hidden="true" /> : <VolumeX aria-hidden="true" />}
-            <span>{t("player.volume")}</span>
-            <Slider
-              aria-label={t("player.volume")}
-              className="volume-slider"
-              max={1}
-              min={0}
-              onValueChange={(value) => setVolume(value[0] ?? 0)}
-              step={0.01}
-              value={[volume]}
-            />
-          </label>
-          <p className="queue-count">
-            {t("player.queue")} / {t("player.queueCount", { count: queue.length })}
-          </p>
-        </div>
-      </section>
+      <PlayerBar
+        audioRef={audioRef}
+        currentTrack={currentTrack}
+        isPlaying={isPlaying}
+        isShuffle={isShuffle}
+        isTauriRuntime={isTauriRuntime}
+        onCycleRepeat={cycleRepeatMode}
+        onEnded={handleTrackEnded}
+        onNextTrack={() => playNextTrack()}
+        onPlaybackError={setPlaybackError}
+        onPlayingChange={setIsPlaying}
+        onPreviousTrack={playPreviousTrack}
+        onShuffleChange={setIsShuffle}
+        onTogglePlayback={togglePlayback}
+        playbackError={playbackError}
+        queueLength={queue.length}
+        ref={playerBarRef}
+        repeatMode={repeatMode}
+        t={t}
+      />
       {detailTrack && detailAlbum ? (
         <div className="track-detail-backdrop" onMouseDown={closeTrackDetail} role="presentation">
           <section
@@ -1240,7 +1059,7 @@ function App() {
 
             <Tabs
               className="track-detail-tabs"
-              onValueChange={(value) => setTrackDetailTab(value as "info" | "lyrics" | "artwork")}
+              onValueChange={(value) => changeTrackDetailTab(value as "info" | "lyrics" | "artwork")}
               value={trackDetailTab}
             >
               <TabsList className="track-detail-tab-list">
@@ -1316,7 +1135,7 @@ function App() {
                 </div>
               </TabsContent>
               <TabsContent className="track-detail-tab-panel" value="lyrics">
-                <pre className="lyrics-panel">{detailTrack.lyrics?.trim() || t("trackDetail.noLyrics")}</pre>
+                <pre className="lyrics-panel">{detailLyrics?.trim() || t("trackDetail.noLyrics")}</pre>
               </TabsContent>
               <TabsContent className="track-detail-tab-panel" value="artwork">
                 <div className="artwork-edit-panel">

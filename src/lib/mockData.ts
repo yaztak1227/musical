@@ -14,10 +14,11 @@ export const mockAlbums: Album[] = [
         title: "Station Lights",
         artist: "Circular Moonray",
         durationLabel: "3:42",
+        hasLyrics: true,
         lyrics: "Station lights are passing slow\nA signal hums below\nWe wait between the rails\nUntil the city glows",
       },
-      { id: 102, title: "Last Train Home", artist: "Circular Moonray", durationLabel: "4:08", lyrics: null },
-      { id: 103, title: "Blue Platform", artist: "Circular Moonray", durationLabel: "2:57", lyrics: null },
+      { id: 102, title: "Last Train Home", artist: "Circular Moonray", durationLabel: "4:08", hasLyrics: false, lyrics: null },
+      { id: 103, title: "Blue Platform", artist: "Circular Moonray", durationLabel: "2:57", hasLyrics: false, lyrics: null },
     ],
   },
   {
@@ -28,9 +29,9 @@ export const mockAlbums: Album[] = [
     coverUrl:
       "https://images.unsplash.com/photo-1494232410401-ad00d5433cfa?auto=format&fit=crop&w=640&q=80",
     tracks: [
-      { id: 201, title: "Soft Machines", artist: "Astra Field", durationLabel: "3:21" },
-      { id: 202, title: "Paper Sleeve", artist: "Astra Field", durationLabel: "3:54" },
-      { id: 203, title: "Archive Dust", artist: "Astra Field", durationLabel: "4:31" },
+      { id: 201, title: "Soft Machines", artist: "Astra Field", durationLabel: "3:21", hasLyrics: false },
+      { id: 202, title: "Paper Sleeve", artist: "Astra Field", durationLabel: "3:54", hasLyrics: false },
+      { id: 203, title: "Archive Dust", artist: "Astra Field", durationLabel: "4:31", hasLyrics: false },
     ],
   },
   {
@@ -41,9 +42,9 @@ export const mockAlbums: Album[] = [
     coverUrl:
       "https://images.unsplash.com/photo-1465847899084-d164df4dedc6?auto=format&fit=crop&w=640&q=80",
     tracks: [
-      { id: 301, title: "First Snow", artist: "Mica Notes", durationLabel: "2:48" },
-      { id: 302, title: "Glass Echo", artist: "Mica Notes", durationLabel: "5:12" },
-      { id: 303, title: "Quiet Street", artist: "Mica Notes", durationLabel: "3:36" },
+      { id: 301, title: "First Snow", artist: "Mica Notes", durationLabel: "2:48", hasLyrics: false },
+      { id: 302, title: "Glass Echo", artist: "Mica Notes", durationLabel: "5:12", hasLyrics: false },
+      { id: 303, title: "Quiet Street", artist: "Mica Notes", durationLabel: "3:36", hasLyrics: false },
     ],
   },
 ];

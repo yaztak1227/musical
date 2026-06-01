@@ -56,7 +56,7 @@ pub struct TrackRecord {
     pub track_number: Option<i64>,
     pub disc_number: Option<i64>,
     pub file_path: String,
-    pub lyrics: Option<String>,
+    pub has_lyrics: bool,
 }
 
 #[derive(Debug, Serialize)]
@@ -184,6 +184,19 @@ pub fn load_snapshot(app: &AppHandle) -> Result<LibrarySnapshot, String> {
     }
 
     Ok(snapshot)
+}
+
+pub fn load_track_lyrics(app: &AppHandle, track_id: i64) -> Result<Option<String>, String> {
+    let database_path = app_database_path(app)?;
+    let connection = open_database(&database_path)?;
+
+    connection
+        .query_row("SELECT lyrics FROM tracks WHERE id = ?1", [track_id], |row| {
+            row.get::<_, Option<String>>(0)
+        })
+        .optional()
+        .map_err(to_error_string)?
+        .ok_or_else(|| format!("library.error.trackNotFound\t{track_id}"))
 }
 
 pub fn scan_folder(app: &AppHandle, folder_path: &str) -> Result<ScanSummary, String> {
@@ -506,7 +519,7 @@ fn read_snapshot(connection: &Connection, database_path: &Path) -> Result<Librar
 fn load_tracks(connection: &Connection, album_id: i64) -> Result<Vec<TrackRecord>, String> {
     let mut statement = connection
         .prepare(
-            "SELECT id, title, artist, duration_seconds, track_number, disc_number, file_path, lyrics
+            "SELECT id, title, artist, duration_seconds, track_number, disc_number, file_path, lyrics IS NOT NULL AND TRIM(lyrics) != ''
              FROM tracks
              WHERE album_id = ?1
              ORDER BY COALESCE(disc_number, 0), COALESCE(track_number, 0), title COLLATE NOCASE",
@@ -523,7 +536,7 @@ fn load_tracks(connection: &Connection, album_id: i64) -> Result<Vec<TrackRecord
                 track_number: row.get(4)?,
                 disc_number: row.get(5)?,
                 file_path: row.get(6)?,
-                lyrics: row.get(7)?,
+                has_lyrics: row.get(7)?,
             })
         })
         .map_err(to_error_string)?;

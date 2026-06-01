@@ -76,10 +76,15 @@ jobs:
       - name: Build Tauri bundle
         run: npm run tauri -- build
 
+      - name: Archive app bundle
+        shell: bash
+        run: |
+          mkdir -p artifacts
+          tar -C src-tauri/target/release/bundle -czf "artifacts/${{ matrix.platform.artifact }}.tar.gz" .
+
       - name: Upload app bundle
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.platform.artifact }}
-          path: |
-            src-tauri/target/release/bundle/**
+          path: artifacts/${{ matrix.platform.artifact }}.tar.gz
           if-no-files-found: error
