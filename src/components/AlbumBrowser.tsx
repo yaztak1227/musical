@@ -1,5 +1,5 @@
 import { memo, type RefObject, useEffect, useMemo, useRef } from "react";
-import { ArrowDownAZ, ArrowUpAZ, ListMusic, Maximize2, Minimize2, Play, ScrollText, Search } from "lucide-react";
+import { ArrowDownAZ, ArrowUpAZ, ListMusic, Maximize2, Minimize2, Pause, Play, ScrollText, Search } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -31,11 +31,14 @@ type AlbumBrowserProps = {
   albumSortMode: AlbumSortMode;
   albumViewMode: AlbumViewMode;
   isTauriRuntime: boolean;
+  isPlaying: boolean;
   panelRef: RefObject<HTMLElement | null>;
   lyricsOnly: boolean;
+  playbackAlbumId: number | null;
   query: string;
   selectedAlbumId: number | null;
   t: TFunction;
+  onPausePlayback: () => void;
   onPlayAlbum: (album: Album) => void;
   onQueryChange: (query: string) => void;
   onLyricsOnlyChange: (lyricsOnly: boolean) => void;
@@ -55,11 +58,14 @@ function AlbumBrowserComponent({
   albumSortMode,
   albumViewMode,
   isTauriRuntime,
+  isPlaying,
   panelRef,
   lyricsOnly,
+  playbackAlbumId,
   query,
   selectedAlbumId,
   t,
+  onPausePlayback,
   onPlayAlbum,
   onQueryChange,
   onLyricsOnlyChange,
@@ -194,43 +200,52 @@ function AlbumBrowserComponent({
                 <span role="columnheader">{t("listMode.trackCount")}</span>
                 <span aria-hidden="true" role="columnheader" />
               </div>
-              {albums.map((album) => (
-                <div
-                  className={album.id === selectedAlbumId ? "album-table-row active" : "album-table-row"}
-                  data-album-id={album.id}
-                  key={album.id}
-                  onClick={() => onSelectAlbum(album)}
-                  role="row"
-                >
-                  <span className="table-primary" role="cell">
+              {albums.map((album) => {
+                const isPlaybackAlbumPlaying = isPlaying && album.id === playbackAlbumId;
+                const playbackActionLabel = isPlaybackAlbumPlaying ? t("player.pause") : t("album.playSelected");
+
+                return (
+                  <div
+                    className={album.id === selectedAlbumId ? "album-table-row active" : "album-table-row"}
+                    data-album-id={album.id}
+                    key={album.id}
+                    onClick={() => onSelectAlbum(album)}
+                    role="row"
+                  >
+                    <span className="table-primary" role="cell">
+                      <button
+                        className="album-table-select-button"
+                        onFocus={prepareMarquee}
+                        onMouseEnter={prepareMarquee}
+                        type="button"
+                      >
+                        <span className="marquee-wrap">
+                          <span className="marquee-text">{localizeLibraryText(album.title, t)}</span>
+                        </span>
+                      </button>
+                    </span>
+                    <span role="cell">{localizeLibraryText(album.artist, t)}</span>
+                    <span role="cell">{album.yearLabel ?? album.year ?? t("library.fallbackYear")}</span>
+                    <span role="cell">{t("player.queueCount", { count: album.tracks.length })}</span>
                     <button
-                      className="album-table-select-button"
-                      onFocus={prepareMarquee}
-                      onMouseEnter={prepareMarquee}
+                      aria-label={playbackActionLabel}
+                      className="album-table-play-button"
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        if (isPlaybackAlbumPlaying) {
+                          onPausePlayback();
+                        } else {
+                          onPlayAlbum(album);
+                        }
+                      }}
+                      title={playbackActionLabel}
                       type="button"
                     >
-                      <span className="marquee-wrap">
-                        <span className="marquee-text">{localizeLibraryText(album.title, t)}</span>
-                      </span>
+                      {isPlaybackAlbumPlaying ? <Pause aria-hidden="true" /> : <Play aria-hidden="true" />}
                     </button>
-                  </span>
-                  <span role="cell">{localizeLibraryText(album.artist, t)}</span>
-                  <span role="cell">{album.yearLabel ?? album.year ?? t("library.fallbackYear")}</span>
-                  <span role="cell">{t("player.queueCount", { count: album.tracks.length })}</span>
-                  <button
-                    aria-label={t("album.playSelected")}
-                    className="album-table-play-button"
-                    onClick={(event) => {
-                      event.stopPropagation();
-                      onPlayAlbum(album);
-                    }}
-                    title={t("album.playSelected")}
-                    type="button"
-                  >
-                    <Play aria-hidden="true" />
-                  </button>
-                </div>
-              ))}
+                  </div>
+                );
+              })}
             </div>
           ) : (
             <div className="album-list-table tracks" role="table" aria-label={t("listMode.trackTable")}>
@@ -312,8 +327,10 @@ function AlbumBrowserComponent({
                 <AlbumCard
                   album={album}
                   isActive={album.id === selectedAlbumId}
+                  isPlaying={isPlaying && album.id === playbackAlbumId}
                   isTauriRuntime={isTauriRuntime}
                   key={album.id}
+                  onPause={onPausePlayback}
                   onPlay={onPlayAlbum}
                   onSelect={onSelectAlbum}
                   t={t}

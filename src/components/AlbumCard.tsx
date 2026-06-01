@@ -1,6 +1,6 @@
 import { memo, useEffect, useMemo } from "react";
 import { Button } from "@/components/ui/button";
-import { Play } from "lucide-react";
+import { Pause, Play } from "lucide-react";
 import type { TranslationKey } from "@/i18n";
 import type { Album } from "@/types/audio";
 import type { AlbumViewMode } from "@/types/app";
@@ -58,17 +58,20 @@ export class AlbumCardFactory {
 type AlbumCardProps = {
   album: Album;
   isActive: boolean;
+  isPlaying: boolean;
   isTauriRuntime: boolean;
   variant: AlbumCardVariant;
   t: TFunction;
+  onPause: () => void;
   onPlay: (album: Album) => void;
   onSelect: (album: Album) => void;
 };
 
-function AlbumCardComponent({ album, isActive, isTauriRuntime, variant, t, onPlay, onSelect }: AlbumCardProps) {
+function AlbumCardComponent({ album, isActive, isPlaying, isTauriRuntime, variant, t, onPause, onPlay, onSelect }: AlbumCardProps) {
   const albumTitle = localizeLibraryText(album.title, t);
   const albumArtist = localizeLibraryText(album.artist, t);
   const albumYear = album.yearLabel ?? album.year;
+  const hoverActionLabel = isPlaying ? t("player.pause") : t("album.playSelected");
   const artworkSrc = useMemo(
     () => getArtworkSrc(album, isTauriRuntime),
     [album.artworkPath, album.coverUrl, isTauriRuntime],
@@ -98,24 +101,32 @@ function AlbumCardComponent({ album, isActive, isTauriRuntime, variant, t, onPla
             </span>
           )}
           <span
-            aria-label={t("album.playSelected")}
+            aria-label={hoverActionLabel}
             className="album-hover-play"
             onClick={(event) => {
               event.stopPropagation();
-              onPlay(album);
+              if (isPlaying) {
+                onPause();
+              } else {
+                onPlay(album);
+              }
             }}
             onKeyDown={(event) => {
               if (event.key === "Enter" || event.key === " ") {
                 event.preventDefault();
                 event.stopPropagation();
-                onPlay(album);
+                if (isPlaying) {
+                  onPause();
+                } else {
+                  onPlay(album);
+                }
               }
             }}
             role="button"
             tabIndex={0}
-            title={t("album.playSelected")}
+            title={hoverActionLabel}
           >
-            <Play aria-hidden="true" />
+            {isPlaying ? <Pause aria-hidden="true" /> : <Play aria-hidden="true" />}
           </span>
         </span>
       ) : null}

@@ -35,8 +35,9 @@ test("filters albums, selects a track, and opens track details", async ({ page }
   await expect(page.getByRole("region", { name: "Selected album" })).toContainText("North Window");
   await northWindowRow.getByRole("button", { name: "Play album" }).click();
   await expect(page.getByLabel("Player")).toContainText("First Snow");
-  await expect(page.getByRole("button", { name: "Pause" })).toBeVisible();
-  await page.getByRole("button", { name: "Pause" }).click();
+  await expect(northWindowRow.getByRole("button", { name: "Pause" })).toBeVisible();
+  await expect(page.getByLabel("Player").getByRole("button", { name: "Pause" })).toBeVisible();
+  await page.getByLabel("Player").getByRole("button", { name: "Pause" }).click();
   await page.getByRole("tab", { name: "Large icons" }).click();
 
   await page.getByLabel("Search albums").fill("north");
@@ -71,4 +72,87 @@ test("switches the interface language", async ({ page }) => {
   await expect(page.getByText("3 件")).toBeVisible();
   await expect(page.getByLabel("音楽フォルダ")).toBeVisible();
   await expect(page.getByRole("button", { name: "ライブラリをスキャン" })).toBeVisible();
+});
+
+test("restores playback preferences", async ({ page }) => {
+  await page.addInitScript(() => {
+    window.localStorage.setItem("musical.locale", "en");
+    window.localStorage.setItem(
+      "musical.playbackPreferences",
+      JSON.stringify({
+        isShuffle: true,
+        playbackAlbumId: 3,
+        repeatMode: "all",
+        selectedAlbumId: 2,
+      }),
+    );
+  });
+  await page.goto("/");
+
+  await expect(page.getByRole("region", { name: "Selected album" })).toContainText("Room Tone");
+  await expect(page.getByLabel("Player")).toContainText("First Snow");
+  await expect(page.getByRole("button", { name: "Shuffle" })).toHaveAttribute("aria-pressed", "true");
+  await expect(page.getByRole("button", { name: "Repeat all" })).toBeVisible();
+});
+
+test("syncs system media session playback actions", async ({ page }) => {
+  await page.addInitScript(() => {
+    const testWindow = window as Window & {
+      MediaMetadata: typeof MediaMetadata;
+      __mediaSessionHandlers: Partial<Record<MediaSessionAction, MediaSessionActionHandler | null>>;
+    };
+    testWindow.__mediaSessionHandlers = {};
+    testWindow.MediaMetadata = class {
+      album?: string;
+      artist?: string;
+      title?: string;
+
+      constructor(metadata: MediaMetadataInit) {
+        Object.assign(this, metadata);
+      }
+    } as typeof MediaMetadata;
+
+    Object.defineProperty(navigator, "mediaSession", {
+      configurable: true,
+      value: {
+        metadata: null,
+        playbackState: "none",
+        setActionHandler(action: MediaSessionAction, handler: MediaSessionActionHandler | null) {
+          testWindow.__mediaSessionHandlers[action] = handler;
+        },
+      },
+    });
+    window.localStorage.setItem("musical.locale", "en");
+  });
+  await page.goto("/");
+
+  await page.getByLabel("Player").getByRole("button", { name: "Play", exact: true }).click();
+  await expect(page.getByLabel("Player").getByRole("button", { name: "Pause" })).toBeVisible();
+  await expect(page.evaluate(() => navigator.mediaSession.playbackState)).resolves.toBe("playing");
+
+  await page.evaluate(() => {
+    const testWindow = window as Window & {
+      __mediaSessionHandlers: Partial<Record<MediaSessionAction, MediaSessionActionHandler | null>>;
+    };
+    testWindow.__mediaSessionHandlers.pause?.({ action: "pause" });
+  });
+  await expect(page.getByLabel("Player").getByRole("button", { name: "Play", exact: true })).toBeVisible();
+  await expect(page.evaluate(() => navigator.mediaSession.playbackState)).resolves.toBe("paused");
+
+  await page.evaluate(() => {
+    const testWindow = window as Window & {
+      __mediaSessionHandlers: Partial<Record<MediaSessionAction, MediaSessionActionHandler | null>>;
+    };
+    testWindow.__mediaSessionHandlers.play?.({ action: "play" });
+  });
+  await expect(page.getByLabel("Player").getByRole("button", { name: "Pause" })).toBeVisible();
+
+  await page.evaluate(() => {
+    const testWindow = window as Window & {
+      __mediaSessionHandlers: Partial<Record<MediaSessionAction, MediaSessionActionHandler | null>>;
+    };
+    testWindow.__mediaSessionHandlers.stop?.({ action: "stop" });
+  });
+  await expect(page.getByLabel("Player").getByRole("button", { name: "Play", exact: true })).toBeVisible();
+  await expect(page.getByLabel("Player")).toContainText("Station Lights");
 });

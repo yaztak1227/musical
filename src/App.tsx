@@ -34,6 +34,54 @@ import { AlbumBrowser } from "./components/AlbumBrowser";
 import { PlayerBar, type PlayerBarHandle } from "./components/PlayerBar";
 
 const isTauriRuntime = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
+const playbackPreferencesKey = "musical.playbackPreferences";
+
+type PlaybackPreferences = {
+  isShuffle: boolean;
+  playbackAlbumId: number | null;
+  repeatMode: RepeatMode;
+  selectedAlbumId: number | null;
+};
+
+function isRepeatMode(value: unknown): value is RepeatMode {
+  return value === "off" || value === "all" || value === "one";
+}
+
+function parseStoredAlbumId(value: unknown) {
+  return typeof value === "number" && Number.isInteger(value) ? value : null;
+}
+
+function getStoredPlaybackPreferences(): PlaybackPreferences {
+  const fallback: PlaybackPreferences = {
+    isShuffle: false,
+    playbackAlbumId: null,
+    repeatMode: "off",
+    selectedAlbumId: null,
+  };
+
+  try {
+    const storedPreferences = window.localStorage.getItem(playbackPreferencesKey);
+    if (!storedPreferences) return fallback;
+
+    const parsedPreferences = JSON.parse(storedPreferences) as Partial<Record<keyof PlaybackPreferences, unknown>>;
+    return {
+      isShuffle: parsedPreferences.isShuffle === true,
+      playbackAlbumId: parseStoredAlbumId(parsedPreferences.playbackAlbumId),
+      repeatMode: isRepeatMode(parsedPreferences.repeatMode) ? parsedPreferences.repeatMode : "off",
+      selectedAlbumId: parseStoredAlbumId(parsedPreferences.selectedAlbumId),
+    };
+  } catch {
+    return fallback;
+  }
+}
+
+function getInitialAlbumId(albums: Album[], storedAlbumId: number | null) {
+  return albums.some((album) => album.id === storedAlbumId) ? storedAlbumId : albums[0]?.id ?? null;
+}
+
+function getInitialTrack(albums: Album[], albumId: number | null) {
+  return albums.find((album) => album.id === albumId)?.tracks[0] ?? albums[0]?.tracks[0] ?? null;
+}
 
 function getHeapUsageMb() {
   const performanceWithMemory = performance as Performance & {
@@ -108,23 +156,26 @@ function App() {
     return (key: TranslationKey, values?: Record<string, string | number>) => translate(locale, key, values);
   }, [locale]);
   const [query, setQuery] = useState("");
+  const storedPlaybackPreferences = useMemo(() => getStoredPlaybackPreferences(), []);
   const [libraryPath, setLibraryPath] = useState("");
   const [libraryInfo, setLibraryInfo] = useState<I18nMessage | null>(
     isTauriRuntime ? { key: "status.noLibraryScanned" } : { key: "status.webMockMode" },
   );
   const [albums, setAlbums] = useState<Album[]>(isTauriRuntime ? [] : mockAlbums);
-  const [selectedAlbumId, setSelectedAlbumId] = useState<number | null>(
-    isTauriRuntime ? null : mockAlbums[0]?.id ?? null,
+  const [selectedAlbumId, setSelectedAlbumId] = useState<number | null>(() =>
+    isTauriRuntime ? null : getInitialAlbumId(mockAlbums, storedPlaybackPreferences.selectedAlbumId),
   );
-  const [playbackAlbumId, setPlaybackAlbumId] = useState<number | null>(
-    isTauriRuntime ? null : mockAlbums[0]?.id ?? null,
+  const [playbackAlbumId, setPlaybackAlbumId] = useState<number | null>(() =>
+    isTauriRuntime ? null : getInitialAlbumId(mockAlbums, storedPlaybackPreferences.playbackAlbumId),
   );
-  const [currentTrack, setCurrentTrack] = useState<Track | null>(isTauriRuntime ? null : mockAlbums[0]?.tracks[0] ?? null);
+  const [currentTrack, setCurrentTrack] = useState<Track | null>(() =>
+    isTauriRuntime ? null : getInitialTrack(mockAlbums, getInitialAlbumId(mockAlbums, storedPlaybackPreferences.playbackAlbumId)),
+  );
   const [isPlaying, setIsPlaying] = useState(false);
   const [audioSourceKey, setAudioSourceKey] = useState<string | null>(null);
   const [isScanning, setIsScanning] = useState(false);
-  const [isShuffle, setIsShuffle] = useState(false);
-  const [repeatMode, setRepeatMode] = useState<RepeatMode>("off");
+  const [isShuffle, setIsShuffle] = useState(storedPlaybackPreferences.isShuffle);
+  const [repeatMode, setRepeatMode] = useState<RepeatMode>(storedPlaybackPreferences.repeatMode);
   const [albumViewMode, setAlbumViewMode] = useState<AlbumViewMode>("large");
   const [albumListMode, setAlbumListMode] = useState<AlbumListMode>("album");
   const [albumSortMode, setAlbumSortMode] = useState<AlbumSortMode>("title");
@@ -158,6 +209,16 @@ function App() {
     document.documentElement.dataset.theme = themeName;
     window.localStorage.setItem("musical.theme", themeName);
   }, [themeName]);
+
+  useEffect(() => {
+    const playbackPreferences: PlaybackPreferences = {
+      isShuffle,
+      playbackAlbumId,
+      repeatMode,
+      selectedAlbumId,
+    };
+    window.localStorage.setItem(playbackPreferencesKey, JSON.stringify(playbackPreferences));
+  }, [isShuffle, playbackAlbumId, repeatMode, selectedAlbumId]);
 
   useEffect(() => {
     if (!isTauriRuntime) return;
@@ -272,6 +333,19 @@ function App() {
   });
 
   useEffect(() => {
+    if (!("mediaSession" in navigator)) return;
+
+    navigator.mediaSession.playbackState = currentTrack ? (isPlaying ? "playing" : "paused") : "none";
+    navigator.mediaSession.metadata = currentTrack && typeof MediaMetadata !== "undefined"
+      ? new MediaMetadata({
+          album: playbackAlbum ? localizeLibraryText(playbackAlbum.title, t) : undefined,
+          artist: localizeLibraryText(currentTrack.artist, t),
+          title: localizeLibraryText(currentTrack.title, t),
+        })
+      : null;
+  }, [currentTrack, isPlaying, playbackAlbum, t]);
+
+  useEffect(() => {
     if (!selectedAlbum || isAlbumTagEditing) return;
     setAlbumTagDraft(makeAlbumTagDraft(selectedAlbum));
     setAlbumTagMessage(null);
@@ -300,9 +374,12 @@ function App() {
     setTrackLyricsById({});
     setLibraryPath(snapshot.lastScanPath ?? "");
     if (options.resetPlayback) {
-      setSelectedAlbumId(snapshot.albums[0]?.id ?? null);
-      setPlaybackAlbumId(snapshot.albums[0]?.id ?? null);
-      setCurrentTrack(snapshot.albums[0]?.tracks[0] ?? null);
+      const restoredSelectedAlbumId = getInitialAlbumId(snapshot.albums, storedPlaybackPreferences.selectedAlbumId);
+      const restoredPlaybackAlbumId =
+        getInitialAlbumId(snapshot.albums, storedPlaybackPreferences.playbackAlbumId) ?? restoredSelectedAlbumId;
+      setSelectedAlbumId(restoredSelectedAlbumId);
+      setPlaybackAlbumId(restoredPlaybackAlbumId);
+      setCurrentTrack(getInitialTrack(snapshot.albums, restoredPlaybackAlbumId));
     }
     setLibraryInfo(
       snapshot.albums.length > 0
@@ -446,6 +523,18 @@ function App() {
       return;
     }
     setIsPlaying((value) => !value);
+  }
+
+  function playPlayback() {
+    if (!currentTrack && selectedAlbum) {
+      playAlbum(selectedAlbum);
+      return;
+    }
+    setIsPlaying(Boolean(currentTrack));
+  }
+
+  function pausePlayback() {
+    setIsPlaying(false);
   }
 
   function playPreviousTrack() {
@@ -703,6 +792,8 @@ function App() {
 
   const mediaKeyHandlers = useMemo(
     () => ({
+      onPlayPlayback: playPlayback,
+      onPausePlayback: pausePlayback,
       onTogglePlayback: togglePlayback,
       onPreviousTrack: playPreviousTrack,
       onNextTrack: () => playNextTrack(),
@@ -835,8 +926,11 @@ function App() {
         albumListMode={albumListMode}
         albums={filteredAlbums}
         albumViewMode={albumViewMode}
+        isPlaying={isPlaying}
         isTauriRuntime={isTauriRuntime}
         lyricsOnly={lyricsOnly}
+        playbackAlbumId={playbackAlbum?.id ?? null}
+        onPausePlayback={pausePlayback}
         onPlayAlbum={playAlbum}
         onListModeChange={setAlbumListMode}
         onLyricsOnlyChange={setLyricsOnly}

@@ -1,6 +1,8 @@
 import { useEffect } from "react";
 
 type MediaKeyHandlers = {
+  onPlayPlayback: () => void;
+  onPausePlayback: () => void;
   onTogglePlayback: () => void;
   onPreviousTrack: () => void;
   onNextTrack: () => void;
@@ -29,6 +31,13 @@ export function useGlobalMediaKeys(handlers: MediaKeyHandlers) {
       }
 
       switch (action) {
+        case "play":
+          handlers.onPlayPlayback();
+          break;
+        case "pause":
+        case "stop":
+          handlers.onPausePlayback();
+          break;
         case "toggle-playback":
           handlers.onTogglePlayback();
           break;
@@ -62,6 +71,24 @@ export function useGlobalMediaKeys(handlers: MediaKeyHandlers) {
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [handlers]);
+
+  useEffect(() => {
+    if (!("mediaSession" in navigator)) return;
+
+    setMediaSessionActionHandler("play", handlers.onPlayPlayback);
+    setMediaSessionActionHandler("pause", handlers.onPausePlayback);
+    setMediaSessionActionHandler("stop", handlers.onPausePlayback);
+    setMediaSessionActionHandler("previoustrack", handlers.onPreviousTrack);
+    setMediaSessionActionHandler("nexttrack", handlers.onNextTrack);
+
+    return () => {
+      setMediaSessionActionHandler("play", null);
+      setMediaSessionActionHandler("pause", null);
+      setMediaSessionActionHandler("stop", null);
+      setMediaSessionActionHandler("previoustrack", null);
+      setMediaSessionActionHandler("nexttrack", null);
+    };
+  }, [handlers]);
 }
 
 function getMediaKeyAction(key: string, event: KeyboardEvent) {
@@ -87,11 +114,20 @@ function getMediaKeyAction(key: string, event: KeyboardEvent) {
   }
 
   switch (key) {
+    case "mediaplay":
+      return "play";
+    case "mediapause":
+      return "pause";
+    case "mediastop":
+      return "stop";
+    case "mediaplaypause":
     case " ":
     case "spacebar":
       return "toggle-playback";
+    case "mediaprevioustrack":
     case "arrowleft":
       return "previous-track";
+    case "medianexttrack":
     case "arrowright":
       return "next-track";
     case "arrowup":
@@ -100,6 +136,14 @@ function getMediaKeyAction(key: string, event: KeyboardEvent) {
       return "volume-down";
     default:
       return null;
+  }
+}
+
+function setMediaSessionActionHandler(action: MediaSessionAction, handler: MediaSessionActionHandler | null) {
+  try {
+    navigator.mediaSession.setActionHandler(action, handler);
+  } catch {
+    // Some WebViews expose mediaSession but do not support every action.
   }
 }
 
