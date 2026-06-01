@@ -168,3 +168,7 @@ npm run test:e2e:ui
 - ローカルファイル操作、実再生、タグ保存は `npm run tauri dev` で起動したデスクトップアプリで確認します。
 - スキャン結果は SQLite に保存され、次回起動時に読み込まれます。
 - スキャン時はライブラリ内容を再構築します。
+
+## ライセンス
+
+MIT License. 詳細は [LICENSE](/Users/takumi/git/musical/LICENSE) を参照してください。
