@@ -8,6 +8,8 @@ import {
   type RemoteAccessMode,
 } from "./remoteAccess";
 
+const isDevRemoteAccessRuntime = isTauriRuntime && import.meta.env.DEV;
+
 export function useRemoteAccess() {
   const [isPublicDevApiAvailable, setIsPublicDevApiAvailable] = useState(false);
   const [isPublicDevEnabled, setIsPublicDevEnabled] = useState(false);
@@ -23,7 +25,7 @@ export function useRemoteAccess() {
   const remoteAccessMode: RemoteAccessMode = isPublicDevEnabled || isPublicDevStarting ? "open" : isLocalDevEnabled ? "lan" : "off";
 
   useEffect(() => {
-    if (!isTauriRuntime) return;
+    if (!isDevRemoteAccessRuntime) return;
     void initializeRemoteAccessMode();
   }, []);
 

@@ -79,7 +79,11 @@ jobs:
         shell: bash
         run: |
           mkdir -p artifacts
-          tar -C src-tauri/target/release/bundle -czf "artifacts/${{ matrix.platform.artifact }}.tar.gz" .
+          if [ "${{ matrix.platform.name }}" = "macos" ]; then
+            tar -C src-tauri/target/release/bundle/macos -czf "artifacts/${{ matrix.platform.artifact }}.tar.gz" Musical.app
+          else
+            tar -C src-tauri/target/release/bundle -czf "artifacts/${{ matrix.platform.artifact }}.tar.gz" .
+          fi
 
       - name: Upload app bundle
         uses: actions/upload-artifact@v4
