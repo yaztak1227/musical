@@ -1495,9 +1495,9 @@ mod tests {
 
     #[test]
     fn displays_multiple_album_artists_as_etc() {
-        let artists = BTreeSet::from(["Circular Moonray".to_owned(), "Mica Notes".to_owned()]);
+        let artists = BTreeSet::from(["Transit Ensemble".to_owned(), "Mica Notes".to_owned()]);
 
-        assert_eq!(display_album_artist(&artists), "Circular Moonrayなど");
+        assert_eq!(display_album_artist(&artists), "Mica Notesなど");
     }
 
     #[test]

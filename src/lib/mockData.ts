@@ -127,7 +127,7 @@ export const mockAlbums: Album[] = [
   {
     id: 1,
     title: "Midnight Transit",
-    artist: "Circular Moonray",
+    artist: "Transit Ensemble",
     year: 2026,
     coverUrl:
       "https://images.unsplash.com/photo-1516280440614-37939bbacd81?auto=format&fit=crop&w=640&q=80",
@@ -135,13 +135,13 @@ export const mockAlbums: Album[] = [
       {
         id: 101,
         title: "Station Lights",
-        artist: "Circular Moonray",
+        artist: "Transit Ensemble",
         durationLabel: "3:42",
         hasLyrics: true,
         lyrics: "Station lights are passing slow\nA signal hums below\nWe wait between the rails\nUntil the city glows",
       },
-      { id: 102, title: "Last Train Home", artist: "Circular Moonray", durationLabel: "4:08", hasLyrics: false, lyrics: null },
-      { id: 103, title: "Blue Platform", artist: "Circular Moonray", durationLabel: "2:57", hasLyrics: false, lyrics: null },
+      { id: 102, title: "Last Train Home", artist: "Transit Ensemble", durationLabel: "4:08", hasLyrics: false, lyrics: null },
+      { id: 103, title: "Blue Platform", artist: "Transit Ensemble", durationLabel: "2:57", hasLyrics: false, lyrics: null },
     ],
   },
   {
