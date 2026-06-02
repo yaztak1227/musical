@@ -5,6 +5,7 @@ import path from "path";
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { request as httpRequest, type IncomingMessage, type ServerResponse } from "node:http";
 import { networkInterfaces } from "node:os";
+import { getCACertificates, setDefaultCACertificates } from "node:tls";
 
 // @ts-expect-error process is a nodejs global
 const host = process.env.TAURI_DEV_HOST;
@@ -20,11 +21,19 @@ const cloudflaredCliPath = path.resolve(
   ".bin",
   process.platform === "win32" ? "cloudflared.cmd" : "cloudflared",
 );
+let didConfigureSystemCertificates = false;
 
 type CloudflareTunnel = {
   close: () => Promise<void>;
   getURL: () => Promise<string>;
 };
+
+function configureWindowsSystemCertificates() {
+  if (process.platform !== "win32" || didConfigureSystemCertificates) return;
+  didConfigureSystemCertificates = true;
+
+  setDefaultCACertificates(getCACertificates("system"));
+}
 
 function publicDevTunnelPlugin() {
   let tunnel: CloudflareTunnel | undefined;
@@ -72,6 +81,7 @@ function publicDevTunnelPlugin() {
   }
 
   async function startReachableTunnel(port: number, attemptedUrls: string[]) {
+    configureWindowsSystemCertificates();
     tunnel = startCloudflareTunnel(`http://127.0.0.1:${port}`);
     const nextPublicUrl = await withTimeout(
       tunnel.getURL(),
