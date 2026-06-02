@@ -6,7 +6,7 @@ use library::{
     TrackArtworkUpdateRequest, TrackArtworkUpdateResult, TrackTagUpdateRequest,
     TrackTagUpdateResult,
 };
-use log::{error, info};
+use log::{error, info, LevelFilter};
 
 #[tauri::command]
 fn app_status() -> &'static str {
@@ -56,7 +56,11 @@ fn update_track_artwork(
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
-        .plugin(tauri_plugin_log::Builder::new().build())
+        .plugin(
+            tauri_plugin_log::Builder::new()
+                .level(LevelFilter::Info)
+                .build(),
+        )
         .plugin(tauri_plugin_opener::init())
         .setup(|app| {
             info!("starting Musical desktop app");
