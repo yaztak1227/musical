@@ -1,3 +1,3 @@
 # Push Checklist
 
-- Before pushing Git tags, verify that every multilingual locale file contains all translation tags, and update any missing tags so each locale file is complete.
+- Before pushing Git tags, compare the translation tag sets across all multilingual locale files, and update any missing tags so every locale file is complete.
