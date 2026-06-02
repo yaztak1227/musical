@@ -1,14 +1,16 @@
 import { convertFileSrc, invoke } from "@tauri-apps/api/core";
 
 export const isTauriRuntime = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
+export const isMockDataRuntime = import.meta.env.VITE_MOCK_DATA === "true";
 
 const localBrowserHosts = new Set(["localhost", "127.0.0.1", "::1"]);
 const localApiBaseUrl = "http://127.0.0.1:1422";
 
 export const isLocalBrowserRuntime =
   typeof window !== "undefined" && !isTauriRuntime && localBrowserHosts.has(window.location.hostname);
+export const isBrowserBackendRuntime = typeof window !== "undefined" && !isTauriRuntime && !isMockDataRuntime;
 
-export const hasRealBackend = isTauriRuntime || isLocalBrowserRuntime;
+export const hasRealBackend = !isMockDataRuntime;
 
 export type RemotePlayerState = {
   selectedAlbumId: number | null;
@@ -33,6 +35,7 @@ export type RemotePlayerCommandType =
   | "seek"
   | "select-album"
   | "select-track"
+  | "set-volume"
   | "toggle-mute"
   | "toggle-playback"
   | "toggle-shuffle"
@@ -49,7 +52,7 @@ export async function backendInvoke<T>(command: string, payload?: Record<string,
     return invoke<T>(command, payload);
   }
 
-  const response = await fetch(`${localApiBaseUrl}/api/${command}`, {
+  const response = await fetch(`/api/${command}`, {
     body: payload ? JSON.stringify(payload) : undefined,
     headers: payload ? { "Content-Type": "application/json" } : undefined,
     method: payload ? "POST" : "GET",
@@ -93,11 +96,11 @@ export async function getRemotePlayerCommands(afterId: number) {
 
 export function getBackendMediaSrc(path: string) {
   if (isTauriRuntime) return convertFileSrc(path);
-  return `${localApiBaseUrl}/api/media?path=${encodeURIComponent(path)}`;
+  return `/api/media?path=${encodeURIComponent(path)}`;
 }
 
 async function localApiRequest<T>(path: string, init?: RequestInit) {
-  const response = await fetch(`${localApiBaseUrl}${path}`, init);
+  const response = await fetch(`${isTauriRuntime ? localApiBaseUrl : ""}${path}`, init);
   if (!response.ok) {
     throw await response.text();
   }

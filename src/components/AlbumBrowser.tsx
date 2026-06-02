@@ -1,5 +1,5 @@
-import { memo, type RefObject, useEffect, useMemo, useRef } from "react";
-import { ArrowDownAZ, ArrowUpAZ, ListMusic, Maximize2, Minimize2, Pause, Play, ScrollText, Search } from "lucide-react";
+import { memo, type RefObject, useEffect, useMemo, useRef, useState } from "react";
+import { ArrowDownAZ, ArrowUpAZ, ListMusic, Maximize2, Minimize2, Pause, Play, ScrollText, Search, SlidersHorizontal } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -78,6 +78,7 @@ function AlbumBrowserComponent({
   onViewModeChange,
 }: AlbumBrowserProps) {
   const renderCountRef = useRef(0);
+  const [isFilterPanelOpen, setIsFilterPanelOpen] = useState(false);
   renderCountRef.current += 1;
   const albumCardVariant = useMemo(() => AlbumCardFactory.create(albumViewMode), [albumViewMode]);
   const trackRows = useMemo(
@@ -110,8 +111,20 @@ function AlbumBrowserComponent({
       <div className="albums-panel-header">
         <div className="albums-title">
           <Badge variant="secondary">{t("albums.count", { count: albums.length })}</Badge>
+          <Button
+            aria-expanded={isFilterPanelOpen}
+            aria-label={t("filters.toggle")}
+            className="album-filter-toggle-button"
+            onClick={() => setIsFilterPanelOpen((value) => !value)}
+            title={t("filters.toggle")}
+            type="button"
+            variant="outline"
+          >
+            <SlidersHorizontal aria-hidden="true" />
+            <span>{t("filters.toggle")}</span>
+          </Button>
         </div>
-        <div className="album-toolbar">
+        <div className="album-toolbar" data-open={isFilterPanelOpen}>
           <div className="album-sort-field" aria-label={t("sort.label")}>
             <div className="album-sort-control">
               <Button

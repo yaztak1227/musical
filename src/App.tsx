@@ -1,12 +1,12 @@
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
-import { type CSSProperties, useCallback, useEffect, useEffectEvent, useMemo, useRef, useState } from "react";
+import { type CSSProperties, type TouchEvent, useCallback, useEffect, useEffectEvent, useMemo, useRef, useState } from "react";
+import { toDataURL } from "qrcode";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { FolderOpen, ListMusic, PanelLeftClose, PanelLeftOpen, Pencil, Save, ScrollText, X } from "lucide-react";
+import { FolderOpen, ListMusic, PanelLeftClose, PanelLeftOpen, Pencil, Save, ScrollText, Settings2, X } from "lucide-react";
 import "./App.css";
 import { getInitialLocale, getLocaleLabel, locales, translate, type Locale, type TranslationKey } from "./i18n";
 import type { Album, Track, LibrarySnapshot, ScanSummary } from "./types/audio";
@@ -28,7 +28,7 @@ import {
   getRemotePlayerCommands,
   getRemotePlayerState,
   hasRealBackend,
-  isLocalBrowserRuntime,
+  isBrowserBackendRuntime,
   isTauriRuntime,
   publishRemotePlayerState,
   sendRemotePlayerCommand,
@@ -46,6 +46,7 @@ import { AlbumBrowser } from "./components/AlbumBrowser";
 import { PlayerBar, type PlayerBarHandle } from "./components/PlayerBar";
 
 const playbackPreferencesKey = "musical.playbackPreferences";
+const publicDevTunnelApiPath = "/api/public-dev-tunnel";
 
 type PlaybackPreferences = {
   isShuffle: boolean;
@@ -53,6 +54,26 @@ type PlaybackPreferences = {
   repeatMode: RepeatMode;
   selectedAlbumId: number | null;
 };
+
+type PublicDevTunnelInfo = {
+  enabled: boolean;
+  isStarting: boolean;
+  url: string | null;
+};
+
+function isPublicDevTunnelInfo(value: unknown): value is PublicDevTunnelInfo {
+  const url = (value as Partial<PublicDevTunnelInfo> | null)?.url;
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    "enabled" in value &&
+    "isStarting" in value &&
+    "url" in value &&
+    typeof (value as PublicDevTunnelInfo).enabled === "boolean" &&
+    typeof (value as PublicDevTunnelInfo).isStarting === "boolean" &&
+    (url === null || (typeof url === "string" && url.startsWith("https://")))
+  );
+}
 
 function isRepeatMode(value: unknown): value is RepeatMode {
   return value === "off" || value === "all" || value === "one";
@@ -156,8 +177,11 @@ function App() {
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const playerBarRef = useRef<PlayerBarHandle | null>(null);
   const albumsPanelRef = useRef<HTMLElement | null>(null);
+  const albumPanelRef = useRef<HTMLElement | null>(null);
+  const albumPanelDragStartRef = useRef<{ isCollapsed: boolean; pointerY: number; scrollTop: number } | null>(null);
   const lastLibraryCommandIdRef = useRef(0);
   const lastRemoteCommandIdRef = useRef(0);
+  const remoteSyncRequestIdRef = useRef(0);
   const renderCountRef = useRef(0);
   const [locale, setLocale] = useState<Locale>(() => getInitialLocale());
   const [themeName, setThemeName] = useState<ThemeName>(() => {
@@ -195,7 +219,9 @@ function App() {
   const [albumSortDirection, setAlbumSortDirection] = useState<AlbumSortDirection>("asc");
   const [lyricsOnly, setLyricsOnly] = useState(false);
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
+  const [isAlbumPanelCollapsed, setIsAlbumPanelCollapsed] = useState(false);
   const [isLibraryMenuOpen, setIsLibraryMenuOpen] = useState(false);
+  const [isLibrarySettingsOpen, setIsLibrarySettingsOpen] = useState(false);
   const [playbackError, setPlaybackError] = useState<string | null>(null);
   const [isAlbumTagEditing, setIsAlbumTagEditing] = useState(false);
   const [albumTagDraft, setAlbumTagDraft] = useState<AlbumTagDraft>(() => makeAlbumTagDraft(mockAlbums[0] ?? null));
@@ -211,6 +237,12 @@ function App() {
   const [artworkDraftPath, setArtworkDraftPath] = useState("");
   const [artworkPreviewSrc, setArtworkPreviewSrc] = useState("");
   const [isSavingArtwork, setIsSavingArtwork] = useState(false);
+  const [isPublicDevApiAvailable, setIsPublicDevApiAvailable] = useState(false);
+  const [isPublicDevEnabled, setIsPublicDevEnabled] = useState(false);
+  const [isPublicDevStarting, setIsPublicDevStarting] = useState(false);
+  const [publicDevUrl, setPublicDevUrl] = useState<string | null>(null);
+  const [publicDevQrDataUrl, setPublicDevQrDataUrl] = useState<string | null>(null);
+  const [publicDevError, setPublicDevError] = useState<string | null>(null);
   renderCountRef.current += 1;
 
   useEffect(() => {
@@ -222,6 +254,88 @@ function App() {
     document.documentElement.dataset.theme = themeName;
     window.localStorage.setItem("musical.theme", themeName);
   }, [themeName]);
+
+  useEffect(() => {
+    if (!isTauriRuntime) return;
+    void refreshPublicDevTunnelStatus();
+  }, []);
+
+  useEffect(() => {
+    let isActive = true;
+
+    async function renderPublicDevQrCode() {
+      if (!publicDevUrl) {
+        setPublicDevQrDataUrl(null);
+        return;
+      }
+
+      const dataUrl = await toDataURL(publicDevUrl, {
+        errorCorrectionLevel: "M",
+        margin: 1,
+        width: 128,
+      });
+
+      if (isActive) setPublicDevQrDataUrl(dataUrl);
+    }
+
+    void renderPublicDevQrCode().catch(() => {
+      if (isActive) setPublicDevQrDataUrl(null);
+    });
+
+    return () => {
+      isActive = false;
+    };
+  }, [publicDevUrl]);
+
+  async function refreshPublicDevTunnelStatus() {
+    try {
+      const response = await fetch(publicDevTunnelApiPath);
+      if (!response.ok) return;
+
+      const tunnelInfo = (await response.json()) as unknown;
+      if (!isPublicDevTunnelInfo(tunnelInfo)) return;
+
+      setIsPublicDevApiAvailable(true);
+      setIsPublicDevEnabled(tunnelInfo.enabled);
+      setIsPublicDevStarting(tunnelInfo.isStarting);
+      setPublicDevUrl(tunnelInfo.url);
+      setPublicDevError(null);
+    } catch {
+      setIsPublicDevApiAvailable(false);
+    }
+  }
+
+  async function setPublicDevTunnelEnabled(enabled: boolean) {
+    setPublicDevError(null);
+    setIsPublicDevEnabled(enabled);
+    setIsPublicDevStarting(enabled);
+
+    try {
+      const response = await fetch(publicDevTunnelApiPath, {
+        body: JSON.stringify({ enabled }),
+        headers: { "Content-Type": "application/json" },
+        method: "POST",
+      });
+      const tunnelInfo = (await response.json()) as unknown;
+      if (!response.ok || !isPublicDevTunnelInfo(tunnelInfo)) {
+        const errorMessage =
+          typeof tunnelInfo === "object" && tunnelInfo && "error" in tunnelInfo
+            ? String((tunnelInfo as { error: unknown }).error)
+            : "Unknown error";
+        throw new Error(errorMessage);
+      }
+
+      setIsPublicDevApiAvailable(true);
+      setIsPublicDevEnabled(tunnelInfo.enabled);
+      setIsPublicDevStarting(tunnelInfo.isStarting);
+      setPublicDevUrl(tunnelInfo.url);
+    } catch (error) {
+      setIsPublicDevEnabled(false);
+      setIsPublicDevStarting(false);
+      setPublicDevUrl(null);
+      setPublicDevError(String(error instanceof Error ? error.message : error));
+    }
+  }
 
   useEffect(() => {
     const playbackPreferences: PlaybackPreferences = {
@@ -237,6 +351,17 @@ function App() {
     if (!hasRealBackend) return;
     void refreshLibrary();
   }, []);
+
+  useEffect(() => {
+    if (!isLibrarySettingsOpen) return;
+
+    function closeOnEscape(event: KeyboardEvent) {
+      if (event.key === "Escape") setIsLibrarySettingsOpen(false);
+    }
+
+    window.addEventListener("keydown", closeOnEscape);
+    return () => window.removeEventListener("keydown", closeOnEscape);
+  }, [isLibrarySettingsOpen]);
 
   useEffect(() => {
     if (albums.length === 0) {
@@ -274,7 +399,7 @@ function App() {
 
     releaseAudioSource(audio);
 
-    if (isTauriRuntime && currentTrack?.filePath) {
+    if (hasRealBackend && currentTrack?.filePath) {
       audio.src = getBackendMediaSrc(currentTrack.filePath);
       audio.load();
       setAudioSourceKey(currentTrack.filePath);
@@ -316,6 +441,7 @@ function App() {
   const queue = playbackAlbum?.tracks ?? [];
   const currentTrackIndex = currentTrack ? queue.findIndex((track) => track.id === currentTrack.id) : -1;
   const hasAlbumTagChanges = selectedAlbum ? isAlbumTagDraftChanged(albumTagDraft, selectedAlbum) : false;
+  const displayedLibraryPath = libraryPath.trim() || t("scan.selectLibrary");
   const detailAlbum =
     albums.find((album) => album.tracks.some((track) => track.id === detailTrackId)) ?? selectedAlbum;
   const detailTrack =
@@ -402,7 +528,7 @@ function App() {
   }
 
   function sendRemoteCommand(commandType: QueuedRemotePlayerCommand["commandType"], payload?: Record<string, unknown>) {
-    if (!isLocalBrowserRuntime) return false;
+    if (!isBrowserBackendRuntime) return false;
     void sendRemotePlayerCommand(commandType, payload).catch((error: unknown) => {
       setPlaybackError(String(error));
     });
@@ -431,7 +557,7 @@ function App() {
     setIsShuffle(state.isShuffle);
     setRepeatMode(isRepeatMode(state.repeatMode) ? state.repeatMode : "off");
     playerBarRef.current?.seekTo(state.currentTime, "remote-sync");
-    playerBarRef.current?.setVolume(state.volume);
+    setVolume(state.volume, "remote-sync");
   }
 
   function notifyLibraryChanged() {
@@ -463,6 +589,7 @@ function App() {
         key: "status.scanComplete",
         values: { albums: summary.albums, tracks: summary.importedTracks, libraryPath: summary.libraryPath },
       });
+      setIsLibrarySettingsOpen(false);
     } catch (error) {
       setLibraryInfo(toI18nError(error));
     } finally {
@@ -656,7 +783,7 @@ function App() {
       seekTo(0);
       setIsPlaying(true);
       const audio = audioRef.current;
-      if (audio && isTauriRuntime && currentTrack?.filePath) {
+      if (audio && hasRealBackend && currentTrack?.filePath) {
         void audio.play().catch((error: unknown) => setPlaybackError(String(error)));
       }
       return;
@@ -705,6 +832,13 @@ function App() {
     playerBarRef.current?.seekTo(nextTime, source);
   }
 
+  function setVolume(nextVolume: number, source = "programmatic") {
+    const boundedVolume = Math.min(1, Math.max(0, nextVolume));
+    if (source !== "remote-sync" && sendRemoteCommand("set-volume", { volume: boundedVolume })) return;
+
+    playerBarRef.current?.setVolume(boundedVolume);
+  }
+
   function jumpToAlbumLetter(letter: string) {
     const targetAlbum = getAlbumJumpTarget(filteredAlbums, letter, t);
     if (!targetAlbum) return;
@@ -720,6 +854,73 @@ function App() {
       top: scrollContainer.scrollTop + targetTop - containerTop,
       behavior: "smooth",
     });
+  }
+
+  function startAlbumPanelDrag(pointerY: number) {
+    albumPanelDragStartRef.current = {
+      isCollapsed: isAlbumPanelCollapsed,
+      pointerY,
+      scrollTop: albumPanelRef.current?.scrollTop ?? 0,
+    };
+  }
+
+  function overscrollAlbumPanel(pointerY: number) {
+    const dragStart = albumPanelDragStartRef.current;
+    if (!dragStart) return;
+
+    const dragDistance = pointerY - dragStart.pointerY;
+    if (dragStart.isCollapsed && dragDistance < -36) {
+      albumPanelDragStartRef.current = null;
+      setIsAlbumPanelCollapsed(false);
+    } else if (!dragStart.isCollapsed && dragDistance > dragStart.scrollTop + 36) {
+      albumPanelDragStartRef.current = null;
+      setIsAlbumPanelCollapsed(true);
+    }
+  }
+
+  function scrollAlbumPanel(deltaY: number) {
+    const panel = albumPanelRef.current;
+    if (isAlbumPanelCollapsed && deltaY > 18) {
+      setIsAlbumPanelCollapsed(false);
+    } else if (!isAlbumPanelCollapsed && (panel?.scrollTop ?? 0) + deltaY < -18) {
+      setIsAlbumPanelCollapsed(true);
+    }
+  }
+
+  function finishAlbumPanelDrag(pointerY: number) {
+    const dragStart = albumPanelDragStartRef.current;
+    albumPanelDragStartRef.current = null;
+    if (!dragStart) return;
+
+    const dragDistance = pointerY - dragStart.pointerY;
+    if (dragDistance > dragStart.scrollTop + 36) {
+      setIsAlbumPanelCollapsed(true);
+    } else if (dragDistance < -36) {
+      setIsAlbumPanelCollapsed(false);
+    }
+  }
+
+  function getTouchClientY(event: TouchEvent) {
+    return event.changedTouches[0]?.clientY ?? event.touches[0]?.clientY ?? null;
+  }
+
+  function startAlbumPanelTouchDrag(event: TouchEvent) {
+    const pointerY = getTouchClientY(event);
+    if (pointerY !== null) startAlbumPanelDrag(pointerY);
+  }
+
+  function overscrollAlbumPanelTouch(event: TouchEvent) {
+    const pointerY = getTouchClientY(event);
+    if (pointerY !== null) overscrollAlbumPanel(pointerY);
+  }
+
+  function finishAlbumPanelTouchDrag(event: TouchEvent) {
+    const pointerY = getTouchClientY(event);
+    if (pointerY !== null) {
+      finishAlbumPanelDrag(pointerY);
+    } else {
+      albumPanelDragStartRef.current = null;
+    }
   }
 
   function startAlbumTagEditing() {
@@ -946,6 +1147,11 @@ function App() {
         if (track) selectTrack(track, albumId);
         break;
       }
+      case "set-volume": {
+        const volume = getCommandNumber(command, "volume");
+        if (volume !== null) setVolume(volume);
+        break;
+      }
       case "toggle-mute":
         toggleMute();
         break;
@@ -980,11 +1186,16 @@ function App() {
   });
 
   const syncRemotePlayerState = useEffectEvent(() => {
+    const requestId = remoteSyncRequestIdRef.current + 1;
+    remoteSyncRequestIdRef.current = requestId;
     void getRemotePlayerState()
       .then((state) => {
+        if (requestId !== remoteSyncRequestIdRef.current) return;
         if (state) applyRemotePlayerState(state);
       })
-      .catch((error: unknown) => setPlaybackError(String(error)));
+      .catch((error: unknown) => {
+        if (requestId === remoteSyncRequestIdRef.current) setPlaybackError(String(error));
+      });
   });
 
   useEffect(() => {
@@ -1015,7 +1226,7 @@ function App() {
   }, []);
 
   useEffect(() => {
-    if (!isLocalBrowserRuntime) return;
+    if (!isBrowserBackendRuntime) return;
 
     syncRemotePlayerState();
     const timer = window.setInterval(() => syncRemotePlayerState(), 500);
@@ -1023,7 +1234,7 @@ function App() {
   }, []);
 
   useEffect(() => {
-    if (!isLocalBrowserRuntime) return;
+    if (!isBrowserBackendRuntime) return;
 
     const pollLibraryCommands = () => {
       void getRemotePlayerCommands(lastLibraryCommandIdRef.current)
@@ -1063,7 +1274,15 @@ function App() {
   useGlobalMediaKeys(mediaKeyHandlers);
 
   return (
-    <main className={isSidebarCollapsed ? "app-shell sidebar-collapsed" : "app-shell"}>
+    <main
+      className={[
+        "app-shell",
+        isSidebarCollapsed ? "sidebar-collapsed" : "",
+        isAlbumPanelCollapsed ? "album-panel-collapsed" : "",
+      ]
+        .filter(Boolean)
+        .join(" ")}
+    >
       <audio ref={audioRef} preload="metadata" />
       <section className="library-panel" aria-label={t("library.controls")}>
         <div className="sidebar-header">
@@ -1134,42 +1353,61 @@ function App() {
             </div>
           </div>
 
-          <Card className="scan-panel">
-            <CardContent className="scan-panel-content">
-              <label className="search-field">
-                <span>{t("scan.folderLabel")}</span>
-                <div className="folder-picker-row">
-                  <Input
-                    onChange={(event) => setLibraryPath(event.currentTarget.value)}
-                    placeholder={t("scan.folderPlaceholder")}
-                    type="text"
-                    value={libraryPath}
-                  />
-                  <Button
-                    className="choose-folder-button"
-                    disabled={isScanning}
-                    onClick={() => void handleChooseFolder()}
-                    variant="outline"
-                    type="button"
-                  >
-                    <FolderOpen />
-                    {t("scan.chooseFolder")}
-                  </Button>
-                </div>
-              </label>
+          <Button
+            aria-label={t("scan.openLibrarySettings")}
+            className="library-path-button"
+            disabled={!hasRealBackend}
+            onClick={() => setIsLibrarySettingsOpen(true)}
+            type="button"
+            variant="outline"
+          >
+            <span className="library-path-copy">
+              <span>{t("scan.folderLabel")}</span>
+              <strong>{displayedLibraryPath}</strong>
+            </span>
+            <Settings2 aria-hidden="true" />
+          </Button>
 
-              <div className="scan-actions">
-                <Button className="scan-button" disabled={isScanning} onClick={() => void handleScan()} type="button">
-                  {isScanning ? t("scan.buttonScanning") : t("scan.button")}
-                </Button>
-                {libraryInfo ? (
-                  <p className="info-text" aria-live="polite">
-                    {t(libraryInfo.key, libraryInfo.values)}
-                  </p>
-                ) : null}
+          {isTauriRuntime && isPublicDevApiAvailable ? (
+            <label className="remote-access-toggle">
+              <input
+                checked={isPublicDevEnabled}
+                disabled={isPublicDevStarting}
+                onChange={(event) => void setPublicDevTunnelEnabled(event.currentTarget.checked)}
+                type="checkbox"
+              />
+              <span>{t("remoteAccess.setting")}</span>
+            </label>
+          ) : null}
+
+          {isTauriRuntime && (isPublicDevEnabled || publicDevError) && isPublicDevApiAvailable ? (
+            <section className="remote-access-panel" aria-label={t("remoteAccess.label")}>
+              <div className="remote-access-copy">
+                <p className="eyebrow">{t("remoteAccess.label")}</p>
+                <p>
+                  {publicDevError
+                    ? t("remoteAccess.error", { message: publicDevError })
+                    : publicDevUrl
+                      ? t("remoteAccess.description")
+                      : t("remoteAccess.starting")}
+                </p>
               </div>
-            </CardContent>
-          </Card>
+              {publicDevUrl ? (
+                <>
+                  {publicDevQrDataUrl ? (
+                    <img className="remote-access-qr" src={publicDevQrDataUrl} alt={t("remoteAccess.qrAlt")} />
+                  ) : (
+                    <div className="remote-access-qr remote-access-qr-loading" aria-hidden="true" />
+                  )}
+                  <a className="remote-access-link" href={publicDevUrl} target="_blank" rel="noreferrer">
+                    {t("remoteAccess.openLink")}
+                  </a>
+                </>
+              ) : publicDevError ? null : (
+                <div className="remote-access-qr remote-access-qr-loading" aria-hidden="true" />
+              )}
+            </section>
+          ) : null}
         </div>
       </section>
 
@@ -1200,7 +1438,27 @@ function App() {
         t={t}
       />
 
-      <section className="album-panel" aria-label={t("library.selectedAlbumLabel")}>
+      <section
+        aria-label={t("library.selectedAlbumLabel")}
+        className={isAlbumPanelCollapsed ? "album-panel collapsed" : "album-panel"}
+        data-state={isAlbumPanelCollapsed ? "collapsed" : "expanded"}
+        onPointerCancel={() => {
+          albumPanelDragStartRef.current = null;
+        }}
+        onPointerDown={(event) => {
+          startAlbumPanelDrag(event.clientY);
+        }}
+        onPointerMove={(event) => overscrollAlbumPanel(event.clientY)}
+        onPointerUp={(event) => finishAlbumPanelDrag(event.clientY)}
+        onTouchCancel={() => {
+          albumPanelDragStartRef.current = null;
+        }}
+        onTouchEnd={finishAlbumPanelTouchDrag}
+        onTouchMove={overscrollAlbumPanelTouch}
+        onTouchStart={startAlbumPanelTouchDrag}
+        onWheel={(event) => scrollAlbumPanel(event.deltaY)}
+        ref={albumPanelRef}
+      >
         {selectedAlbum ? (
           <>
             <div className="album-artwork-edit-target">
@@ -1383,22 +1641,89 @@ function App() {
         audioRef={audioRef}
         currentTrack={currentTrack}
         isPlaying={isPlaying}
+        isRemoteSynced={isBrowserBackendRuntime}
         isShuffle={isShuffle}
-        isTauriRuntime={hasRealBackend}
+        isTauriRuntime={isTauriRuntime}
         onCycleRepeat={cycleRepeatMode}
         onEnded={handleTrackEnded}
         onNextTrack={() => playNextTrack()}
         onPlaybackError={setPlaybackError}
         onPlayingChange={changePlaying}
         onPreviousTrack={playPreviousTrack}
+        onSeek={seekTo}
         onShuffleChange={toggleShuffle}
         onTogglePlayback={togglePlayback}
+        onVolumeChange={setVolume}
         playbackError={playbackError}
         queueLength={queue.length}
         ref={playerBarRef}
         repeatMode={repeatMode}
         t={t}
       />
+      {isLibrarySettingsOpen ? (
+        <div className="track-detail-backdrop" onMouseDown={() => setIsLibrarySettingsOpen(false)} role="presentation">
+          <section
+            aria-label={t("scan.libraryDialogLabel")}
+            aria-modal="true"
+            className="library-settings-dialog"
+            onMouseDown={(event) => event.stopPropagation()}
+            role="dialog"
+          >
+            <div className="track-detail-header">
+              <div className="track-detail-title">
+                <p className="eyebrow">{t("library.controls")}</p>
+                <h2>{t("scan.libraryDialogTitle")}</h2>
+              </div>
+              <Button
+                aria-label={t("trackDetail.close")}
+                className="icon-button"
+                onClick={() => setIsLibrarySettingsOpen(false)}
+                type="button"
+                variant="outline"
+              >
+                <X />
+              </Button>
+            </div>
+
+            <div className="scan-panel-content">
+              <label className="search-field">
+                <span>{t("scan.folderLabel")}</span>
+                <div className="folder-picker-row">
+                  <Input
+                    data-keyboard-scope="text"
+                    onChange={(event) => setLibraryPath(event.currentTarget.value)}
+                    placeholder={t("scan.folderPlaceholder")}
+                    type="text"
+                    value={libraryPath}
+                  />
+                  <Button
+                    className="choose-folder-button"
+                    disabled={isScanning || !isTauriRuntime}
+                    onClick={() => void handleChooseFolder()}
+                    title={!isTauriRuntime ? t("status.desktopOnly") : undefined}
+                    variant="outline"
+                    type="button"
+                  >
+                    <FolderOpen />
+                    {t("scan.chooseFolder")}
+                  </Button>
+                </div>
+              </label>
+
+              <div className="scan-actions">
+                <Button className="scan-button" disabled={isScanning} onClick={() => void handleScan()} type="button">
+                  {isScanning ? t("scan.buttonScanning") : t("scan.button")}
+                </Button>
+                {libraryInfo ? (
+                  <p className="info-text" aria-live="polite">
+                    {t(libraryInfo.key, libraryInfo.values)}
+                  </p>
+                ) : null}
+              </div>
+            </div>
+          </section>
+        </div>
+      ) : null}
       {detailTrack && detailAlbum ? (
         <div className="track-detail-backdrop" onMouseDown={closeTrackDetail} role="presentation">
           <section

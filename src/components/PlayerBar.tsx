@@ -25,6 +25,7 @@ type PlayerBarProps = {
   audioRef: RefObject<HTMLAudioElement | null>;
   currentTrack: Track | null;
   isPlaying: boolean;
+  isRemoteSynced: boolean;
   isShuffle: boolean;
   isTauriRuntime: boolean;
   playbackError: string | null;
@@ -37,8 +38,10 @@ type PlayerBarProps = {
   onPlaybackError: (message: string) => void;
   onPlayingChange: (isPlaying: boolean) => void;
   onPreviousTrack: () => void;
+  onSeek: (nextTime: number) => void;
   onShuffleChange: (isShuffle: boolean) => void;
   onTogglePlayback: () => void;
+  onVolumeChange: (nextVolume: number) => void;
 };
 
 export const PlayerBar = forwardRef<PlayerBarHandle, PlayerBarProps>(function PlayerBar(
@@ -46,6 +49,7 @@ export const PlayerBar = forwardRef<PlayerBarHandle, PlayerBarProps>(function Pl
     audioRef,
     currentTrack,
     isPlaying,
+    isRemoteSynced,
     isShuffle,
     isTauriRuntime,
     playbackError,
@@ -58,8 +62,10 @@ export const PlayerBar = forwardRef<PlayerBarHandle, PlayerBarProps>(function Pl
     onPlaybackError,
     onPlayingChange,
     onPreviousTrack,
+    onSeek,
     onShuffleChange,
     onTogglePlayback,
+    onVolumeChange,
   },
   ref,
 ) {
@@ -67,9 +73,10 @@ export const PlayerBar = forwardRef<PlayerBarHandle, PlayerBarProps>(function Pl
   const durationRef = useRef(0);
   const hasRequestedEndedRef = useRef(false);
   const lastTimeUpdateRef = useRef(0);
-  const publishedTimeSecondRef = useRef(0);
+  const mobileOptionsDragStartRef = useRef<number | null>(null);
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(() => getTrackDurationSeconds(currentTrack));
+  const [isMobileOptionsOpen, setIsMobileOptionsOpen] = useState(false);
   const [volume, setVolume] = useState(0.85);
   const effectiveDuration = duration || getTrackDurationSeconds(currentTrack);
   const seekProgress = effectiveDuration > 0 ? Math.min(100, Math.max(0, (currentTime / effectiveDuration) * 100)) : 0;
@@ -84,13 +91,10 @@ export const PlayerBar = forwardRef<PlayerBarHandle, PlayerBarProps>(function Pl
     setDuration(boundedDuration);
   }
 
-  function seekTo(nextTime: number, source = "programmatic") {
+  function seekTo(nextTime: number, _source = "programmatic") {
     const boundedTime = Math.max(0, Math.min(nextTime, effectiveDuration || 0));
-    const boundedSecond = Math.floor(boundedTime);
-    if (source === "seek-slider" && boundedSecond === publishedTimeSecondRef.current) return;
 
     currentTimeRef.current = boundedTime;
-    publishedTimeSecondRef.current = boundedSecond;
     setCurrentTime(boundedTime);
 
     const audio = audioRef.current;
@@ -109,7 +113,6 @@ export const PlayerBar = forwardRef<PlayerBarHandle, PlayerBarProps>(function Pl
 
   function resetPosition() {
     hasRequestedEndedRef.current = false;
-    publishedTimeSecondRef.current = 0;
     publishPosition(0, getTrackDurationSeconds(currentTrack));
   }
 
@@ -131,6 +134,35 @@ export const PlayerBar = forwardRef<PlayerBarHandle, PlayerBarProps>(function Pl
     }
 
     return false;
+  }
+
+  function startMobileOptionsDrag(pointerY: number) {
+    mobileOptionsDragStartRef.current = pointerY;
+  }
+
+  function finishMobileOptionsDrag(pointerY: number) {
+    const dragStart = mobileOptionsDragStartRef.current;
+    mobileOptionsDragStartRef.current = null;
+    if (dragStart === null) return;
+
+    const dragDistance = pointerY - dragStart;
+    if (dragDistance < -24) {
+      setIsMobileOptionsOpen(true);
+    } else if (dragDistance > 24) {
+      setIsMobileOptionsOpen(false);
+    }
+  }
+
+  function handleSeekSliderChange(value: number[]) {
+    const nextTime = value[0] ?? 0;
+    seekTo(nextTime, "seek-slider");
+    onSeek(nextTime);
+  }
+
+  function handleVolumeSliderChange(value: number[]) {
+    const nextVolume = value[0] ?? 0;
+    changeVolume(nextVolume);
+    onVolumeChange(nextVolume);
   }
 
   useImperativeHandle(
@@ -219,7 +251,8 @@ export const PlayerBar = forwardRef<PlayerBarHandle, PlayerBarProps>(function Pl
     const timer = window.setInterval(() => {
       const audio = audioRef.current;
       if (!audio) return;
-      currentTimeRef.current = audio.currentTime;
+      const nextDuration = getAudioDuration(audio);
+      publishPosition(audio.currentTime, nextDuration);
       requestEndedIfAudioIsComplete(audio);
     }, 250);
 
@@ -227,7 +260,7 @@ export const PlayerBar = forwardRef<PlayerBarHandle, PlayerBarProps>(function Pl
   }, [audioRef, currentTrack, isPlaying, isTauriRuntime, onEnded]);
 
   useEffect(() => {
-    if (!isPlaying || (isTauriRuntime && currentTrack?.filePath)) return;
+    if (!isPlaying || isRemoteSynced || (isTauriRuntime && currentTrack?.filePath)) return;
     const mockDuration = effectiveDuration || getTrackDurationSeconds(currentTrack);
     const timer = window.setInterval(() => {
       const nextValue = currentTimeRef.current + 1;
@@ -241,10 +274,25 @@ export const PlayerBar = forwardRef<PlayerBarHandle, PlayerBarProps>(function Pl
     }, 1000);
 
     return () => window.clearInterval(timer);
-  }, [currentTrack, effectiveDuration, isPlaying, isTauriRuntime, onEnded]);
+  }, [currentTrack, effectiveDuration, isPlaying, isRemoteSynced, isTauriRuntime, onEnded]);
 
   return (
-    <section className="player-bar" aria-label={t("player.label")}>
+    <section className={isMobileOptionsOpen ? "player-bar mobile-options-open" : "player-bar"} aria-label={t("player.label")}>
+      <button
+        aria-expanded={isMobileOptionsOpen}
+        aria-label={t("player.options")}
+        className="player-mobile-options-handle"
+        onClick={() => setIsMobileOptionsOpen((value) => !value)}
+        onPointerCancel={() => {
+          mobileOptionsDragStartRef.current = null;
+        }}
+        onPointerDown={(event) => startMobileOptionsDrag(event.clientY)}
+        onPointerUp={(event) => finishMobileOptionsDrag(event.clientY)}
+        title={t("player.options")}
+        type="button"
+      >
+        <span aria-hidden="true" />
+      </button>
       <div className="player-track">
         <p className="eyebrow">{t("player.nowPlaying")}</p>
         <strong>{currentTrack ? localizeLibraryText(currentTrack.title, t) : t("player.nothingSelected")}</strong>
@@ -296,7 +344,7 @@ export const PlayerBar = forwardRef<PlayerBarHandle, PlayerBarProps>(function Pl
             disabled={!currentTrack}
             max={Math.max(1, Math.floor(effectiveDuration))}
             min={0}
-            onValueChange={(value) => seekTo(value[0] ?? 0, "seek-slider")}
+            onValueChange={handleSeekSliderChange}
             step={1}
             style={{ "--seek-progress": `${seekProgress}%` } as CSSProperties}
             value={[Math.floor(currentTime)]}
@@ -326,7 +374,7 @@ export const PlayerBar = forwardRef<PlayerBarHandle, PlayerBarProps>(function Pl
             className="volume-slider"
             max={1}
             min={0}
-            onValueChange={(value) => changeVolume(value[0] ?? 0)}
+            onValueChange={handleVolumeSliderChange}
             step={0.01}
             value={[volume]}
           />
