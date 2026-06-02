@@ -349,33 +349,41 @@ select:focus-visible {
   min-width: 0;
 }
 
-.remote-access-toggle {
+.remote-access-mode {
   display: grid;
-  grid-template-columns: 18px minmax(0, 1fr);
-  align-items: start;
-  gap: 8px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   width: 100%;
   min-width: 0;
-  padding: 10px 12px;
+  padding: 3px;
   border: 1px solid var(--app-line);
   border-radius: 8px;
   background: var(--app-surface);
+}
+
+.remote-access-mode-button {
+  min-width: 0;
+  min-height: 34px;
+  border: 0;
+  border-radius: 6px;
+  padding: 0 8px;
   color: var(--foreground);
+  background: transparent;
   font-size: 0.86rem;
   font-weight: 800;
   line-height: 1.25;
-}
-
-.remote-access-toggle input {
-  width: 18px;
-  height: 18px;
-  margin: 1px 0 0;
-  accent-color: var(--primary);
-}
-
-.remote-access-toggle span {
-  min-width: 0;
+  cursor: pointer;
   overflow-wrap: anywhere;
+}
+
+.remote-access-mode-button[data-active="true"] {
+  color: var(--primary-foreground);
+  background: var(--primary);
+  box-shadow: 0 4px 14px color-mix(in oklch, var(--primary), transparent 78%);
+}
+
+.remote-access-mode-button:disabled {
+  cursor: default;
+  opacity: 0.58;
 }
 
 .remote-access-panel {
@@ -944,6 +952,7 @@ button.album-card {
   background: color-mix(in oklch, white, transparent 8%);
   box-shadow: 0 10px 24px color-mix(in oklch, black, transparent 78%);
   opacity: 0;
+  pointer-events: none;
   transform: translate(-50%, -50%) scale(0.92);
   transition:
     opacity 180ms ease,
@@ -972,6 +981,7 @@ button.album-card {
 .album-card:focus-within .album-hover-play,
 .album-cover-wrap:hover .album-hover-play {
   opacity: 1;
+  pointer-events: auto;
   transform: translate(-50%, -50%) scale(1);
 }
 
@@ -985,6 +995,7 @@ button.album-card {
   outline: 3px solid var(--app-focus);
   outline-offset: 2px;
   opacity: 1;
+  pointer-events: auto;
   transform: translate(-50%, -50%) scale(1);
 }
 
@@ -1241,7 +1252,7 @@ button.album-card {
   align-items: center;
   gap: 12px;
   min-width: 0;
-  min-height: 54px;
+  min-height: 46px;
   border: 1px solid var(--app-line);
   border-radius: 8px;
   padding-right: 14px;
@@ -1253,6 +1264,11 @@ button.album-card {
   border-color: var(--primary);
   background: var(--app-accent-soft);
   box-shadow: inset 3px 0 0 var(--app-accent);
+}
+
+.track-list-row.selected-track-row:not(.active-track-row) {
+  border-color: color-mix(in oklch, var(--app-teal), transparent 20%);
+  background: color-mix(in oklch, var(--app-teal), transparent 92%);
 }
 
 .track-list-row:hover,
@@ -1270,6 +1286,25 @@ button.album-card {
   overflow: hidden;
 }
 
+.track-action-slot {
+  position: relative;
+  display: inline-grid;
+  place-items: center;
+  flex: 0 0 32px;
+  width: 32px;
+  height: 46px;
+  margin-left: 6px;
+}
+
+.track-number {
+  color: var(--muted-foreground);
+  font-size: 0.78rem;
+  font-weight: 800;
+  line-height: 1;
+  opacity: 1;
+  transition: opacity 120ms ease;
+}
+
 .track-list .track-select-button {
   display: flex;
   align-items: center;
@@ -1277,9 +1312,9 @@ button.album-card {
   flex: 0 1 auto;
   width: auto;
   max-width: 100%;
-  min-height: 54px;
+  min-height: 46px;
   border: 0;
-  padding: 12px 0 12px 14px;
+  padding: 8px 0;
   color: var(--foreground);
   background: transparent;
   text-align: left;
@@ -1319,6 +1354,7 @@ button.album-card {
   white-space: nowrap;
 }
 
+.track-play-button,
 .track-lyrics-button {
   flex: none;
   display: inline-flex;
@@ -1331,6 +1367,47 @@ button.album-card {
   border: 1px solid color-mix(in oklch, var(--primary), transparent 26%);
   border-radius: 999px;
   padding: 0;
+}
+
+.track-play-button {
+  position: absolute;
+  inset: 50% auto auto 50%;
+  transform: translate(-50%, -50%) scale(0.92);
+  opacity: 0;
+  pointer-events: none;
+  color: var(--primary);
+  background: color-mix(in oklch, var(--primary), transparent 88%);
+  transition:
+    opacity 120ms ease,
+    transform 120ms ease,
+    background 140ms ease,
+    color 140ms ease;
+}
+
+.track-list-row:hover .track-number,
+.track-list-row:focus-within .track-number {
+  opacity: 0;
+}
+
+.track-list-row:hover .track-play-button,
+.track-list-row:focus-within .track-play-button,
+.track-play-button:focus-visible {
+  opacity: 1;
+  pointer-events: auto;
+  transform: translate(-50%, -50%) scale(1);
+}
+
+.track-play-button:hover {
+  color: var(--primary-foreground);
+  background: var(--primary);
+}
+
+.track-play-button svg {
+  width: 15px;
+  height: 15px;
+}
+
+.track-lyrics-button {
   color: var(--primary-foreground);
   background: linear-gradient(135deg, var(--primary), color-mix(in oklch, var(--primary), var(--foreground) 24%));
   box-shadow: 0 4px 12px color-mix(in oklch, var(--primary), transparent 78%);
@@ -1612,11 +1689,53 @@ button.album-card {
 .player-bar .eyebrow,
 .player-bar span,
 .player-bar small,
-.queue-count {
+.queue-count,
+.queue-popover-wrap {
   color: color-mix(in oklch, var(--app-on-player), transparent 22%);
 }
 
 .player-track {
+  display: grid;
+  grid-template-columns: 58px minmax(0, 1fr);
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+
+.player-artwork-button {
+  display: grid;
+  place-items: center;
+  width: 58px;
+  height: 58px;
+  min-height: 58px;
+  border: 1px solid color-mix(in oklch, var(--app-on-player), transparent 52%);
+  border-radius: 8px;
+  padding: 0;
+  overflow: hidden;
+  color: var(--app-on-player);
+  background: color-mix(in oklch, var(--app-on-player), transparent 88%);
+  cursor: pointer;
+}
+
+.player-artwork-button:disabled {
+  cursor: default;
+  opacity: 0.58;
+}
+
+.player-artwork-button img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.player-artwork-button span {
+  color: var(--app-on-player);
+  font-size: 1.35rem;
+  font-weight: 900;
+}
+
+.player-track-copy {
   min-width: 0;
 }
 
@@ -1779,25 +1898,131 @@ button.album-card {
 
 .queue-count {
   width: 100%;
+  border: 0;
   margin: 0;
+  padding: 0;
   font-size: 0.82rem;
+  font-weight: 800;
   text-align: right;
+  background: transparent;
+  cursor: pointer;
+}
+
+.queue-count:hover,
+.queue-count:focus-visible,
+.queue-popover-wrap.open .queue-count {
+  color: var(--app-on-player);
+}
+
+.queue-popover-wrap {
+  position: relative;
+  width: 100%;
+}
+
+.queue-popover {
+  position: absolute;
+  right: 0;
+  bottom: calc(100% + 10px);
+  z-index: 30;
+  width: min(360px, calc(100vw - 32px));
+  max-height: min(360px, 48vh);
+  border: 1px solid color-mix(in oklch, var(--app-on-player), transparent 78%);
+  border-radius: 8px;
+  overflow: auto;
+  color: var(--app-on-player);
+  background: color-mix(in oklch, var(--app-player-strong), black 18%);
+  box-shadow: 0 18px 48px color-mix(in oklch, black, transparent 68%);
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(8px) scale(0.98);
+  transform-origin: bottom right;
+  visibility: hidden;
+  transition:
+    opacity 150ms ease,
+    transform 170ms ease,
+    visibility 0ms linear 170ms;
+}
+
+.queue-popover-wrap.open .queue-popover {
+  opacity: 1;
+  pointer-events: auto;
+  transform: translateY(0) scale(1);
+  visibility: visible;
+  transition:
+    opacity 150ms ease,
+    transform 170ms ease,
+    visibility 0ms;
+}
+
+.queue-popover-list {
+  display: grid;
+  gap: 0;
+  margin: 0;
+  padding: 6px;
+}
+
+.queue-popover-row {
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  min-height: 44px;
+  border-radius: 6px;
+  padding: 6px 8px;
+}
+
+.queue-popover-row.current {
+  background: color-mix(in oklch, var(--app-on-player), transparent 90%);
+}
+
+.queue-track-index,
+.queue-track-duration,
+.queue-track-copy span {
+  color: color-mix(in oklch, var(--app-on-player), transparent 28%);
+}
+
+.queue-track-index,
+.queue-track-duration {
+  font-size: 0.78rem;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+}
+
+.queue-track-copy {
+  display: grid;
+  min-width: 0;
+}
+
+.queue-track-copy strong,
+.queue-track-copy span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.queue-track-copy strong {
+  color: var(--app-on-player);
+  font-size: 0.86rem;
+}
+
+.queue-track-copy span {
+  font-size: 0.76rem;
 }
 
 @media (max-width: 980px) {
   body {
     overflow-x: hidden;
-    overflow-y: auto;
+    overflow-y: hidden;
   }
 
   .app-shell {
     grid-template-columns: 1fr;
-    grid-template-rows: auto auto auto auto;
+    grid-template-rows: auto minmax(0, 1fr) minmax(0, 1fr) auto;
     width: 100%;
-    min-height: 100dvh;
-    height: auto;
+    min-height: 0;
+    height: 100dvh;
     overflow-x: hidden;
-    overflow-y: visible;
+    overflow-y: hidden;
   }
 
   .app-shell.sidebar-collapsed {
@@ -1878,8 +2103,8 @@ button.album-card {
   }
 
   .albums-panel {
-    min-height: 320px;
-    overflow: visible;
+    min-height: 0;
+    overflow: hidden;
     border-right: 0;
     border-bottom: 1px solid var(--app-line);
   }
@@ -1895,7 +2120,7 @@ button.album-card {
     min-height: 0;
     padding: 20px;
     overflow-x: hidden;
-    overflow-y: visible;
+    overflow-y: auto;
   }
 
   .album-toolbar {
@@ -1917,7 +2142,7 @@ button.album-card {
     gap: 18px;
     min-height: 0;
     overflow-x: hidden;
-    overflow-y: visible;
+    overflow-y: auto;
   }
 
   .album-art {
@@ -2070,15 +2295,19 @@ button.album-card {
   }
 
   .app-shell {
-    grid-template-rows: auto clamp(224px, 38dvh, 300px) minmax(0, 1fr) 104px;
+    --mobile-albums-row: minmax(224px, 0.92fr);
+    --mobile-album-row: minmax(0, 1fr);
+    grid-template-rows: auto var(--mobile-albums-row) var(--mobile-album-row) 104px;
     height: 100dvh;
     min-height: 0;
     padding-bottom: 0;
     overflow: hidden;
+    transition: grid-template-rows 260ms cubic-bezier(0.2, 0, 0.2, 1);
   }
 
   .app-shell.album-panel-collapsed {
-    grid-template-rows: auto minmax(0, 1fr) max-content 104px;
+    --mobile-albums-row: minmax(0, 1fr);
+    --mobile-album-row: minmax(118px, 0.34fr);
   }
 
   .albums-panel {
@@ -2233,18 +2462,21 @@ button.album-card {
     overflow-y: auto;
     overscroll-behavior: contain;
     transition:
+      max-height 260ms cubic-bezier(0.2, 0, 0.2, 1),
       box-shadow 180ms ease,
-      padding-block 180ms ease;
+      padding-block 180ms ease,
+      transform 260ms cubic-bezier(0.2, 0, 0.2, 1);
     touch-action: pan-y;
   }
 
   .album-panel.collapsed {
     align-self: start;
-    height: max-content;
-    max-height: max-content;
+    height: 100%;
+    max-height: 100%;
     overflow: hidden;
     padding-block: 19px;
     box-shadow: inset 0 1px 0 var(--app-line);
+    transform: translateY(0);
   }
 
   .album-art,
@@ -2274,11 +2506,29 @@ button.album-card {
   .album-panel > [data-slot="separator"],
   .track-list {
     grid-column: 1 / -1;
+    max-height: 70dvh;
+    opacity: 1;
+    transform: translateY(0);
+    transition:
+      max-height 240ms cubic-bezier(0.2, 0, 0.2, 1),
+      opacity 160ms ease,
+      transform 220ms cubic-bezier(0.2, 0, 0.2, 1),
+      visibility 0ms linear;
   }
 
   .album-panel.collapsed > [data-slot="separator"],
   .album-panel.collapsed .track-list {
-    display: none;
+    max-height: 0;
+    overflow: hidden;
+    opacity: 0;
+    visibility: hidden;
+    pointer-events: none;
+    transform: translateY(-8px);
+    transition:
+      max-height 220ms cubic-bezier(0.2, 0, 0.2, 1),
+      opacity 120ms ease,
+      transform 180ms cubic-bezier(0.2, 0, 0.2, 1),
+      visibility 0ms linear 220ms;
   }
 
   .album-tag-form-row {
@@ -2293,8 +2543,13 @@ button.album-card {
   }
 
   .track-list .track-select-button {
-    min-height: 42px;
-    padding-block: 9px;
+    min-height: 38px;
+    padding-block: 7px;
+  }
+
+  .track-action-slot {
+    height: 38px;
+    margin-left: 4px;
   }
 
   .track-list small {
@@ -2357,20 +2612,27 @@ button.album-card {
 
   .player-track {
     order: 1;
-    gap: 1px;
+    grid-template-columns: 42px minmax(0, 1fr);
+    gap: 8px;
+  }
+
+  .player-artwork-button {
+    width: 42px;
+    height: 42px;
+    min-height: 42px;
   }
 
   .player-track .eyebrow,
-  .player-track span {
+  .player-track-copy span {
     display: none;
   }
 
-  .player-track strong {
+  .player-track-copy strong {
     font-size: 0.96rem;
     line-height: 1.2;
   }
 
-  .player-track small {
+  .player-track-copy small {
     font-size: 0.76rem;
   }
 
@@ -2435,6 +2697,7 @@ button.album-card {
 
   .player-bar.mobile-options-open .player-options {
     max-height: 126px;
+    overflow: visible;
     opacity: 1;
     pointer-events: auto;
     transform: translateY(0);
@@ -2447,7 +2710,7 @@ button.album-card {
   }
 
   .player-bar.mobile-options-open .volume-control,
-  .player-bar.mobile-options-open .queue-count {
+  .player-bar.mobile-options-open .queue-popover-wrap {
     grid-column: 1 / -1;
   }
 

@@ -63,7 +63,7 @@ type AlbumCardProps = {
   variant: AlbumCardVariant;
   t: TFunction;
   onPause: () => void;
-  onPlay: (album: Album) => void;
+  onPlay: (album: Album, options?: { selectAlbum?: boolean }) => void;
   onSelect: (album: Album) => void;
 };
 
@@ -108,7 +108,7 @@ function AlbumCardComponent({ album, isActive, isPlaying, isTauriRuntime, varian
               if (isPlaying) {
                 onPause();
               } else {
-                onPlay(album);
+                onPlay(album, { selectAlbum: false });
               }
             }}
             onKeyDown={(event) => {
@@ -118,7 +118,7 @@ function AlbumCardComponent({ album, isActive, isPlaying, isTauriRuntime, varian
                 if (isPlaying) {
                   onPause();
                 } else {
-                  onPlay(album);
+                  onPlay(album, { selectAlbum: false });
                 }
               }
             }}

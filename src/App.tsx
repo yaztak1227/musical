@@ -1,12 +1,22 @@
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
-import { type CSSProperties, type TouchEvent, useCallback, useEffect, useEffectEvent, useMemo, useRef, useState } from "react";
+import {
+  type CSSProperties,
+  type PointerEvent,
+  type TouchEvent,
+  useCallback,
+  useEffect,
+  useEffectEvent,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { toDataURL } from "qrcode";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { FolderOpen, ListMusic, PanelLeftClose, PanelLeftOpen, Pencil, Save, ScrollText, Settings2, X } from "lucide-react";
+import { FolderOpen, ListMusic, PanelLeftClose, PanelLeftOpen, Pencil, Play, Save, ScrollText, Settings2, X } from "lucide-react";
 import "./App.css";
 import { getInitialLocale, getLocaleLabel, locales, translate, type Locale, type TranslationKey } from "./i18n";
 import type { Album, Track, LibrarySnapshot, ScanSummary } from "./types/audio";
@@ -39,7 +49,7 @@ import { useGlobalMediaKeys } from "./lib/useGlobalMediaKeys";
 import { mockAlbums } from "./lib/mockData";
 import { formatTrackDuration } from "./lib/formatUtils";
 import { filterAndSortAlbums } from "./lib/albumFilters";
-import { localizeLibraryText, getArtworkSrc, getAlbumStartTrack, getAlbumJumpTarget, toI18nError } from "./lib/libraryUtils";
+import { localizeLibraryText, getArtworkSrc, getAlbumJumpTarget, toI18nError } from "./lib/libraryUtils";
 import { prepareMarquee } from "./lib/marqueeUtils";
 import { makeAlbumTagDraft, isAlbumTagDraftChanged, parseOptionalYear } from "./lib/tagDraftUtils";
 import { AlbumBrowser } from "./components/AlbumBrowser";
@@ -47,6 +57,11 @@ import { PlayerBar, type PlayerBarHandle } from "./components/PlayerBar";
 
 const playbackPreferencesKey = "musical.playbackPreferences";
 const publicDevTunnelApiPath = "/api/public-dev-tunnel";
+const localDevAccessApiPath = "/api/local-dev-access";
+const albumPanelSwipeThreshold = 36;
+const albumPanelDragTolerance = 8;
+const trackLongPressDelayMs = 520;
+const trackLongPressMoveTolerance = 10;
 
 type PlaybackPreferences = {
   isShuffle: boolean;
@@ -61,6 +76,44 @@ type PublicDevTunnelInfo = {
   url: string | null;
 };
 
+type LocalDevAccessInfo = {
+  available: boolean;
+  enabled: boolean;
+  host: string | null;
+  port: number;
+  url: string | null;
+};
+
+type RemoteAccessMode = "off" | "lan" | "open";
+
+type AlbumPanelDragStart = {
+  hasDragged: boolean;
+  isCollapsed: boolean;
+  pointerY: number;
+  scrollTop: number;
+};
+
+type TrackLongPressState = {
+  pointerX: number;
+  pointerY: number;
+  timerId: number;
+  trackId: number;
+};
+
+type SuppressedTrackClick = {
+  timerId: number;
+  trackId: number;
+};
+
+type PlaybackResolutionState = {
+  currentTrackIndex: number;
+  isShuffle: boolean;
+  playbackAlbumId: number | null;
+  queue: Track[];
+  repeatMode: RepeatMode;
+  selectedAlbumId: number | null;
+};
+
 function isPublicDevTunnelInfo(value: unknown): value is PublicDevTunnelInfo {
   const url = (value as Partial<PublicDevTunnelInfo> | null)?.url;
   return (
@@ -72,6 +125,20 @@ function isPublicDevTunnelInfo(value: unknown): value is PublicDevTunnelInfo {
     typeof (value as PublicDevTunnelInfo).enabled === "boolean" &&
     typeof (value as PublicDevTunnelInfo).isStarting === "boolean" &&
     (url === null || (typeof url === "string" && url.startsWith("https://")))
+  );
+}
+
+function isLocalDevAccessInfo(value: unknown): value is LocalDevAccessInfo {
+  if (typeof value !== "object" || value === null) return false;
+
+  const info = value as Partial<LocalDevAccessInfo>;
+  return (
+    typeof info.available === "boolean" &&
+    typeof info.enabled === "boolean" &&
+    (info.host === null || typeof info.host === "string") &&
+    typeof info.port === "number" &&
+    Number.isFinite(info.port) &&
+    (info.url === null || typeof info.url === "string")
   );
 }
 
@@ -113,6 +180,35 @@ function getInitialAlbumId(albums: Album[], storedAlbumId: number | null) {
 
 function getInitialTrack(albums: Album[], albumId: number | null) {
   return albums.find((album) => album.id === albumId)?.tracks[0] ?? albums[0]?.tracks[0] ?? null;
+}
+
+function shuffleTracks(tracks: Track[]) {
+  const shuffledTracks = [...tracks];
+  for (let index = shuffledTracks.length - 1; index > 0; index -= 1) {
+    const randomIndex = Math.floor(Math.random() * (index + 1));
+    [shuffledTracks[index], shuffledTracks[randomIndex]] = [shuffledTracks[randomIndex], shuffledTracks[index]];
+  }
+  return shuffledTracks;
+}
+
+function getAlbumQueueTracks(album: Album, isShuffle: boolean, startTrack: Track | null = null) {
+  if (!isShuffle) return album.tracks;
+
+  if (!startTrack) return shuffleTracks(album.tracks);
+
+  const shuffledRemainder = shuffleTracks(album.tracks.filter((track) => track.id !== startTrack.id));
+  return [startTrack, ...shuffledRemainder];
+}
+
+function getToggledQueueTracks(album: Album, isShuffle: boolean, currentTrack: Track | null) {
+  if (!isShuffle) return album.tracks;
+  return getAlbumQueueTracks(album, true, currentTrack);
+}
+
+function getNextRepeatMode(repeatMode: RepeatMode): RepeatMode {
+  if (repeatMode === "off") return "all";
+  if (repeatMode === "all") return "one";
+  return "off";
 }
 
 function getHeapUsageMb() {
@@ -178,10 +274,13 @@ function App() {
   const playerBarRef = useRef<PlayerBarHandle | null>(null);
   const albumsPanelRef = useRef<HTMLElement | null>(null);
   const albumPanelRef = useRef<HTMLElement | null>(null);
-  const albumPanelDragStartRef = useRef<{ isCollapsed: boolean; pointerY: number; scrollTop: number } | null>(null);
+  const albumPanelDragStartRef = useRef<AlbumPanelDragStart | null>(null);
+  const trackLongPressRef = useRef<TrackLongPressState | null>(null);
+  const suppressedTrackClickRef = useRef<SuppressedTrackClick | null>(null);
   const lastLibraryCommandIdRef = useRef(0);
   const lastRemoteCommandIdRef = useRef(0);
   const remoteSyncRequestIdRef = useRef(0);
+  const playbackResolutionRef = useRef<PlaybackResolutionState | null>(null);
   const renderCountRef = useRef(0);
   const [locale, setLocale] = useState<Locale>(() => getInitialLocale());
   const [themeName, setThemeName] = useState<ThemeName>(() => {
@@ -202,12 +301,18 @@ function App() {
   const [selectedAlbumId, setSelectedAlbumId] = useState<number | null>(() =>
     hasRealBackend ? null : getInitialAlbumId(mockAlbums, storedPlaybackPreferences.selectedAlbumId),
   );
+  const [selectedTrackId, setSelectedTrackId] = useState<number | null>(null);
   const [playbackAlbumId, setPlaybackAlbumId] = useState<number | null>(() =>
     hasRealBackend ? null : getInitialAlbumId(mockAlbums, storedPlaybackPreferences.playbackAlbumId),
   );
   const [currentTrack, setCurrentTrack] = useState<Track | null>(() =>
     hasRealBackend ? null : getInitialTrack(mockAlbums, getInitialAlbumId(mockAlbums, storedPlaybackPreferences.playbackAlbumId)),
   );
+  const [playbackQueueTrackIds, setPlaybackQueueTrackIds] = useState<number[]>(() => {
+    if (hasRealBackend) return [];
+    const initialAlbumId = getInitialAlbumId(mockAlbums, storedPlaybackPreferences.playbackAlbumId);
+    return mockAlbums.find((album) => album.id === initialAlbumId)?.tracks.map((track) => track.id) ?? [];
+  });
   const [isPlaying, setIsPlaying] = useState(false);
   const [audioSourceKey, setAudioSourceKey] = useState<string | null>(null);
   const [isScanning, setIsScanning] = useState(false);
@@ -243,6 +348,11 @@ function App() {
   const [publicDevUrl, setPublicDevUrl] = useState<string | null>(null);
   const [publicDevQrDataUrl, setPublicDevQrDataUrl] = useState<string | null>(null);
   const [publicDevError, setPublicDevError] = useState<string | null>(null);
+  const [isLocalDevEnabled, setIsLocalDevEnabled] = useState(false);
+  const [localDevUrl, setLocalDevUrl] = useState<string | null>(null);
+  const [localDevQrDataUrl, setLocalDevQrDataUrl] = useState<string | null>(null);
+  const [localDevError, setLocalDevError] = useState<string | null>(null);
+  const remoteAccessMode: RemoteAccessMode = isPublicDevEnabled || isPublicDevStarting ? "open" : isLocalDevEnabled ? "lan" : "off";
   renderCountRef.current += 1;
 
   useEffect(() => {
@@ -257,28 +367,15 @@ function App() {
 
   useEffect(() => {
     if (!isTauriRuntime) return;
-    void refreshPublicDevTunnelStatus();
+    void initializeRemoteAccessMode();
   }, []);
 
   useEffect(() => {
     let isActive = true;
 
-    async function renderPublicDevQrCode() {
-      if (!publicDevUrl) {
-        setPublicDevQrDataUrl(null);
-        return;
-      }
-
-      const dataUrl = await toDataURL(publicDevUrl, {
-        errorCorrectionLevel: "M",
-        margin: 1,
-        width: 128,
-      });
-
+    void renderQrCode(publicDevUrl).then((dataUrl) => {
       if (isActive) setPublicDevQrDataUrl(dataUrl);
-    }
-
-    void renderPublicDevQrCode().catch(() => {
+    }).catch(() => {
       if (isActive) setPublicDevQrDataUrl(null);
     });
 
@@ -287,7 +384,31 @@ function App() {
     };
   }, [publicDevUrl]);
 
-  async function refreshPublicDevTunnelStatus() {
+  useEffect(() => {
+    let isActive = true;
+
+    void renderQrCode(localDevUrl).then((dataUrl) => {
+      if (isActive) setLocalDevQrDataUrl(dataUrl);
+    }).catch(() => {
+      if (isActive) setLocalDevQrDataUrl(null);
+    });
+
+    return () => {
+      isActive = false;
+    };
+  }, [localDevUrl]);
+
+  async function renderQrCode(url: string | null) {
+    if (!url) return null;
+
+    return toDataURL(url, {
+      errorCorrectionLevel: "M",
+      margin: 1,
+      width: 128,
+    });
+  }
+
+  async function initializeRemoteAccessMode() {
     try {
       const response = await fetch(publicDevTunnelApiPath);
       if (!response.ok) return;
@@ -296,10 +417,18 @@ function App() {
       if (!isPublicDevTunnelInfo(tunnelInfo)) return;
 
       setIsPublicDevApiAvailable(true);
-      setIsPublicDevEnabled(tunnelInfo.enabled);
-      setIsPublicDevStarting(tunnelInfo.isStarting);
-      setPublicDevUrl(tunnelInfo.url);
+      if (tunnelInfo.enabled || tunnelInfo.isStarting || tunnelInfo.url) {
+        await setPublicDevTunnelEnabled(false);
+        return;
+      }
+
+      setIsPublicDevEnabled(false);
+      setIsPublicDevStarting(false);
+      setPublicDevUrl(null);
       setPublicDevError(null);
+      setIsLocalDevEnabled(false);
+      setLocalDevUrl(null);
+      setLocalDevError(null);
     } catch {
       setIsPublicDevApiAvailable(false);
     }
@@ -337,6 +466,70 @@ function App() {
     }
   }
 
+  async function setLocalDevAccessEnabled(enabled: boolean) {
+    setLocalDevError(null);
+    setIsLocalDevEnabled(enabled);
+
+    try {
+      const response = await fetch(localDevAccessApiPath, {
+        body: JSON.stringify({ enabled }),
+        headers: { "Content-Type": "application/json" },
+        method: "POST",
+      });
+      const accessInfo = (await response.json()) as unknown;
+      if (
+        !response.ok ||
+        !isLocalDevAccessInfo(accessInfo) ||
+        (enabled && (!accessInfo.available || !accessInfo.url))
+      ) {
+        const errorMessage =
+          typeof accessInfo === "object" && accessInfo && "error" in accessInfo
+            ? String((accessInfo as { error: unknown }).error)
+            : "No LAN address is available";
+        throw new Error(errorMessage);
+      }
+
+      setIsLocalDevEnabled(accessInfo.enabled);
+      setLocalDevUrl(accessInfo.url);
+    } catch (error) {
+      setIsLocalDevEnabled(false);
+      setLocalDevUrl(null);
+      setLocalDevError(String(error instanceof Error ? error.message : error));
+    }
+  }
+
+  async function setRemoteAccessMode(nextMode: RemoteAccessMode) {
+    if (nextMode === "off") {
+      setLocalDevError(null);
+      setIsLocalDevEnabled(false);
+      setLocalDevUrl(null);
+      if (isPublicDevEnabled || isPublicDevStarting || publicDevUrl) {
+        await setPublicDevTunnelEnabled(false);
+      } else {
+        setPublicDevError(null);
+        setIsPublicDevEnabled(false);
+        setIsPublicDevStarting(false);
+        setPublicDevUrl(null);
+      }
+      return;
+    }
+
+    if (nextMode === "lan") {
+      if (isPublicDevEnabled || isPublicDevStarting || publicDevUrl) {
+        await setPublicDevTunnelEnabled(false);
+      } else {
+        setPublicDevError(null);
+      }
+      await setLocalDevAccessEnabled(true);
+      return;
+    }
+
+    setLocalDevError(null);
+    setIsLocalDevEnabled(false);
+    setLocalDevUrl(null);
+    await setPublicDevTunnelEnabled(true);
+  }
+
   useEffect(() => {
     const playbackPreferences: PlaybackPreferences = {
       isShuffle,
@@ -368,6 +561,7 @@ function App() {
       setSelectedAlbumId(null);
       setPlaybackAlbumId(null);
       setCurrentTrack(null);
+      setPlaybackQueueTrackIds([]);
       setIsPlaying(false);
       return;
     }
@@ -386,7 +580,9 @@ function App() {
     }
 
     setPlaybackAlbumId(selectedAlbum.id);
-    setCurrentTrack(selectedAlbum.tracks[0] ?? null);
+    const nextTrack = selectedAlbum.tracks[0] ?? null;
+    setCurrentTrack(nextTrack);
+    setPlaybackQueueTrackIds(selectedAlbum.tracks.map((track) => track.id));
   }, [albums, selectedAlbumId, playbackAlbumId, currentTrack]);
 
   useEffect(() => {
@@ -399,7 +595,7 @@ function App() {
 
     releaseAudioSource(audio);
 
-    if (hasRealBackend && currentTrack?.filePath) {
+    if (isTauriRuntime && currentTrack?.filePath) {
       audio.src = getBackendMediaSrc(currentTrack.filePath);
       audio.load();
       setAudioSourceKey(currentTrack.filePath);
@@ -438,8 +634,19 @@ function App() {
     albums.find((album) => album.id === playbackAlbumId) ??
     albums.find((album) => album.tracks.some((track) => track.id === currentTrack?.id)) ??
     selectedAlbum;
-  const queue = playbackAlbum?.tracks ?? [];
+  const playbackQueueTracks = playbackQueueTrackIds
+    .map((trackId) => albums.flatMap((album) => album.tracks).find((track) => track.id === trackId))
+    .filter((track): track is Track => Boolean(track));
+  const queue = playbackQueueTracks.length > 0 ? playbackQueueTracks : playbackAlbum?.tracks ?? [];
   const currentTrackIndex = currentTrack ? queue.findIndex((track) => track.id === currentTrack.id) : -1;
+  playbackResolutionRef.current = {
+    currentTrackIndex,
+    isShuffle,
+    playbackAlbumId: playbackAlbum?.id ?? playbackAlbumId,
+    queue,
+    repeatMode,
+    selectedAlbumId,
+  };
   const hasAlbumTagChanges = selectedAlbum ? isAlbumTagDraftChanged(albumTagDraft, selectedAlbum) : false;
   const displayedLibraryPath = libraryPath.trim() || t("scan.selectLibrary");
   const detailAlbum =
@@ -499,6 +706,13 @@ function App() {
     setArtworkPreviewSrc("");
   }, [detailAlbum, detailTrack]);
 
+  useEffect(() => {
+    return () => {
+      clearTrackLongPress();
+      clearSuppressedTrackClick();
+    };
+  }, []);
+
   async function refreshLibrary() {
     try {
       const snapshot = await backendInvoke<LibrarySnapshot>("library_snapshot");
@@ -518,7 +732,11 @@ function App() {
         getInitialAlbumId(snapshot.albums, storedPlaybackPreferences.playbackAlbumId) ?? restoredSelectedAlbumId;
       setSelectedAlbumId(restoredSelectedAlbumId);
       setPlaybackAlbumId(restoredPlaybackAlbumId);
-      setCurrentTrack(getInitialTrack(snapshot.albums, restoredPlaybackAlbumId));
+      const restoredTrack = getInitialTrack(snapshot.albums, restoredPlaybackAlbumId);
+      setCurrentTrack(restoredTrack);
+      setPlaybackQueueTrackIds(
+        snapshot.albums.find((album) => album.id === restoredPlaybackAlbumId)?.tracks.map((track) => track.id) ?? [],
+      );
     }
     setLibraryInfo(
       snapshot.albums.length > 0
@@ -549,10 +767,24 @@ function App() {
     return albums.find((album) => album.tracks.some((track) => track.id === trackId)) ?? null;
   }
 
+  function findTracksByIds(trackIds: number[]) {
+    const tracksById = new Map(albums.flatMap((album) => album.tracks).map((track) => [track.id, track]));
+    return trackIds.map((trackId) => tracksById.get(trackId)).filter((track): track is Track => Boolean(track));
+  }
+
+  function getCommandNumberArray(command: QueuedRemotePlayerCommand, key: string) {
+    const value = command.payload?.[key];
+    if (!Array.isArray(value)) return null;
+
+    const numbers = value.filter((item): item is number => typeof item === "number" && Number.isFinite(item));
+    return numbers.length === value.length ? numbers : null;
+  }
+
   function applyRemotePlayerState(state: RemotePlayerState) {
-    setSelectedAlbumId(state.selectedAlbumId);
     setPlaybackAlbumId(state.playbackAlbumId);
-    setCurrentTrack(findTrackById(state.currentTrackId));
+    const syncedTrack = findTrackById(state.currentTrackId);
+    setCurrentTrack(syncedTrack);
+    setPlaybackQueueTrackIds(state.queueTrackIds);
     setIsPlaying(state.isPlaying);
     setIsShuffle(state.isShuffle);
     setRepeatMode(isRepeatMode(state.repeatMode) ? state.repeatMode : "off");
@@ -619,39 +851,46 @@ function App() {
   }
 
   const selectAlbum = useCallback((album: Album) => {
-    if (sendRemoteCommand("select-album", { albumId: album.id })) return;
-
     setSelectedAlbumId(album.id);
+    setSelectedTrackId(null);
     setIsAlbumTagEditing(false);
     setAlbumTagMessage(null);
   }, []);
 
-  const playAlbum = useCallback((album: Album) => {
-    if (sendRemoteCommand("play-album", { albumId: album.id })) return;
+  const playAlbum = useCallback((album: Album, options: { selectAlbum?: boolean } = {}) => {
+    const shouldSelectAlbum = options.selectAlbum ?? true;
+    const nextQueue = getAlbumQueueTracks(album, isShuffle);
+    const firstTrack = nextQueue[0] ?? null;
+    const queueTrackIds = nextQueue.map((track) => track.id);
+    if (sendRemoteCommand("play-album", { albumId: album.id, isShuffle, queueTrackIds })) return;
 
-    const firstTrack = getAlbumStartTrack(album, isShuffle);
-    setSelectedAlbumId(album.id);
+    if (shouldSelectAlbum) setSelectedAlbumId(album.id);
     setPlaybackAlbumId(album.id);
+    setPlaybackQueueTrackIds(queueTrackIds);
     setCurrentTrack(firstTrack);
     playerBarRef.current?.resetPosition();
     setIsPlaying(Boolean(firstTrack));
   }, [isShuffle]);
 
   const playTrack = useCallback((track: Track, albumId = selectedAlbumId) => {
-    if (sendRemoteCommand("play-track", { albumId, trackId: track.id })) return;
+    const album = albums.find((album) => album.id === albumId) ?? findAlbumByTrackId(track.id);
+    const nextQueue = album ? getAlbumQueueTracks(album, isShuffle, track) : [track];
+    const queueTrackIds = nextQueue.map((track) => track.id);
+    if (sendRemoteCommand("play-track", { albumId, trackId: track.id, isShuffle, queueTrackIds })) return;
 
-    setPlaybackAlbumId(albumId);
+    setPlaybackAlbumId(album?.id ?? albumId);
+    setPlaybackQueueTrackIds(queueTrackIds);
     setCurrentTrack(track);
     setIsPlaying(true);
-  }, [selectedAlbumId]);
+  }, [albums, isShuffle, selectedAlbumId]);
 
-  function selectTrack(track: Track, albumId = selectedAlbumId) {
-    if (sendRemoteCommand("select-track", { albumId, trackId: track.id })) return;
+  function selectTrack(track: Track) {
+    if (suppressedTrackClickRef.current?.trackId === track.id) {
+      clearSuppressedTrackClick();
+      return;
+    }
 
-    setPlaybackAlbumId(albumId);
-    setCurrentTrack(track);
-    playerBarRef.current?.resetPosition();
-    setIsPlaying(false);
+    setSelectedTrackId(track.id);
   }
 
   const openTrackDetail = useCallback((track: Track, tab: "info" | "lyrics" | "artwork" = "info") => {
@@ -671,6 +910,60 @@ function App() {
     if (!track) return;
     openTrackDetail(track, "artwork");
   }, [openTrackDetail, selectedAlbum]);
+
+  function clearTrackLongPress() {
+    const longPress = trackLongPressRef.current;
+    if (longPress) window.clearTimeout(longPress.timerId);
+    trackLongPressRef.current = null;
+  }
+
+  function clearSuppressedTrackClick() {
+    const suppressedClick = suppressedTrackClickRef.current;
+    if (suppressedClick) window.clearTimeout(suppressedClick.timerId);
+    suppressedTrackClickRef.current = null;
+  }
+
+  function suppressTrackClick(trackId: number) {
+    clearSuppressedTrackClick();
+    suppressedTrackClickRef.current = {
+      timerId: window.setTimeout(clearSuppressedTrackClick, 1000),
+      trackId,
+    };
+  }
+
+  function startTrackLongPress(event: PointerEvent<HTMLButtonElement>, track: Track) {
+    if (event.pointerType !== "touch") return;
+
+    clearTrackLongPress();
+    const pointerX = event.clientX;
+    const pointerY = event.clientY;
+    const timerId = window.setTimeout(() => {
+      trackLongPressRef.current = null;
+      suppressTrackClick(track.id);
+      openTrackDetail(track);
+    }, trackLongPressDelayMs);
+
+    trackLongPressRef.current = {
+      pointerX,
+      pointerY,
+      timerId,
+      trackId: track.id,
+    };
+  }
+
+  function moveTrackLongPress(event: PointerEvent<HTMLButtonElement>, track: Track) {
+    if (event.pointerType !== "touch") return;
+
+    const longPress = trackLongPressRef.current;
+    if (!longPress || longPress.trackId !== track.id) return;
+
+    const moveDistance = Math.hypot(event.clientX - longPress.pointerX, event.clientY - longPress.pointerY);
+    if (moveDistance > trackLongPressMoveTolerance) clearTrackLongPress();
+  }
+
+  function finishTrackLongPress(event: PointerEvent<HTMLButtonElement>) {
+    if (event.pointerType === "touch") clearTrackLongPress();
+  }
 
   async function loadTrackLyrics(track: Track) {
     if (!track.hasLyrics && !track.lyrics?.trim()) {
@@ -747,7 +1040,13 @@ function App() {
     }
 
     const previousIndex = currentTrackIndex > 0 ? currentTrackIndex - 1 : queue.length - 1;
-    playTrack(queue[previousIndex], playbackAlbum?.id ?? selectedAlbumId);
+    const previousTrack = queue[previousIndex];
+    if (!previousTrack) return;
+
+    setPlaybackAlbumId(playbackAlbum?.id ?? selectedAlbumId);
+    setCurrentTrack(previousTrack);
+    playerBarRef.current?.resetPosition();
+    setIsPlaying(true);
   }
 
   function playNextTrack(options: { autoplay?: boolean } = {}) {
@@ -768,44 +1067,87 @@ function App() {
 
   function getNextTrack() {
     if (queue.length === 0) return null;
-    if (isShuffle && queue.length > 1) {
-      const choices = queue.filter((track) => track.id !== currentTrack?.id);
-      return choices[Math.floor(Math.random() * choices.length)] ?? queue[0];
-    }
 
     if (currentTrackIndex < 0) return queue[0];
     if (currentTrackIndex < queue.length - 1) return queue[currentTrackIndex + 1];
     return repeatMode === "all" ? queue[0] : null;
   }
 
-  function handleTrackEnded() {
-    if (repeatMode === "one") {
+  function playResolvedTrackFromEnd(nextTrack: Track, state: PlaybackResolutionState, nextQueue: Track[] | null = null) {
+    if (nextQueue) {
+      setPlaybackQueueTrackIds(nextQueue.map((track) => track.id));
+    }
+    setPlaybackAlbumId(state.playbackAlbumId ?? findAlbumByTrackId(nextTrack.id)?.id ?? state.selectedAlbumId);
+    setCurrentTrack(nextTrack);
+    playerBarRef.current?.resetPosition();
+    setIsPlaying(true);
+  }
+
+  function resolveEndedTrack() {
+    const state = playbackResolutionRef.current;
+    if (!state) return;
+
+    if (state.repeatMode === "one") {
       seekTo(0);
       setIsPlaying(true);
-      const audio = audioRef.current;
-      if (audio && hasRealBackend && currentTrack?.filePath) {
-        void audio.play().catch((error: unknown) => setPlaybackError(String(error)));
-      }
       return;
     }
 
-    playNextTrack({ autoplay: true });
+    if (state.queue.length === 0) {
+      seekTo(0);
+      return;
+    }
+
+    if (state.currentTrackIndex >= 0 && state.currentTrackIndex < state.queue.length - 1) {
+      const nextTrack = state.queue[state.currentTrackIndex + 1];
+      if (nextTrack) playResolvedTrackFromEnd(nextTrack, state);
+      return;
+    }
+
+    if (state.repeatMode !== "all") {
+      seekTo(0);
+      return;
+    }
+
+    if (state.isShuffle) {
+      const nextQueue = shuffleTracks(state.queue);
+      const nextTrack = nextQueue[0];
+      if (nextTrack) playResolvedTrackFromEnd(nextTrack, state, nextQueue);
+      return;
+    }
+
+    const nextTrack = state.queue[0];
+    if (nextTrack) playResolvedTrackFromEnd(nextTrack, state);
+  }
+
+  function handleTrackEnded() {
+    setIsPlaying(false);
+    window.setTimeout(resolveEndedTrack, 0);
   }
 
   function cycleRepeatMode() {
-    if (sendRemoteCommand("cycle-repeat")) return;
+    const nextRepeatMode = getNextRepeatMode(repeatMode);
+    sendRemoteCommand("cycle-repeat", { repeatMode: nextRepeatMode });
 
-    setRepeatMode((value) => {
-      if (value === "off") return "all";
-      if (value === "all") return "one";
-      return "off";
-    });
+    setRepeatMode(nextRepeatMode);
+  }
+
+  function changeShuffle(nextShuffle: boolean, source = "programmatic") {
+    const albumForQueue = playbackAlbum ?? findAlbumByTrackId(currentTrack?.id ?? null);
+    const nextQueueTrackIds = albumForQueue
+      ? getToggledQueueTracks(albumForQueue, nextShuffle, currentTrack).map((track) => track.id)
+      : playbackQueueTrackIds;
+
+    if (source !== "remote-sync") {
+      sendRemoteCommand("toggle-shuffle", { isShuffle: nextShuffle, queueTrackIds: nextQueueTrackIds });
+    }
+
+    setIsShuffle(nextShuffle);
+    setPlaybackQueueTrackIds(nextQueueTrackIds);
   }
 
   function toggleShuffle() {
-    if (sendRemoteCommand("toggle-shuffle")) return;
-
-    setIsShuffle((value) => !value);
+    changeShuffle(!isShuffle);
   }
 
   function changePlaying(isNextPlaying: boolean) {
@@ -858,6 +1200,7 @@ function App() {
 
   function startAlbumPanelDrag(pointerY: number) {
     albumPanelDragStartRef.current = {
+      hasDragged: false,
       isCollapsed: isAlbumPanelCollapsed,
       pointerY,
       scrollTop: albumPanelRef.current?.scrollTop ?? 0,
@@ -869,10 +1212,12 @@ function App() {
     if (!dragStart) return;
 
     const dragDistance = pointerY - dragStart.pointerY;
-    if (dragStart.isCollapsed && dragDistance < -36) {
+    if (Math.abs(dragDistance) > albumPanelDragTolerance) dragStart.hasDragged = true;
+
+    if (dragStart.isCollapsed && dragDistance < -albumPanelSwipeThreshold) {
       albumPanelDragStartRef.current = null;
       setIsAlbumPanelCollapsed(false);
-    } else if (!dragStart.isCollapsed && dragDistance > dragStart.scrollTop + 36) {
+    } else if (!dragStart.isCollapsed && dragDistance > dragStart.scrollTop + albumPanelSwipeThreshold) {
       albumPanelDragStartRef.current = null;
       setIsAlbumPanelCollapsed(true);
     }
@@ -893,10 +1238,34 @@ function App() {
     if (!dragStart) return;
 
     const dragDistance = pointerY - dragStart.pointerY;
-    if (dragDistance > dragStart.scrollTop + 36) {
+    if (!dragStart.hasDragged && Math.abs(dragDistance) <= albumPanelDragTolerance) return;
+
+    if (dragDistance > dragStart.scrollTop + albumPanelSwipeThreshold) {
       setIsAlbumPanelCollapsed(true);
-    } else if (dragDistance < -36) {
+    } else if (dragDistance < -albumPanelSwipeThreshold) {
       setIsAlbumPanelCollapsed(false);
+    }
+  }
+
+  function isAlbumPanelInteractiveTarget(target: EventTarget | null) {
+    return target instanceof Element && Boolean(target.closest("button, a, input, select, textarea, [role='button']"));
+  }
+
+  function startAlbumPanelPointerDrag(event: PointerEvent<HTMLElement>) {
+    if (isAlbumPanelInteractiveTarget(event.target)) return;
+
+    event.currentTarget.setPointerCapture(event.pointerId);
+    startAlbumPanelDrag(event.clientY);
+  }
+
+  function overscrollAlbumPanelPointer(event: PointerEvent<HTMLElement>) {
+    overscrollAlbumPanel(event.clientY);
+  }
+
+  function finishAlbumPanelPointerDrag(event: PointerEvent<HTMLElement>) {
+    finishAlbumPanelDrag(event.clientY);
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
     }
   }
 
@@ -905,13 +1274,26 @@ function App() {
   }
 
   function startAlbumPanelTouchDrag(event: TouchEvent) {
+    if (isAlbumPanelInteractiveTarget(event.target)) return;
+
     const pointerY = getTouchClientY(event);
     if (pointerY !== null) startAlbumPanelDrag(pointerY);
   }
 
   function overscrollAlbumPanelTouch(event: TouchEvent) {
     const pointerY = getTouchClientY(event);
-    if (pointerY !== null) overscrollAlbumPanel(pointerY);
+    if (pointerY === null) return;
+
+    const dragStart = albumPanelDragStartRef.current;
+    const dragDistance = dragStart ? pointerY - dragStart.pointerY : 0;
+    if (
+      dragStart &&
+      (dragStart.isCollapsed || (!dragStart.isCollapsed && dragStart.scrollTop <= 0 && dragDistance > albumPanelDragTolerance))
+    ) {
+      event.preventDefault();
+    }
+
+    overscrollAlbumPanel(pointerY);
   }
 
   function finishAlbumPanelTouchDrag(event: TouchEvent) {
@@ -1096,10 +1478,49 @@ function App() {
     return typeof value === "number" && Number.isFinite(value) ? value : null;
   }
 
+  function getCommandBoolean(command: QueuedRemotePlayerCommand, key: string) {
+    const value = command.payload?.[key];
+    return typeof value === "boolean" ? value : null;
+  }
+
+  function getCommandRepeatMode(command: QueuedRemotePlayerCommand) {
+    const value = command.payload?.repeatMode;
+    return isRepeatMode(value) ? value : null;
+  }
+
+  function playRemoteAlbum(album: Album, command: QueuedRemotePlayerCommand) {
+    const commandQueueTrackIds = getCommandNumberArray(command, "queueTrackIds");
+    const commandQueue = commandQueueTrackIds ? findTracksByIds(commandQueueTrackIds) : [];
+    const shouldShuffle = getCommandBoolean(command, "isShuffle") ?? isShuffle;
+    const nextQueue = commandQueue.length > 0 ? commandQueue : getAlbumQueueTracks(album, shouldShuffle);
+    const firstTrack = nextQueue[0] ?? null;
+
+    setSelectedAlbumId(album.id);
+    setPlaybackAlbumId(album.id);
+    setPlaybackQueueTrackIds(nextQueue.map((track) => track.id));
+    setCurrentTrack(firstTrack);
+    playerBarRef.current?.resetPosition();
+    setIsPlaying(Boolean(firstTrack));
+  }
+
+  function playRemoteTrack(track: Track, albumId: number | null, command: QueuedRemotePlayerCommand) {
+    const album = albums.find((album) => album.id === albumId) ?? findAlbumByTrackId(track.id);
+    const commandQueueTrackIds = getCommandNumberArray(command, "queueTrackIds");
+    const commandQueue = commandQueueTrackIds ? findTracksByIds(commandQueueTrackIds) : [];
+    const shouldShuffle = getCommandBoolean(command, "isShuffle") ?? isShuffle;
+    const nextQueue = commandQueue.length > 0 ? commandQueue : album ? getAlbumQueueTracks(album, shouldShuffle, track) : [track];
+
+    setPlaybackAlbumId(album?.id ?? albumId);
+    setPlaybackQueueTrackIds(nextQueue.map((track) => track.id));
+    setCurrentTrack(track);
+    playerBarRef.current?.resetPosition();
+    setIsPlaying(true);
+  }
+
   const handleRemoteCommand = useEffectEvent((command: QueuedRemotePlayerCommand) => {
     switch (command.commandType) {
       case "cycle-repeat":
-        cycleRepeatMode();
+        setRepeatMode(getCommandRepeatMode(command) ?? getNextRepeatMode(repeatMode));
         break;
       case "next":
         playNextTrack();
@@ -1113,14 +1534,14 @@ function App() {
       case "play-album": {
         const albumId = getCommandNumber(command, "albumId");
         const album = albums.find((album) => album.id === albumId);
-        if (album) playAlbum(album);
+        if (album) playRemoteAlbum(album, command);
         break;
       }
       case "play-track": {
         const trackId = getCommandNumber(command, "trackId");
-        const albumId = getCommandNumber(command, "albumId") ?? findAlbumByTrackId(trackId)?.id;
+        const albumId = getCommandNumber(command, "albumId") ?? findAlbumByTrackId(trackId)?.id ?? null;
         const track = findTrackById(trackId);
-        if (track) playTrack(track, albumId);
+        if (track) playRemoteTrack(track, albumId, command);
         break;
       }
       case "previous":
@@ -1142,9 +1563,8 @@ function App() {
       }
       case "select-track": {
         const trackId = getCommandNumber(command, "trackId");
-        const albumId = getCommandNumber(command, "albumId") ?? findAlbumByTrackId(trackId)?.id;
         const track = findTrackById(trackId);
-        if (track) selectTrack(track, albumId);
+        if (track) selectTrack(track);
         break;
       }
       case "set-volume": {
@@ -1159,7 +1579,7 @@ function App() {
         togglePlayback();
         break;
       case "toggle-shuffle":
-        setIsShuffle((value) => !value);
+        changeShuffle(getCommandBoolean(command, "isShuffle") ?? !isShuffle, "remote-sync");
         break;
       case "volume-step": {
         const delta = getCommandNumber(command, "delta");
@@ -1176,6 +1596,7 @@ function App() {
       isPlaying,
       isShuffle,
       playbackAlbumId,
+      queueTrackIds: queue.map((track) => track.id),
       repeatMode,
       selectedAlbumId,
       volume: playerBarRef.current?.getVolume() ?? 0.85,
@@ -1369,15 +1790,50 @@ function App() {
           </Button>
 
           {isTauriRuntime && isPublicDevApiAvailable ? (
-            <label className="remote-access-toggle">
-              <input
-                checked={isPublicDevEnabled}
-                disabled={isPublicDevStarting}
-                onChange={(event) => void setPublicDevTunnelEnabled(event.currentTarget.checked)}
-                type="checkbox"
-              />
-              <span>{t("remoteAccess.setting")}</span>
-            </label>
+            <div className="remote-access-mode" role="group" aria-label={t("remoteAccess.modeLabel")}>
+              {(["off", "lan", "open"] as const).map((mode) => (
+                <button
+                  aria-pressed={remoteAccessMode === mode}
+                  className="remote-access-mode-button"
+                  data-active={remoteAccessMode === mode}
+                  disabled={isPublicDevStarting && mode !== "open"}
+                  key={mode}
+                  onClick={() => void setRemoteAccessMode(mode)}
+                  type="button"
+                >
+                  {t(`remoteAccess.mode.${mode}`)}
+                </button>
+              ))}
+            </div>
+          ) : null}
+
+          {isTauriRuntime && (isLocalDevEnabled || localDevError) && isPublicDevApiAvailable ? (
+            <section className="remote-access-panel" aria-label={t("remoteAccess.localLabel")}>
+              <div className="remote-access-copy">
+                <p className="eyebrow">{t("remoteAccess.localLabel")}</p>
+                <p>
+                  {localDevError
+                    ? t("remoteAccess.localError", { message: localDevError })
+                    : localDevUrl
+                      ? t("remoteAccess.localDescription")
+                      : t("remoteAccess.localStarting")}
+                </p>
+              </div>
+              {localDevUrl ? (
+                <>
+                  {localDevQrDataUrl ? (
+                    <img className="remote-access-qr" src={localDevQrDataUrl} alt={t("remoteAccess.localQrAlt")} />
+                  ) : (
+                    <div className="remote-access-qr remote-access-qr-loading" aria-hidden="true" />
+                  )}
+                  <a className="remote-access-link" href={localDevUrl} target="_blank" rel="noreferrer">
+                    {t("remoteAccess.openLocalLink")}
+                  </a>
+                </>
+              ) : localDevError ? null : (
+                <div className="remote-access-qr remote-access-qr-loading" aria-hidden="true" />
+              )}
+            </section>
           ) : null}
 
           {isTauriRuntime && (isPublicDevEnabled || publicDevError) && isPublicDevApiAvailable ? (
@@ -1442,14 +1898,14 @@ function App() {
         aria-label={t("library.selectedAlbumLabel")}
         className={isAlbumPanelCollapsed ? "album-panel collapsed" : "album-panel"}
         data-state={isAlbumPanelCollapsed ? "collapsed" : "expanded"}
-        onPointerCancel={() => {
+        onPointerCancel={(event) => {
+          if (event.pointerType === "touch") return;
+
           albumPanelDragStartRef.current = null;
         }}
-        onPointerDown={(event) => {
-          startAlbumPanelDrag(event.clientY);
-        }}
-        onPointerMove={(event) => overscrollAlbumPanel(event.clientY)}
-        onPointerUp={(event) => finishAlbumPanelDrag(event.clientY)}
+        onPointerDown={startAlbumPanelPointerDrag}
+        onPointerMove={overscrollAlbumPanelPointer}
+        onPointerUp={finishAlbumPanelPointerDrag}
         onTouchCancel={() => {
           albumPanelDragStartRef.current = null;
         }}
@@ -1587,46 +2043,74 @@ function App() {
 
             <Separator />
             <ol className="track-list">
-              {selectedAlbum.tracks.map((track) => (
-                <li className={track.id === currentTrack?.id ? "track-list-row active-track-row" : "track-list-row"} key={track.id}>
-                  <span className="track-title-cell">
-                    <Button
-                      className="track-select-button"
-                      onFocus={prepareMarquee}
-                      onMouseEnter={prepareMarquee}
-                      onClick={() => selectTrack(track, selectedAlbum.id)}
-                      onContextMenu={(event) => {
-                        event.preventDefault();
-                        openTrackDetail(track);
-                      }}
-                      variant="outline"
-                      type="button"
-                    >
-                      <span className="track-title-wrap marquee-wrap">
-                        <span className="track-title marquee-text">
-                          <span className="track-name">
-                            {track.trackNumber ? `${track.trackNumber}. ` : ""}
-                            {localizeLibraryText(track.title, t)}
-                          </span>
+              {selectedAlbum.tracks.map((track, trackIndex) => {
+                const trackRowClassName = [
+                  "track-list-row",
+                  track.id === currentTrack?.id ? "active-track-row" : "",
+                  track.id === selectedTrackId ? "selected-track-row" : "",
+                ]
+                  .filter(Boolean)
+                  .join(" ");
+
+                return (
+                  <li className={trackRowClassName} key={track.id}>
+                    <span className="track-title-cell">
+                      <span className="track-action-slot">
+                        <span className="track-number" aria-hidden="true">
+                          {track.trackNumber ?? trackIndex + 1}
                         </span>
+                        <button
+                          aria-label={`${t("player.play")} ${localizeLibraryText(track.title, t)}`}
+                          className="track-play-button"
+                          onClick={() => playTrack(track, selectedAlbum.id)}
+                          title={`${t("player.play")} ${localizeLibraryText(track.title, t)}`}
+                          type="button"
+                        >
+                          <Play aria-hidden="true" />
+                        </button>
                       </span>
-                    </Button>
-                    {track.hasLyrics || track.lyrics?.trim() ? (
-                      <button
-                        aria-label={t("trackDetail.showLyrics", { track: localizeLibraryText(track.title, t) })}
-                        className="track-lyrics-button"
-                        onClick={() => openTrackDetail(track, "lyrics")}
-                        title={t("trackDetail.lyricsTab")}
+                      <Button
+                        className="track-select-button"
+                        onFocus={prepareMarquee}
+                        onMouseEnter={prepareMarquee}
+                        onClick={() => selectTrack(track)}
+                        onContextMenu={(event) => {
+                          event.preventDefault();
+                          openTrackDetail(track);
+                        }}
+                        onPointerCancel={finishTrackLongPress}
+                        onPointerDown={(event) => startTrackLongPress(event, track)}
+                        onPointerLeave={finishTrackLongPress}
+                        onPointerMove={(event) => moveTrackLongPress(event, track)}
+                        onPointerUp={finishTrackLongPress}
+                        variant="outline"
                         type="button"
                       >
-                        <ScrollText aria-hidden="true" />
-                        <span className="sr-only">{t("trackDetail.lyricsTab")}</span>
-                      </button>
-                    ) : null}
-                  </span>
-                  <small>{formatTrackDuration(track)}</small>
-                </li>
-              ))}
+                        <span className="track-title-wrap marquee-wrap">
+                          <span className="track-title marquee-text">
+                            <span className="track-name">
+                              {localizeLibraryText(track.title, t)}
+                            </span>
+                          </span>
+                        </span>
+                      </Button>
+                      {track.hasLyrics || track.lyrics?.trim() ? (
+                        <button
+                          aria-label={t("trackDetail.showLyrics", { track: localizeLibraryText(track.title, t) })}
+                          className="track-lyrics-button"
+                          onClick={() => openTrackDetail(track, "lyrics")}
+                          title={t("trackDetail.lyricsTab")}
+                          type="button"
+                        >
+                          <ScrollText aria-hidden="true" />
+                          <span className="sr-only">{t("trackDetail.lyricsTab")}</span>
+                        </button>
+                      ) : null}
+                    </span>
+                    <small>{formatTrackDuration(track)}</small>
+                  </li>
+                );
+              })}
             </ol>
           </>
         ) : (
@@ -1639,6 +2123,7 @@ function App() {
 
       <PlayerBar
         audioRef={audioRef}
+        currentAlbum={playbackAlbum}
         currentTrack={currentTrack}
         isPlaying={isPlaying}
         isRemoteSynced={isBrowserBackendRuntime}
@@ -1651,11 +2136,15 @@ function App() {
         onPlayingChange={changePlaying}
         onPreviousTrack={playPreviousTrack}
         onSeek={seekTo}
-        onShuffleChange={toggleShuffle}
+        onSelectCurrentAlbum={() => {
+          if (playbackAlbum) selectAlbum(playbackAlbum);
+        }}
+        onShuffleChange={changeShuffle}
         onTogglePlayback={togglePlayback}
         onVolumeChange={setVolume}
         playbackError={playbackError}
         queueLength={queue.length}
+        queueTracks={queue}
         ref={playerBarRef}
         repeatMode={repeatMode}
         t={t}

@@ -47,6 +47,17 @@
   <message key="sidebar.collapse">Collapse library panel</message>
   <message key="sidebar.expand">Expand library panel</message>
   <message key="remoteAccess.label">Remote access</message>
+  <message key="remoteAccess.modeLabel">Connection mode</message>
+  <message key="remoteAccess.mode.off">Private</message>
+  <message key="remoteAccess.mode.lan">LAN</message>
+  <message key="remoteAccess.mode.open">OPEN</message>
+  <message key="remoteAccess.localLabel">LAN access</message>
+  <message key="remoteAccess.localSetting">Share on LAN</message>
+  <message key="remoteAccess.localDescription">Scan on a device using the same Wi-Fi to open the controls.</message>
+  <message key="remoteAccess.localStarting">Checking LAN URL...</message>
+  <message key="remoteAccess.localError">Could not create LAN URL: {message}</message>
+  <message key="remoteAccess.openLocalLink">Open LAN URL</message>
+  <message key="remoteAccess.localQrAlt">QR code for the LAN control URL</message>
   <message key="remoteAccess.setting">Publish control URL</message>
   <message key="remoteAccess.description">Scan to open the controls on your phone.</message>
   <message key="remoteAccess.starting">Creating public URL...</message>
@@ -112,6 +123,7 @@
   <message key="player.nowPlaying">Now playing</message>
   <message key="player.nothingSelected">Nothing selected</message>
   <message key="player.pickPrompt">Pick an album or scan a folder.</message>
+  <message key="player.showCurrentAlbum">Show {album}</message>
   <message key="player.previous">Previous</message>
   <message key="player.play">Play</message>
   <message key="player.pause">Pause</message>
@@ -127,6 +139,7 @@
   <message key="player.repeatOne">Repeat one</message>
   <message key="player.queue">Queue</message>
   <message key="player.queueCount">{count} tracks</message>
+  <message key="player.queueToggle">Show or hide queue</message>
   <message key="player.playbackError">Could not play this track: {message}</message>
   <message key="status.noLibraryScanned">No library scanned yet.</message>
   <message key="status.webMockMode">Web mode is using mock albums.</message>

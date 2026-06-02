@@ -39,7 +39,7 @@ type AlbumBrowserProps = {
   selectedAlbumId: number | null;
   t: TFunction;
   onPausePlayback: () => void;
-  onPlayAlbum: (album: Album) => void;
+  onPlayAlbum: (album: Album, options?: { selectAlbum?: boolean }) => void;
   onQueryChange: (query: string) => void;
   onLyricsOnlyChange: (lyricsOnly: boolean) => void;
   onListModeChange: (listMode: AlbumListMode) => void;
@@ -230,6 +230,7 @@ function AlbumBrowserComponent({
                         className="album-table-select-button"
                         onFocus={prepareMarquee}
                         onMouseEnter={prepareMarquee}
+                        onClick={() => onSelectAlbum(album)}
                         type="button"
                       >
                         <span className="marquee-wrap">

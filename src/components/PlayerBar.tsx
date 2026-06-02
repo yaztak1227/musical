@@ -1,13 +1,13 @@
-import { type CSSProperties, forwardRef, type RefObject, useEffect, useEffectEvent, useImperativeHandle, useRef, useState } from "react";
+import { type CSSProperties, forwardRef, type RefObject, useEffect, useEffectEvent, useId, useImperativeHandle, useRef, useState } from "react";
 import { ChevronLeft, ChevronRight, Pause, Play, Repeat, Repeat1, Shuffle, Volume2, VolumeX } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Slider } from "@/components/ui/slider";
 import { Toggle } from "@/components/ui/toggle";
 import type { TranslationKey } from "@/i18n";
-import type { Track } from "@/types/audio";
+import type { Album, Track } from "@/types/audio";
 import type { RepeatMode } from "@/types/app";
-import { formatSeconds, getTrackDurationSeconds } from "@/lib/formatUtils";
-import { getAudioErrorMessage, localizeLibraryText } from "@/lib/libraryUtils";
+import { formatSeconds, formatTrackDuration, getTrackDurationSeconds } from "@/lib/formatUtils";
+import { getAudioErrorMessage, getArtworkSrc, localizeLibraryText } from "@/lib/libraryUtils";
 
 type TFunction = (key: TranslationKey, values?: Record<string, string | number>) => string;
 
@@ -23,6 +23,7 @@ export type PlayerBarHandle = {
 
 type PlayerBarProps = {
   audioRef: RefObject<HTMLAudioElement | null>;
+  currentAlbum: Album | null;
   currentTrack: Track | null;
   isPlaying: boolean;
   isRemoteSynced: boolean;
@@ -30,6 +31,7 @@ type PlayerBarProps = {
   isTauriRuntime: boolean;
   playbackError: string | null;
   queueLength: number;
+  queueTracks: Track[];
   repeatMode: RepeatMode;
   t: TFunction;
   onCycleRepeat: () => void;
@@ -39,6 +41,7 @@ type PlayerBarProps = {
   onPlayingChange: (isPlaying: boolean) => void;
   onPreviousTrack: () => void;
   onSeek: (nextTime: number) => void;
+  onSelectCurrentAlbum: () => void;
   onShuffleChange: (isShuffle: boolean) => void;
   onTogglePlayback: () => void;
   onVolumeChange: (nextVolume: number) => void;
@@ -47,6 +50,7 @@ type PlayerBarProps = {
 export const PlayerBar = forwardRef<PlayerBarHandle, PlayerBarProps>(function PlayerBar(
   {
     audioRef,
+    currentAlbum,
     currentTrack,
     isPlaying,
     isRemoteSynced,
@@ -54,6 +58,7 @@ export const PlayerBar = forwardRef<PlayerBarHandle, PlayerBarProps>(function Pl
     isTauriRuntime,
     playbackError,
     queueLength,
+    queueTracks,
     repeatMode,
     t,
     onCycleRepeat,
@@ -63,6 +68,7 @@ export const PlayerBar = forwardRef<PlayerBarHandle, PlayerBarProps>(function Pl
     onPlayingChange,
     onPreviousTrack,
     onSeek,
+    onSelectCurrentAlbum,
     onShuffleChange,
     onTogglePlayback,
     onVolumeChange,
@@ -74,12 +80,17 @@ export const PlayerBar = forwardRef<PlayerBarHandle, PlayerBarProps>(function Pl
   const hasRequestedEndedRef = useRef(false);
   const lastTimeUpdateRef = useRef(0);
   const mobileOptionsDragStartRef = useRef<number | null>(null);
+  const queuePopoverId = useId();
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(() => getTrackDurationSeconds(currentTrack));
   const [isMobileOptionsOpen, setIsMobileOptionsOpen] = useState(false);
+  const [isQueueHovered, setIsQueueHovered] = useState(false);
+  const [isQueuePinnedOpen, setIsQueuePinnedOpen] = useState(false);
   const [volume, setVolume] = useState(0.85);
   const effectiveDuration = duration || getTrackDurationSeconds(currentTrack);
   const seekProgress = effectiveDuration > 0 ? Math.min(100, Math.max(0, (currentTime / effectiveDuration) * 100)) : 0;
+  const currentAlbumTitle = currentAlbum ? localizeLibraryText(currentAlbum.title, t) : "";
+  const currentArtworkSrc = currentAlbum ? getArtworkSrc(currentAlbum) : "";
 
   function publishPosition(nextTime: number, nextDuration = durationRef.current) {
     const boundedDuration = Math.max(0, nextDuration);
@@ -294,12 +305,28 @@ export const PlayerBar = forwardRef<PlayerBarHandle, PlayerBarProps>(function Pl
         <span aria-hidden="true" />
       </button>
       <div className="player-track">
-        <p className="eyebrow">{t("player.nowPlaying")}</p>
-        <strong>{currentTrack ? localizeLibraryText(currentTrack.title, t) : t("player.nothingSelected")}</strong>
-        <span>{currentTrack ? localizeLibraryText(currentTrack.artist, t) : t("player.pickPrompt")}</span>
-        {playbackError ? (
-          <small role="alert">{t("player.playbackError", { message: playbackError })}</small>
-        ) : null}
+        <button
+          aria-label={currentAlbum ? t("player.showCurrentAlbum", { album: currentAlbumTitle }) : t("player.nothingSelected")}
+          className="player-artwork-button"
+          disabled={!currentAlbum}
+          onClick={onSelectCurrentAlbum}
+          title={currentAlbum ? t("player.showCurrentAlbum", { album: currentAlbumTitle }) : undefined}
+          type="button"
+        >
+          {currentArtworkSrc ? (
+            <img alt={t("album.artworkAlt", { album: currentAlbumTitle })} src={currentArtworkSrc} />
+          ) : (
+            <span aria-hidden="true">{currentAlbumTitle.charAt(0).toUpperCase()}</span>
+          )}
+        </button>
+        <div className="player-track-copy">
+          <p className="eyebrow">{t("player.nowPlaying")}</p>
+          <strong>{currentTrack ? localizeLibraryText(currentTrack.title, t) : t("player.nothingSelected")}</strong>
+          <span>{currentTrack ? localizeLibraryText(currentTrack.artist, t) : t("player.pickPrompt")}</span>
+          {playbackError ? (
+            <small role="alert">{t("player.playbackError", { message: playbackError })}</small>
+          ) : null}
+        </div>
       </div>
       <div className="player-main">
         <div className="transport-controls">
@@ -379,9 +406,42 @@ export const PlayerBar = forwardRef<PlayerBarHandle, PlayerBarProps>(function Pl
             value={[volume]}
           />
         </label>
-        <p className="queue-count">
-          {t("player.queue")} / {t("player.queueCount", { count: queueLength })}
-        </p>
+        <div
+          className={isQueueHovered || isQueuePinnedOpen ? "queue-popover-wrap open" : "queue-popover-wrap"}
+          onMouseEnter={() => setIsQueueHovered(true)}
+          onMouseLeave={() => setIsQueueHovered(false)}
+        >
+          <button
+            aria-controls={queuePopoverId}
+            aria-expanded={isQueueHovered || isQueuePinnedOpen}
+            aria-label={t("player.queueToggle")}
+            className="queue-count"
+            onClick={() => {
+              setIsQueueHovered(false);
+              setIsQueuePinnedOpen((value) => !value);
+            }}
+            type="button"
+          >
+            {t("player.queue")} / {t("player.queueCount", { count: queueLength })}
+          </button>
+          <div className="queue-popover" id={queuePopoverId} role="region" aria-label={t("player.queue")}>
+            <div className="queue-popover-list">
+              {queueTracks.map((track, index) => {
+                const isCurrentTrack = currentTrack?.id === track.id;
+                return (
+                  <div className={isCurrentTrack ? "queue-popover-row current" : "queue-popover-row"} key={track.id}>
+                    <span className="queue-track-index">{index + 1}</span>
+                    <span className="queue-track-copy">
+                      <strong>{localizeLibraryText(track.title, t)}</strong>
+                      <span>{localizeLibraryText(track.artist, t)}</span>
+                    </span>
+                    <span className="queue-track-duration">{formatTrackDuration(track)}</span>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </div>
       </div>
     </section>
   );

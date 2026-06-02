@@ -50,6 +50,7 @@ struct RemotePlayerState {
     selected_album_id: Option<i64>,
     playback_album_id: Option<i64>,
     current_track_id: Option<i64>,
+    queue_track_ids: Vec<i64>,
     is_playing: bool,
     is_shuffle: bool,
     repeat_mode: String,
@@ -88,6 +89,43 @@ struct RemoteServerState {
     next_command_id: u64,
     player_state: Option<RemotePlayerState>,
     commands: VecDeque<QueuedRemotePlayerCommand>,
+}
+
+fn apply_remote_command_to_player_state(
+    player_state: &mut Option<RemotePlayerState>,
+    command: &RemotePlayerCommand,
+) {
+    let Some(state) = player_state.as_mut() else {
+        return;
+    };
+    let Some(payload) = command.payload.as_ref() else {
+        return;
+    };
+
+    match command.command_type.as_str() {
+        "cycle-repeat" => {
+            if let Some(repeat_mode) = payload
+                .get("repeatMode")
+                .and_then(Value::as_str)
+                .filter(|value| matches!(*value, "off" | "all" | "one"))
+            {
+                state.repeat_mode = repeat_mode.to_string();
+            }
+        }
+        "toggle-shuffle" => {
+            if let Some(is_shuffle) = payload.get("isShuffle").and_then(Value::as_bool) {
+                state.is_shuffle = is_shuffle;
+            }
+            if let Some(queue_track_ids) = payload.get("queueTrackIds").and_then(Value::as_array)
+            {
+                state.queue_track_ids = queue_track_ids
+                    .iter()
+                    .filter_map(Value::as_i64)
+                    .collect();
+            }
+        }
+        _ => {}
+    }
 }
 
 type SharedRemoteServerState = Arc<Mutex<RemoteServerState>>;
@@ -268,6 +306,7 @@ fn route_request(
             let request_body = parse_json::<RemotePlayerCommand>(&request.body);
             let result = request_body.and_then(|command| {
                 let mut state = remote_state.lock().map_err(|error| error.to_string())?;
+                apply_remote_command_to_player_state(&mut state.player_state, &command);
                 state.next_command_id += 1;
                 let queued_command = QueuedRemotePlayerCommand {
                     id: state.next_command_id,

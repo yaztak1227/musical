@@ -16,6 +16,7 @@ export type RemotePlayerState = {
   selectedAlbumId: number | null;
   playbackAlbumId: number | null;
   currentTrackId: number | null;
+  queueTrackIds: number[];
   isPlaying: boolean;
   isShuffle: boolean;
   repeatMode: string;

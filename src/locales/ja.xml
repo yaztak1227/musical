@@ -47,6 +47,17 @@
   <message key="sidebar.collapse">左パネルを閉じる</message>
   <message key="sidebar.expand">左パネルを開く</message>
   <message key="remoteAccess.label">外部接続</message>
+  <message key="remoteAccess.modeLabel">接続モード</message>
+  <message key="remoteAccess.mode.off">非公開</message>
+  <message key="remoteAccess.mode.lan">LAN</message>
+  <message key="remoteAccess.mode.open">OPEN</message>
+  <message key="remoteAccess.localLabel">LAN接続</message>
+  <message key="remoteAccess.localSetting">LAN内に公開</message>
+  <message key="remoteAccess.localDescription">同じWi-Fiの端末で読み取ると、操作画面を開けます。</message>
+  <message key="remoteAccess.localStarting">LAN URLを確認中...</message>
+  <message key="remoteAccess.localError">LAN URLを作成できませんでした: {message}</message>
+  <message key="remoteAccess.openLocalLink">LAN URLを開く</message>
+  <message key="remoteAccess.localQrAlt">LAN操作URLのQRコード</message>
   <message key="remoteAccess.setting">操作URLを公開</message>
   <message key="remoteAccess.description">スマホで読み取ると、操作画面を開けます。</message>
   <message key="remoteAccess.starting">公開URLを作成中...</message>
@@ -112,6 +123,7 @@
   <message key="player.nowPlaying">再生中</message>
   <message key="player.nothingSelected">未選択</message>
   <message key="player.pickPrompt">アルバムを選ぶか、フォルダをスキャンしてください。</message>
+  <message key="player.showCurrentAlbum">{album} を表示</message>
   <message key="player.previous">前へ</message>
   <message key="player.play">再生</message>
   <message key="player.pause">一時停止</message>
@@ -127,6 +139,7 @@
   <message key="player.repeatOne">1曲リピート</message>
   <message key="player.queue">キュー</message>
   <message key="player.queueCount">{count} 曲</message>
+  <message key="player.queueToggle">キューの表示を切り替え</message>
   <message key="player.playbackError">この曲を再生できませんでした: {message}</message>
   <message key="status.noLibraryScanned">ライブラリはまだスキャンされていません。</message>
   <message key="status.webMockMode">Web モードではモックアルバムを使用しています。</message>
