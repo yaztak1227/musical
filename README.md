@@ -1,97 +1,41 @@
 # Musical
 
-Musical は、ローカルの音楽フォルダを読み込んでアルバム単位で管理する Tauri 製のデスクトップ音楽プレイヤーです。フロントエンドは React / TypeScript、ローカルファイルのスキャンやタグ処理は Rust 側で行います。
+**日本語版:** [README.ja.md](README.ja.md)
 
-## アプリ概要
+Musical is a desktop music player for Windows, macOS, and Linux. It scans a local music folder, organizes your library by album, and gives you playback, search, tag editing, lyrics, and artwork controls in one focused app.
 
-主な機能:
+![Musical album library](docs/images/musical-en-library.png)
 
-- 音楽フォルダをスキャンしてライブラリ化
-- アルバム、曲、アーティスト、年、ジャンル、歌詞、アートワークの表示
-- アルバム検索、表示サイズ切り替え、リスト表示、曲リスト表示
-- タイトル、アーティスト、年、ジャンルなどのタグ編集
-- アルバムアートワークの抽出と差し替え
-- 再生、一時停止、前後の曲、シーク、音量、シャッフル、リピート
-- 日本語 / 英語の表示切り替え
-- 複数テーマの切り替え
-- Web モード用のモックライブラリ
+## Desktop And Narrow Layouts
 
-デスクトップモードでは Tauri API を使い、実際のローカル音楽ファイルをスキャン、再生、タグ更新します。Web モードでは UI 開発と E2E テスト向けにモックデータを表示します。
+Musical is designed first as a desktop app, with a wide library view for browsing albums, tracks, and the current player at the same time. The interface also adapts to narrow widths, so the library, selected album, and player remain usable in a phone-sized preview or compact window.
 
-## 技術スタック
+<img src="docs/images/musical-en-mobile-library.png" alt="Musical narrow-width album library" width="360">
 
-- Tauri 2
-- React 19
-- TypeScript
-- Vite
-- Rust stable
-- SQLite via `rusqlite`
-- Audio tag reading / writing via `lofty`
-- Playwright
+## Features
 
-## 推奨環境
+- Scan a local music folder into an album library
+- Browse albums with artwork
+- Search by album, artist, or year
+- Switch between large icons, small icons, album list, and track list views
+- Play, pause, skip, seek, adjust volume, shuffle, and repeat
+- Edit album and track tags such as title, artist, year, and genre
+- View lyrics saved in tracks
+- Review and replace album artwork
+- Switch between Japanese and English
+- Choose from multiple themes
 
-| Tool | Version |
+## Supported Platforms
+
+Musical is built with Tauri and targets desktop use on:
+
+| OS | Support |
 | --- | --- |
-| Node.js | 24.x |
-| npm | 11.x |
-| Rust | stable |
+| Windows | Supported |
+| macOS | Supported |
+| Linux | Supported |
 
-このリポジトリには以下のバージョン管理ファイルがあります。
-
-- `.mise.toml`
-- `.node-version`
-- `.nvmrc`
-- `rust-toolchain.toml`
-
-## セットアップ
-
-依存関係をインストールします。
-
-```bash
-npm install
-```
-
-Playwright のブラウザが未インストールの場合は追加します。
-
-```bash
-npx playwright install chromium
-```
-
-## 起動方法
-
-### Web モード
-
-```bash
-npm run dev
-```
-
-ブラウザで開きます。
-
-```text
-http://127.0.0.1:1420/
-```
-
-Web モードは UI 開発や Playwright 検証向けです。Tauri API が使えないため、ローカルフォルダのスキャン、実ファイル再生、タグの実保存は行わず、モックアルバムを表示します。
-
-### デスクトップモード
-
-```bash
-npm run tauri dev
-```
-
-Tauri のデスクトップアプリとして起動します。ローカルフォルダのスキャン、音声ファイルの再生、タグ編集、アートワーク保存などはこのモードで利用します。
-
-## 使い方
-
-### ライブラリを作成する
-
-1. `npm run tauri dev` でデスクトップアプリを起動します。
-2. `音楽フォルダ` に読み込みたいフォルダパスを入力するか、フォルダ指定ボタンから選択します。
-3. `ライブラリをスキャン` を押します。
-4. スキャン完了後、アルバム一覧と曲一覧が表示されます。
-
-スキャン時に対応している主な拡張子:
+Common supported audio file types:
 
 - `mp3`
 - `flac`
@@ -103,72 +47,39 @@ Tauri のデスクトップアプリとして起動します。ローカルフ�
 - `aif`
 - `aiff`
 
-### アルバムや曲を探す
+## Find Albums And Tracks
 
-- 検索欄でアルバム名やアーティスト名を絞り込みます。
-- 表示モードで大きいアイコン、小さいアイコン、リストを切り替えます。
-- リスト表示ではアルバム一覧と曲一覧を切り替えられます。
-- 歌詞アイコンのフィルターで、歌詞を持つ曲が含まれる項目に絞り込めます。
-- 並び替えでタイトル、アーティスト、年を切り替えられます。
+After you load a music folder, Musical builds an album-based library. Use search and view modes to quickly find albums, artists, years, or individual tracks.
 
-### 再生する
+![Track list search](docs/images/musical-en-track-list.png)
 
-- アルバムの再生ボタンでアルバム再生を開始します。
-- 曲の再生ボタンでその曲から再生します。
-- 下部のプレイヤーで再生 / 一時停止、前の曲、次の曲、シーク、音量、シャッフル、リピートを操作します。
+The track list shows song title, track artist, album, and duration across the library. You can also filter to items that include lyrics.
 
-### タグやアートワークを編集する
+<img src="docs/images/musical-en-mobile-search.png" alt="Musical narrow-width search and filters" width="360">
 
-- 選択中アルバムの編集ボタンから、アルバム名、アルバムアーティスト、アーティスト、年、ジャンルを編集できます。
-- 曲名を右クリックすると曲詳細を開けます。
-- 曲詳細では曲情報、歌詞、アートワークのタブを切り替えられます。
-- 曲情報タブではタイトル、アーティスト、アルバム、年、ジャンル、トラック番号、ディスク番号を編集できます。
-- アートワークタブでは画像を選択して保存できます。
+## Play Music
 
-## 開発コマンド
+Start playback from an album or individual track. The player at the bottom of the app handles play / pause, previous, next, seek, volume, shuffle, and repeat.
 
-### フロントエンドをビルド
+## View And Edit Track Details
 
-```bash
-npm run build
-```
+Track details include info, lyrics, and artwork tabs. In the desktop app, you can edit title, artist, album, year, genre, track number, disc number, and artwork.
 
-### デスクトップアプリをビルド
+![Track details and lyrics](docs/images/musical-en-track-detail.png)
 
-```bash
-npm run tauri build
-```
+## Create A Library
 
-### E2E テスト
+1. Start the desktop app.
+2. Select the local folder you want to load from `Music folder`.
+3. Press `Load library`.
+4. After scanning finishes, Musical shows your albums and tracks.
 
-```bash
-npm run test:e2e
-```
+Scan results are stored in a local SQLite database and loaded again the next time the app starts.
 
-### Playwright UI モード
+## Developer Information
 
-```bash
-npm run test:e2e:ui
-```
+Development setup, commands, architecture notes, and source file pointers live in [docs/development.md](docs/development.md).
 
-## 主なファイル
+## License
 
-- [src/App.tsx](/Users/takumi/git/musical/src/App.tsx)
-- [src/App.css](/Users/takumi/git/musical/src/App.css)
-- [src/components/AlbumBrowser.tsx](/Users/takumi/git/musical/src/components/AlbumBrowser.tsx)
-- [src/lib/tagEditing.ts](/Users/takumi/git/musical/src/lib/tagEditing.ts)
-- [src-tauri/src/lib.rs](/Users/takumi/git/musical/src-tauri/src/lib.rs)
-- [src-tauri/src/library.rs](/Users/takumi/git/musical/src-tauri/src/library.rs)
-- [src-tauri/Cargo.toml](/Users/takumi/git/musical/src-tauri/Cargo.toml)
-- [playwright.config.ts](/Users/takumi/git/musical/playwright.config.ts)
-
-## メモ
-
-- Web モードは主に UI 開発と Playwright 検証用です。
-- ローカルファイル操作、実再生、タグ保存は `npm run tauri dev` で起動したデスクトップアプリで確認します。
-- スキャン結果は SQLite に保存され、次回起動時に読み込まれます。
-- スキャン時はライブラリ内容を再構築します。
-
-## ライセンス
-
-MIT License. 詳細は [LICENSE](/Users/takumi/git/musical/LICENSE) を参照してください。
+MIT License. See [LICENSE](LICENSE) for details.

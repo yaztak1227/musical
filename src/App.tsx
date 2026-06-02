@@ -1,6 +1,5 @@
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import {
-  type CSSProperties,
   type PointerEvent,
   type TouchEvent,
   useCallback,
@@ -10,18 +9,10 @@ import {
   useRef,
   useState,
 } from "react";
-import { toDataURL } from "qrcode";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Separator } from "@/components/ui/separator";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { FolderOpen, ListMusic, PanelLeftClose, PanelLeftOpen, Pencil, Play, Save, ScrollText, Settings2, X } from "lucide-react";
 import "./App.css";
-import { getInitialLocale, getLocaleLabel, locales, translate, type Locale, type TranslationKey } from "./i18n";
+import { getInitialLocale, translate, type Locale, type TranslationKey } from "./i18n";
 import type { Album, Track, LibrarySnapshot, ScanSummary } from "./types/audio";
 import {
-  themeOptions,
   type AlbumListMode,
   type AlbumSortDirection,
   type AlbumSortMode,
@@ -47,44 +38,36 @@ import {
 } from "./lib/backend";
 import { useGlobalMediaKeys } from "./lib/useGlobalMediaKeys";
 import { mockAlbums } from "./lib/mockData";
-import { formatTrackDuration } from "./lib/formatUtils";
 import { filterAndSortAlbums } from "./lib/albumFilters";
 import { localizeLibraryText, getArtworkSrc, getAlbumJumpTarget, toI18nError } from "./lib/libraryUtils";
-import { prepareMarquee } from "./lib/marqueeUtils";
 import { makeAlbumTagDraft, isAlbumTagDraftChanged, parseOptionalYear } from "./lib/tagDraftUtils";
+import {
+  getAlbumQueueTracks,
+  getInitialAlbumId,
+  getInitialTrack,
+  getNextRepeatMode,
+  getStoredPlaybackPreferences,
+  getToggledQueueTracks,
+  isRepeatMode,
+  shuffleTracks,
+  storePlaybackPreferences,
+  type PlaybackPreferences,
+  type PlaybackResolutionState,
+} from "./lib/playback";
+import { getHeapUsageMb, logRenderDiagnostic, releaseAudioSource } from "./lib/renderDiagnostics";
+import { isTrackTagDraftChanged, makeTrackTagDraft } from "./lib/trackTagDraftUtils";
+import { useRemoteAccess } from "./lib/useRemoteAccess";
 import { AlbumBrowser } from "./components/AlbumBrowser";
+import { LibrarySidebar } from "./components/LibrarySidebar";
+import { LibrarySettingsDialog } from "./components/LibrarySettingsDialog";
 import { PlayerBar, type PlayerBarHandle } from "./components/PlayerBar";
+import { SelectedAlbumPanel } from "./components/SelectedAlbumPanel";
+import { TrackDetailDialog } from "./components/TrackDetailDialog";
 
-const playbackPreferencesKey = "musical.playbackPreferences";
-const publicDevTunnelApiPath = "/api/public-dev-tunnel";
-const localDevAccessApiPath = "/api/local-dev-access";
 const albumPanelSwipeThreshold = 36;
 const albumPanelDragTolerance = 8;
 const trackLongPressDelayMs = 520;
 const trackLongPressMoveTolerance = 10;
-
-type PlaybackPreferences = {
-  isShuffle: boolean;
-  playbackAlbumId: number | null;
-  repeatMode: RepeatMode;
-  selectedAlbumId: number | null;
-};
-
-type PublicDevTunnelInfo = {
-  enabled: boolean;
-  isStarting: boolean;
-  url: string | null;
-};
-
-type LocalDevAccessInfo = {
-  available: boolean;
-  enabled: boolean;
-  host: string | null;
-  port: number;
-  url: string | null;
-};
-
-type RemoteAccessMode = "off" | "lan" | "open";
 
 type AlbumPanelDragStart = {
   hasDragged: boolean;
@@ -104,170 +87,6 @@ type SuppressedTrackClick = {
   timerId: number;
   trackId: number;
 };
-
-type PlaybackResolutionState = {
-  currentTrackIndex: number;
-  isShuffle: boolean;
-  playbackAlbumId: number | null;
-  queue: Track[];
-  repeatMode: RepeatMode;
-  selectedAlbumId: number | null;
-};
-
-function isPublicDevTunnelInfo(value: unknown): value is PublicDevTunnelInfo {
-  const url = (value as Partial<PublicDevTunnelInfo> | null)?.url;
-  return (
-    typeof value === "object" &&
-    value !== null &&
-    "enabled" in value &&
-    "isStarting" in value &&
-    "url" in value &&
-    typeof (value as PublicDevTunnelInfo).enabled === "boolean" &&
-    typeof (value as PublicDevTunnelInfo).isStarting === "boolean" &&
-    (url === null || (typeof url === "string" && url.startsWith("https://")))
-  );
-}
-
-function isLocalDevAccessInfo(value: unknown): value is LocalDevAccessInfo {
-  if (typeof value !== "object" || value === null) return false;
-
-  const info = value as Partial<LocalDevAccessInfo>;
-  return (
-    typeof info.available === "boolean" &&
-    typeof info.enabled === "boolean" &&
-    (info.host === null || typeof info.host === "string") &&
-    typeof info.port === "number" &&
-    Number.isFinite(info.port) &&
-    (info.url === null || typeof info.url === "string")
-  );
-}
-
-function isRepeatMode(value: unknown): value is RepeatMode {
-  return value === "off" || value === "all" || value === "one";
-}
-
-function parseStoredAlbumId(value: unknown) {
-  return typeof value === "number" && Number.isInteger(value) ? value : null;
-}
-
-function getStoredPlaybackPreferences(): PlaybackPreferences {
-  const fallback: PlaybackPreferences = {
-    isShuffle: false,
-    playbackAlbumId: null,
-    repeatMode: "off",
-    selectedAlbumId: null,
-  };
-
-  try {
-    const storedPreferences = window.localStorage.getItem(playbackPreferencesKey);
-    if (!storedPreferences) return fallback;
-
-    const parsedPreferences = JSON.parse(storedPreferences) as Partial<Record<keyof PlaybackPreferences, unknown>>;
-    return {
-      isShuffle: parsedPreferences.isShuffle === true,
-      playbackAlbumId: parseStoredAlbumId(parsedPreferences.playbackAlbumId),
-      repeatMode: isRepeatMode(parsedPreferences.repeatMode) ? parsedPreferences.repeatMode : "off",
-      selectedAlbumId: parseStoredAlbumId(parsedPreferences.selectedAlbumId),
-    };
-  } catch {
-    return fallback;
-  }
-}
-
-function getInitialAlbumId(albums: Album[], storedAlbumId: number | null) {
-  return albums.some((album) => album.id === storedAlbumId) ? storedAlbumId : albums[0]?.id ?? null;
-}
-
-function getInitialTrack(albums: Album[], albumId: number | null) {
-  return albums.find((album) => album.id === albumId)?.tracks[0] ?? albums[0]?.tracks[0] ?? null;
-}
-
-function shuffleTracks(tracks: Track[]) {
-  const shuffledTracks = [...tracks];
-  for (let index = shuffledTracks.length - 1; index > 0; index -= 1) {
-    const randomIndex = Math.floor(Math.random() * (index + 1));
-    [shuffledTracks[index], shuffledTracks[randomIndex]] = [shuffledTracks[randomIndex], shuffledTracks[index]];
-  }
-  return shuffledTracks;
-}
-
-function getAlbumQueueTracks(album: Album, isShuffle: boolean, startTrack: Track | null = null) {
-  if (!isShuffle) return album.tracks;
-
-  if (!startTrack) return shuffleTracks(album.tracks);
-
-  const shuffledRemainder = shuffleTracks(album.tracks.filter((track) => track.id !== startTrack.id));
-  return [startTrack, ...shuffledRemainder];
-}
-
-function getToggledQueueTracks(album: Album, isShuffle: boolean, currentTrack: Track | null) {
-  if (!isShuffle) return album.tracks;
-  return getAlbumQueueTracks(album, true, currentTrack);
-}
-
-function getNextRepeatMode(repeatMode: RepeatMode): RepeatMode {
-  if (repeatMode === "off") return "all";
-  if (repeatMode === "all") return "one";
-  return "off";
-}
-
-function getHeapUsageMb() {
-  const performanceWithMemory = performance as Performance & {
-    memory?: { usedJSHeapSize: number };
-  };
-
-  return performanceWithMemory.memory
-    ? Math.round(performanceWithMemory.memory.usedJSHeapSize / 1024 / 1024)
-    : null;
-}
-
-function logRenderDiagnostic(label: string, payload: Record<string, unknown>) {
-  const message = `[render-diagnostics] ${label} ${JSON.stringify(payload)}`;
-  const windowWithDiagnostics = window as Window & { __renderDiagnostics?: string[] };
-  windowWithDiagnostics.__renderDiagnostics = [...(windowWithDiagnostics.__renderDiagnostics ?? []), message].slice(-300);
-  document.documentElement.dataset.renderDiagnostics = JSON.stringify(windowWithDiagnostics.__renderDiagnostics);
-  console.debug(message);
-}
-
-function releaseAudioSource(audio: HTMLAudioElement) {
-  audio.pause();
-
-  try {
-    audio.currentTime = 0;
-  } catch {
-    // Reset can fail when the media pipeline is already detached.
-  }
-
-  audio.removeAttribute("src");
-  audio.load();
-}
-
-const trackTagFields = [
-  { key: "title", labelKey: "tags.title" },
-  { key: "artist", labelKey: "tags.artist" },
-  { key: "album", labelKey: "tags.album" },
-  { key: "year", labelKey: "tags.year" },
-  { key: "genre", labelKey: "tags.genre" },
-  { key: "trackNumber", labelKey: "tags.trackNumber" },
-  { key: "discNumber", labelKey: "tags.discNumber" },
-] satisfies { key: keyof TrackTagDraft; labelKey: TranslationKey }[];
-
-function makeTrackTagDraft(track: Track | null, album: Album | null): TrackTagDraft {
-  return {
-    title: track?.title ?? "",
-    artist: track?.artist ?? "",
-    album: album?.title ?? "",
-    year: String(album?.year ?? ""),
-    genre: album?.genre ?? "",
-    trackNumber: String(track?.trackNumber ?? ""),
-    discNumber: String(track?.discNumber ?? ""),
-  };
-}
-
-function isTrackTagDraftChanged(draft: TrackTagDraft, track: Track, album: Album | null) {
-  const original = makeTrackTagDraft(track, album);
-  return trackTagFields.some((field) => draft[field.key].trim() !== original[field.key].trim());
-}
 
 function App() {
   const audioRef = useRef<HTMLAudioElement | null>(null);
@@ -342,17 +161,7 @@ function App() {
   const [artworkDraftPath, setArtworkDraftPath] = useState("");
   const [artworkPreviewSrc, setArtworkPreviewSrc] = useState("");
   const [isSavingArtwork, setIsSavingArtwork] = useState(false);
-  const [isPublicDevApiAvailable, setIsPublicDevApiAvailable] = useState(false);
-  const [isPublicDevEnabled, setIsPublicDevEnabled] = useState(false);
-  const [isPublicDevStarting, setIsPublicDevStarting] = useState(false);
-  const [publicDevUrl, setPublicDevUrl] = useState<string | null>(null);
-  const [publicDevQrDataUrl, setPublicDevQrDataUrl] = useState<string | null>(null);
-  const [publicDevError, setPublicDevError] = useState<string | null>(null);
-  const [isLocalDevEnabled, setIsLocalDevEnabled] = useState(false);
-  const [localDevUrl, setLocalDevUrl] = useState<string | null>(null);
-  const [localDevQrDataUrl, setLocalDevQrDataUrl] = useState<string | null>(null);
-  const [localDevError, setLocalDevError] = useState<string | null>(null);
-  const remoteAccessMode: RemoteAccessMode = isPublicDevEnabled || isPublicDevStarting ? "open" : isLocalDevEnabled ? "lan" : "off";
+  const remoteAccess = useRemoteAccess();
   renderCountRef.current += 1;
 
   useEffect(() => {
@@ -366,178 +175,13 @@ function App() {
   }, [themeName]);
 
   useEffect(() => {
-    if (!isTauriRuntime) return;
-    void initializeRemoteAccessMode();
-  }, []);
-
-  useEffect(() => {
-    let isActive = true;
-
-    void renderQrCode(publicDevUrl).then((dataUrl) => {
-      if (isActive) setPublicDevQrDataUrl(dataUrl);
-    }).catch(() => {
-      if (isActive) setPublicDevQrDataUrl(null);
-    });
-
-    return () => {
-      isActive = false;
-    };
-  }, [publicDevUrl]);
-
-  useEffect(() => {
-    let isActive = true;
-
-    void renderQrCode(localDevUrl).then((dataUrl) => {
-      if (isActive) setLocalDevQrDataUrl(dataUrl);
-    }).catch(() => {
-      if (isActive) setLocalDevQrDataUrl(null);
-    });
-
-    return () => {
-      isActive = false;
-    };
-  }, [localDevUrl]);
-
-  async function renderQrCode(url: string | null) {
-    if (!url) return null;
-
-    return toDataURL(url, {
-      errorCorrectionLevel: "M",
-      margin: 1,
-      width: 128,
-    });
-  }
-
-  async function initializeRemoteAccessMode() {
-    try {
-      const response = await fetch(publicDevTunnelApiPath);
-      if (!response.ok) return;
-
-      const tunnelInfo = (await response.json()) as unknown;
-      if (!isPublicDevTunnelInfo(tunnelInfo)) return;
-
-      setIsPublicDevApiAvailable(true);
-      if (tunnelInfo.enabled || tunnelInfo.isStarting || tunnelInfo.url) {
-        await setPublicDevTunnelEnabled(false);
-        return;
-      }
-
-      setIsPublicDevEnabled(false);
-      setIsPublicDevStarting(false);
-      setPublicDevUrl(null);
-      setPublicDevError(null);
-      setIsLocalDevEnabled(false);
-      setLocalDevUrl(null);
-      setLocalDevError(null);
-    } catch {
-      setIsPublicDevApiAvailable(false);
-    }
-  }
-
-  async function setPublicDevTunnelEnabled(enabled: boolean) {
-    setPublicDevError(null);
-    setIsPublicDevEnabled(enabled);
-    setIsPublicDevStarting(enabled);
-
-    try {
-      const response = await fetch(publicDevTunnelApiPath, {
-        body: JSON.stringify({ enabled }),
-        headers: { "Content-Type": "application/json" },
-        method: "POST",
-      });
-      const tunnelInfo = (await response.json()) as unknown;
-      if (!response.ok || !isPublicDevTunnelInfo(tunnelInfo)) {
-        const errorMessage =
-          typeof tunnelInfo === "object" && tunnelInfo && "error" in tunnelInfo
-            ? String((tunnelInfo as { error: unknown }).error)
-            : "Unknown error";
-        throw new Error(errorMessage);
-      }
-
-      setIsPublicDevApiAvailable(true);
-      setIsPublicDevEnabled(tunnelInfo.enabled);
-      setIsPublicDevStarting(tunnelInfo.isStarting);
-      setPublicDevUrl(tunnelInfo.url);
-    } catch (error) {
-      setIsPublicDevEnabled(false);
-      setIsPublicDevStarting(false);
-      setPublicDevUrl(null);
-      setPublicDevError(String(error instanceof Error ? error.message : error));
-    }
-  }
-
-  async function setLocalDevAccessEnabled(enabled: boolean) {
-    setLocalDevError(null);
-    setIsLocalDevEnabled(enabled);
-
-    try {
-      const response = await fetch(localDevAccessApiPath, {
-        body: JSON.stringify({ enabled }),
-        headers: { "Content-Type": "application/json" },
-        method: "POST",
-      });
-      const accessInfo = (await response.json()) as unknown;
-      if (
-        !response.ok ||
-        !isLocalDevAccessInfo(accessInfo) ||
-        (enabled && (!accessInfo.available || !accessInfo.url))
-      ) {
-        const errorMessage =
-          typeof accessInfo === "object" && accessInfo && "error" in accessInfo
-            ? String((accessInfo as { error: unknown }).error)
-            : "No LAN address is available";
-        throw new Error(errorMessage);
-      }
-
-      setIsLocalDevEnabled(accessInfo.enabled);
-      setLocalDevUrl(accessInfo.url);
-    } catch (error) {
-      setIsLocalDevEnabled(false);
-      setLocalDevUrl(null);
-      setLocalDevError(String(error instanceof Error ? error.message : error));
-    }
-  }
-
-  async function setRemoteAccessMode(nextMode: RemoteAccessMode) {
-    if (nextMode === "off") {
-      setLocalDevError(null);
-      setIsLocalDevEnabled(false);
-      setLocalDevUrl(null);
-      if (isPublicDevEnabled || isPublicDevStarting || publicDevUrl) {
-        await setPublicDevTunnelEnabled(false);
-      } else {
-        setPublicDevError(null);
-        setIsPublicDevEnabled(false);
-        setIsPublicDevStarting(false);
-        setPublicDevUrl(null);
-      }
-      return;
-    }
-
-    if (nextMode === "lan") {
-      if (isPublicDevEnabled || isPublicDevStarting || publicDevUrl) {
-        await setPublicDevTunnelEnabled(false);
-      } else {
-        setPublicDevError(null);
-      }
-      await setLocalDevAccessEnabled(true);
-      return;
-    }
-
-    setLocalDevError(null);
-    setIsLocalDevEnabled(false);
-    setLocalDevUrl(null);
-    await setPublicDevTunnelEnabled(true);
-  }
-
-  useEffect(() => {
     const playbackPreferences: PlaybackPreferences = {
       isShuffle,
       playbackAlbumId,
       repeatMode,
       selectedAlbumId,
     };
-    window.localStorage.setItem(playbackPreferencesKey, JSON.stringify(playbackPreferences));
+    storePlaybackPreferences(playbackPreferences);
   }, [isShuffle, playbackAlbumId, repeatMode, selectedAlbumId]);
 
   useEffect(() => {
@@ -653,10 +297,6 @@ function App() {
     albums.find((album) => album.tracks.some((track) => track.id === detailTrackId)) ?? selectedAlbum;
   const detailTrack =
     detailAlbum?.tracks.find((track) => track.id === detailTrackId) ?? null;
-  const selectedAlbumArtworkSrc = useMemo(
-    () => (selectedAlbum ? getArtworkSrc(selectedAlbum) : ""),
-    [selectedAlbum?.artworkPath, selectedAlbum?.coverUrl],
-  );
   const detailArtworkSrc = useMemo(
     () => (detailAlbum ? getArtworkSrc(detailAlbum) : ""),
     [detailAlbum?.artworkPath, detailAlbum?.coverUrl],
@@ -1705,167 +1345,21 @@ function App() {
         .join(" ")}
     >
       <audio ref={audioRef} preload="metadata" />
-      <section className="library-panel" aria-label={t("library.controls")}>
-        <div className="sidebar-header">
-          <p className="eyebrow">{t("app.brand")}</p>
-          <Button
-            aria-label={isSidebarCollapsed ? t("sidebar.expand") : t("sidebar.collapse")}
-            aria-pressed={isSidebarCollapsed}
-            className="sidebar-collapse-button"
-            onClick={() => setIsSidebarCollapsed((value) => !value)}
-            title={isSidebarCollapsed ? t("sidebar.expand") : t("sidebar.collapse")}
-            type="button"
-            variant="outline"
-          >
-            {isSidebarCollapsed ? <PanelLeftOpen /> : <PanelLeftClose />}
-          </Button>
-          <Button
-            aria-expanded={isLibraryMenuOpen}
-            className="sidebar-toggle"
-            onClick={() => setIsLibraryMenuOpen((value) => !value)}
-            type="button"
-            variant="outline"
-          >
-            <ListMusic />
-            <span>{t("library.controls")}</span>
-          </Button>
-        </div>
-
-        <div className="library-menu-content" data-open={isLibraryMenuOpen}>
-          <div className="top-row">
-            <div className="settings-row">
-              <label className="language-field">
-                <span>{t("language.label")}</span>
-                <Select value={locale} onValueChange={(value) => setLocale(value as Locale)}>
-                  <SelectTrigger aria-label={t("language.label")} className="w-full">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {locales.map((availableLocale) => (
-                      <SelectItem key={availableLocale} value={availableLocale}>
-                        {getLocaleLabel(availableLocale)}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </label>
-              <label className="language-field">
-                <span>{t("theme.label")}</span>
-                <Select value={themeName} onValueChange={(value) => setThemeName(value as ThemeName)}>
-                  <SelectTrigger aria-label={t("theme.label")} className="w-full">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {themeOptions.map((theme) => (
-                      <SelectItem key={theme.name} value={theme.name}>
-                        <span className="theme-option">
-                          <span
-                            aria-hidden="true"
-                            className="theme-swatch"
-                            style={{ "--theme-swatch": theme.color } as CSSProperties}
-                          />
-                          <span>{t(theme.labelKey)}</span>
-                        </span>
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </label>
-            </div>
-          </div>
-
-          <Button
-            aria-label={t("scan.openLibrarySettings")}
-            className="library-path-button"
-            disabled={!hasRealBackend}
-            onClick={() => setIsLibrarySettingsOpen(true)}
-            type="button"
-            variant="outline"
-          >
-            <span className="library-path-copy">
-              <span>{t("scan.folderLabel")}</span>
-              <strong>{displayedLibraryPath}</strong>
-            </span>
-            <Settings2 aria-hidden="true" />
-          </Button>
-
-          {isTauriRuntime && isPublicDevApiAvailable ? (
-            <div className="remote-access-mode" role="group" aria-label={t("remoteAccess.modeLabel")}>
-              {(["off", "lan", "open"] as const).map((mode) => (
-                <button
-                  aria-pressed={remoteAccessMode === mode}
-                  className="remote-access-mode-button"
-                  data-active={remoteAccessMode === mode}
-                  disabled={isPublicDevStarting && mode !== "open"}
-                  key={mode}
-                  onClick={() => void setRemoteAccessMode(mode)}
-                  type="button"
-                >
-                  {t(`remoteAccess.mode.${mode}`)}
-                </button>
-              ))}
-            </div>
-          ) : null}
-
-          {isTauriRuntime && (isLocalDevEnabled || localDevError) && isPublicDevApiAvailable ? (
-            <section className="remote-access-panel" aria-label={t("remoteAccess.localLabel")}>
-              <div className="remote-access-copy">
-                <p className="eyebrow">{t("remoteAccess.localLabel")}</p>
-                <p>
-                  {localDevError
-                    ? t("remoteAccess.localError", { message: localDevError })
-                    : localDevUrl
-                      ? t("remoteAccess.localDescription")
-                      : t("remoteAccess.localStarting")}
-                </p>
-              </div>
-              {localDevUrl ? (
-                <>
-                  {localDevQrDataUrl ? (
-                    <img className="remote-access-qr" src={localDevQrDataUrl} alt={t("remoteAccess.localQrAlt")} />
-                  ) : (
-                    <div className="remote-access-qr remote-access-qr-loading" aria-hidden="true" />
-                  )}
-                  <a className="remote-access-link" href={localDevUrl} target="_blank" rel="noreferrer">
-                    {t("remoteAccess.openLocalLink")}
-                  </a>
-                </>
-              ) : localDevError ? null : (
-                <div className="remote-access-qr remote-access-qr-loading" aria-hidden="true" />
-              )}
-            </section>
-          ) : null}
-
-          {isTauriRuntime && (isPublicDevEnabled || publicDevError) && isPublicDevApiAvailable ? (
-            <section className="remote-access-panel" aria-label={t("remoteAccess.label")}>
-              <div className="remote-access-copy">
-                <p className="eyebrow">{t("remoteAccess.label")}</p>
-                <p>
-                  {publicDevError
-                    ? t("remoteAccess.error", { message: publicDevError })
-                    : publicDevUrl
-                      ? t("remoteAccess.description")
-                      : t("remoteAccess.starting")}
-                </p>
-              </div>
-              {publicDevUrl ? (
-                <>
-                  {publicDevQrDataUrl ? (
-                    <img className="remote-access-qr" src={publicDevQrDataUrl} alt={t("remoteAccess.qrAlt")} />
-                  ) : (
-                    <div className="remote-access-qr remote-access-qr-loading" aria-hidden="true" />
-                  )}
-                  <a className="remote-access-link" href={publicDevUrl} target="_blank" rel="noreferrer">
-                    {t("remoteAccess.openLink")}
-                  </a>
-                </>
-              ) : publicDevError ? null : (
-                <div className="remote-access-qr remote-access-qr-loading" aria-hidden="true" />
-              )}
-            </section>
-          ) : null}
-        </div>
-      </section>
+      <LibrarySidebar
+        displayedLibraryPath={displayedLibraryPath}
+        isLibraryMenuOpen={isLibraryMenuOpen}
+        isSidebarCollapsed={isSidebarCollapsed}
+        isTauriRuntime={hasRealBackend}
+        locale={locale}
+        onLibraryMenuOpenChange={setIsLibraryMenuOpen}
+        onLocaleChange={setLocale}
+        onOpenLibrarySettings={() => setIsLibrarySettingsOpen(true)}
+        onSidebarCollapsedChange={setIsSidebarCollapsed}
+        onThemeNameChange={setThemeName}
+        remoteAccess={remoteAccess}
+        t={t}
+        themeName={themeName}
+      />
 
       <AlbumBrowser
         albumSortDirection={albumSortDirection}
@@ -1894,232 +1388,44 @@ function App() {
         t={t}
       />
 
-      <section
-        aria-label={t("library.selectedAlbumLabel")}
-        className={isAlbumPanelCollapsed ? "album-panel collapsed" : "album-panel"}
-        data-state={isAlbumPanelCollapsed ? "collapsed" : "expanded"}
-        onPointerCancel={(event) => {
+      <SelectedAlbumPanel
+        albumPanelRef={albumPanelRef}
+        albumTagDraft={albumTagDraft}
+        albumTagMessage={albumTagMessage}
+        currentTrack={currentTrack}
+        hasAlbumTagChanges={hasAlbumTagChanges}
+        isAlbumPanelCollapsed={isAlbumPanelCollapsed}
+        isAlbumTagEditing={isAlbumTagEditing}
+        isSavingAlbumTags={isSavingAlbumTags}
+        onAlbumPanelPointerCancel={(event) => {
           if (event.pointerType === "touch") return;
-
           albumPanelDragStartRef.current = null;
         }}
-        onPointerDown={startAlbumPanelPointerDrag}
-        onPointerMove={overscrollAlbumPanelPointer}
-        onPointerUp={finishAlbumPanelPointerDrag}
-        onTouchCancel={() => {
+        onAlbumPanelPointerDown={startAlbumPanelPointerDrag}
+        onAlbumPanelPointerMove={overscrollAlbumPanelPointer}
+        onAlbumPanelPointerUp={finishAlbumPanelPointerDrag}
+        onAlbumPanelTouchCancel={() => {
           albumPanelDragStartRef.current = null;
         }}
-        onTouchEnd={finishAlbumPanelTouchDrag}
-        onTouchMove={overscrollAlbumPanelTouch}
-        onTouchStart={startAlbumPanelTouchDrag}
-        onWheel={(event) => scrollAlbumPanel(event.deltaY)}
-        ref={albumPanelRef}
-      >
-        {selectedAlbum ? (
-          <>
-            <div className="album-artwork-edit-target">
-              {selectedAlbumArtworkSrc ? (
-                <img
-                  className="album-art"
-                  alt={t("album.artworkAlt", { album: localizeLibraryText(selectedAlbum.title, t) })}
-                  src={selectedAlbumArtworkSrc}
-                />
-              ) : (
-                <div className="album-art placeholder-art" aria-hidden="true">
-                  {selectedAlbum.title.charAt(0).toUpperCase()}
-                </div>
-              )}
-              {selectedAlbum.tracks.length > 0 ? (
-                <Button
-                  aria-label={t("trackDetail.editArtwork")}
-                  className="album-artwork-edit-button icon-button"
-                  onClick={openSelectedAlbumArtworkEditor}
-                  title={t("trackDetail.editArtwork")}
-                  type="button"
-                  variant="outline"
-                >
-                  <Pencil />
-                </Button>
-              ) : null}
-            </div>
-
-            <div className="album-detail">
-              {isAlbumTagEditing ? (
-                <form
-                  className="album-tag-form"
-                  data-keyboard-scope="text"
-                  onSubmit={(event) => {
-                    event.preventDefault();
-                    void saveAlbumTags();
-                  }}
-                >
-                  <label>
-                    <span>{t("tags.album")}</span>
-                    <Input
-                      onChange={(event) => {
-                        const nextValue = event.currentTarget.value;
-                        setAlbumTagDraft((value) => ({ ...value, album: nextValue }));
-                      }}
-                      value={albumTagDraft.album}
-                    />
-                  </label>
-                  <label>
-                    <span>{t("tags.albumArtist")}</span>
-                    <Input
-                      onChange={(event) => {
-                        const nextValue = event.currentTarget.value;
-                        setAlbumTagDraft((value) => ({ ...value, albumArtist: nextValue }));
-                      }}
-                      value={albumTagDraft.albumArtist}
-                    />
-                  </label>
-                  <label>
-                    <span>{t("tags.artist")}</span>
-                    <Input
-                      onChange={(event) => {
-                        const nextValue = event.currentTarget.value;
-                        setAlbumTagDraft((value) => ({ ...value, artist: nextValue }));
-                      }}
-                      value={albumTagDraft.artist}
-                    />
-                  </label>
-                  <div className="album-tag-form-row">
-                    <label>
-                      <span>{t("tags.year")}</span>
-                      <Input
-                        inputMode="numeric"
-                        onChange={(event) => {
-                          const nextValue = event.currentTarget.value;
-                          setAlbumTagDraft((value) => ({ ...value, year: nextValue }));
-                        }}
-                        value={albumTagDraft.year}
-                      />
-                    </label>
-                    <label>
-                      <span>{t("tags.genre")}</span>
-                      <Input
-                        onChange={(event) => {
-                          const nextValue = event.currentTarget.value;
-                          setAlbumTagDraft((value) => ({ ...value, genre: nextValue }));
-                        }}
-                        value={albumTagDraft.genre}
-                      />
-                    </label>
-                  </div>
-                  <p className="tag-edit-note">{t("tags.albumWide", { count: selectedAlbum.tracks.length })}</p>
-                  <div className="album-tag-actions">
-                    <Button disabled={!hasAlbumTagChanges || isSavingAlbumTags} type="submit">
-                      <Save />
-                      {isSavingAlbumTags ? t("tags.saving") : t("tags.save")}
-                    </Button>
-                    <Button disabled={isSavingAlbumTags} onClick={cancelAlbumTagEditing} type="button" variant="outline">
-                      <X />
-                      {t("tags.cancel")}
-                    </Button>
-                  </div>
-                </form>
-              ) : (
-                <>
-                  <p className="eyebrow">{selectedAlbum.yearLabel ?? selectedAlbum.year ?? t("library.fallbackYear")}</p>
-                  <button
-                    aria-label={t("tags.editSelected")}
-                    className="album-title-edit-button"
-                    onClick={startAlbumTagEditing}
-                    type="button"
-                  >
-                    <h2>{localizeLibraryText(selectedAlbum.title, t)}</h2>
-                    <Pencil aria-hidden="true" />
-                  </button>
-                  <p>{localizeLibraryText(selectedAlbum.artist, t)}</p>
-                  {selectedAlbum.genre ? <p className="album-genre">{selectedAlbum.genre}</p> : null}
-                </>
-              )}
-              {albumTagMessage ? (
-                <p className="tag-edit-message" aria-live="polite">
-                  {t(albumTagMessage.key, albumTagMessage.values)}
-                </p>
-              ) : null}
-            </div>
-
-            <Separator />
-            <ol className="track-list">
-              {selectedAlbum.tracks.map((track, trackIndex) => {
-                const trackRowClassName = [
-                  "track-list-row",
-                  track.id === currentTrack?.id ? "active-track-row" : "",
-                  track.id === selectedTrackId ? "selected-track-row" : "",
-                ]
-                  .filter(Boolean)
-                  .join(" ");
-
-                return (
-                  <li className={trackRowClassName} key={track.id}>
-                    <span className="track-title-cell">
-                      <span className="track-action-slot">
-                        <span className="track-number" aria-hidden="true">
-                          {track.trackNumber ?? trackIndex + 1}
-                        </span>
-                        <button
-                          aria-label={`${t("player.play")} ${localizeLibraryText(track.title, t)}`}
-                          className="track-play-button"
-                          onClick={() => playTrack(track, selectedAlbum.id)}
-                          title={`${t("player.play")} ${localizeLibraryText(track.title, t)}`}
-                          type="button"
-                        >
-                          <Play aria-hidden="true" />
-                        </button>
-                      </span>
-                      <Button
-                        className="track-select-button"
-                        onFocus={prepareMarquee}
-                        onMouseEnter={prepareMarquee}
-                        onClick={() => selectTrack(track)}
-                        onContextMenu={(event) => {
-                          event.preventDefault();
-                          openTrackDetail(track);
-                        }}
-                        onPointerCancel={finishTrackLongPress}
-                        onPointerDown={(event) => startTrackLongPress(event, track)}
-                        onPointerLeave={finishTrackLongPress}
-                        onPointerMove={(event) => moveTrackLongPress(event, track)}
-                        onPointerUp={finishTrackLongPress}
-                        variant="outline"
-                        type="button"
-                      >
-                        <span className="track-title-wrap marquee-wrap">
-                          <span className="track-title marquee-text">
-                            <span className="track-name">
-                              {localizeLibraryText(track.title, t)}
-                            </span>
-                          </span>
-                        </span>
-                      </Button>
-                      {track.hasLyrics || track.lyrics?.trim() ? (
-                        <button
-                          aria-label={t("trackDetail.showLyrics", { track: localizeLibraryText(track.title, t) })}
-                          className="track-lyrics-button"
-                          onClick={() => openTrackDetail(track, "lyrics")}
-                          title={t("trackDetail.lyricsTab")}
-                          type="button"
-                        >
-                          <ScrollText aria-hidden="true" />
-                          <span className="sr-only">{t("trackDetail.lyricsTab")}</span>
-                        </button>
-                      ) : null}
-                    </span>
-                    <small>{formatTrackDuration(track)}</small>
-                  </li>
-                );
-              })}
-            </ol>
-          </>
-        ) : (
-          <div className="empty-detail">
-            <h2>{t("library.emptyTitle")}</h2>
-            <p>{t("library.emptyDescription")}</p>
-          </div>
-        )}
-      </section>
+        onAlbumPanelTouchEnd={finishAlbumPanelTouchDrag}
+        onAlbumPanelTouchMove={overscrollAlbumPanelTouch}
+        onAlbumPanelTouchStart={startAlbumPanelTouchDrag}
+        onAlbumPanelWheel={scrollAlbumPanel}
+        onAlbumTagDraftChange={setAlbumTagDraft}
+        onCancelAlbumTagEditing={cancelAlbumTagEditing}
+        onFinishTrackLongPress={finishTrackLongPress}
+        onMoveTrackLongPress={moveTrackLongPress}
+        onOpenSelectedAlbumArtworkEditor={openSelectedAlbumArtworkEditor}
+        onOpenTrackDetail={openTrackDetail}
+        onPlayTrack={playTrack}
+        onSaveAlbumTags={() => void saveAlbumTags()}
+        onSelectTrack={selectTrack}
+        onStartAlbumTagEditing={startAlbumTagEditing}
+        onStartTrackLongPress={startTrackLongPress}
+        selectedAlbum={selectedAlbum}
+        selectedTrackId={selectedTrackId}
+        t={t}
+      />
 
       <PlayerBar
         audioRef={audioRef}
@@ -2150,217 +1456,44 @@ function App() {
         t={t}
       />
       {isLibrarySettingsOpen ? (
-        <div className="track-detail-backdrop" onMouseDown={() => setIsLibrarySettingsOpen(false)} role="presentation">
-          <section
-            aria-label={t("scan.libraryDialogLabel")}
-            aria-modal="true"
-            className="library-settings-dialog"
-            onMouseDown={(event) => event.stopPropagation()}
-            role="dialog"
-          >
-            <div className="track-detail-header">
-              <div className="track-detail-title">
-                <p className="eyebrow">{t("library.controls")}</p>
-                <h2>{t("scan.libraryDialogTitle")}</h2>
-              </div>
-              <Button
-                aria-label={t("trackDetail.close")}
-                className="icon-button"
-                onClick={() => setIsLibrarySettingsOpen(false)}
-                type="button"
-                variant="outline"
-              >
-                <X />
-              </Button>
-            </div>
-
-            <div className="scan-panel-content">
-              <label className="search-field">
-                <span>{t("scan.folderLabel")}</span>
-                <div className="folder-picker-row">
-                  <Input
-                    data-keyboard-scope="text"
-                    onChange={(event) => setLibraryPath(event.currentTarget.value)}
-                    placeholder={t("scan.folderPlaceholder")}
-                    type="text"
-                    value={libraryPath}
-                  />
-                  <Button
-                    className="choose-folder-button"
-                    disabled={isScanning || !isTauriRuntime}
-                    onClick={() => void handleChooseFolder()}
-                    title={!isTauriRuntime ? t("status.desktopOnly") : undefined}
-                    variant="outline"
-                    type="button"
-                  >
-                    <FolderOpen />
-                    {t("scan.chooseFolder")}
-                  </Button>
-                </div>
-              </label>
-
-              <div className="scan-actions">
-                <Button className="scan-button" disabled={isScanning} onClick={() => void handleScan()} type="button">
-                  {isScanning ? t("scan.buttonScanning") : t("scan.button")}
-                </Button>
-                {libraryInfo ? (
-                  <p className="info-text" aria-live="polite">
-                    {t(libraryInfo.key, libraryInfo.values)}
-                  </p>
-                ) : null}
-              </div>
-            </div>
-          </section>
-        </div>
+        <LibrarySettingsDialog
+          isScanning={isScanning}
+          isTauriRuntime={isTauriRuntime}
+          libraryInfo={libraryInfo}
+          libraryPath={libraryPath}
+          onChooseFolder={() => void handleChooseFolder()}
+          onClose={() => setIsLibrarySettingsOpen(false)}
+          onLibraryPathChange={setLibraryPath}
+          onScan={() => void handleScan()}
+          t={t}
+        />
       ) : null}
       {detailTrack && detailAlbum ? (
-        <div className="track-detail-backdrop" onMouseDown={closeTrackDetail} role="presentation">
-          <section
-            aria-label={t("trackDetail.label")}
-            aria-modal="true"
-            className="track-detail-dialog"
-            onMouseDown={(event) => event.stopPropagation()}
-            role="dialog"
-          >
-            <div className="track-detail-header">
-              <div className="track-detail-title">
-                <p className="eyebrow">{localizeLibraryText(detailAlbum.title, t)}</p>
-                <h2>{localizeLibraryText(detailTrack.title, t)}</h2>
-              </div>
-              <Button aria-label={t("trackDetail.close")} className="icon-button" onClick={closeTrackDetail} type="button" variant="outline">
-                <X />
-              </Button>
-            </div>
-
-            <Tabs
-              className="track-detail-tabs"
-              onValueChange={(value) => changeTrackDetailTab(value as "info" | "lyrics" | "artwork")}
-              value={trackDetailTab}
-            >
-              <TabsList className="track-detail-tab-list">
-                <TabsTrigger value="info">{t("trackDetail.infoTab")}</TabsTrigger>
-                <TabsTrigger value="lyrics">{t("trackDetail.lyricsTab")}</TabsTrigger>
-                <TabsTrigger value="artwork">{t("trackDetail.artworkTab")}</TabsTrigger>
-              </TabsList>
-              <TabsContent className="track-detail-tab-panel" value="info">
-                <div className="track-tag-grid">
-                  {trackTagFields.map((field) => (
-                    <label className="track-tag-field" key={field.key}>
-                      <span>{t(field.labelKey)}</span>
-                      {editingTrackTag === field.key ? (
-                        <Input
-                          autoFocus
-                          data-keyboard-scope="text"
-                          inputMode={field.key === "year" || field.key === "trackNumber" || field.key === "discNumber" ? "numeric" : undefined}
-                          onBlur={() => setEditingTrackTag(null)}
-                          onChange={(event) => {
-                            const nextValue = event.currentTarget.value;
-                            setTrackTagDraft((value) => ({ ...value, [field.key]: nextValue }));
-                          }}
-                          onKeyDown={(event) => {
-                            if (event.key === "Escape") {
-                              setTrackTagDraft(makeTrackTagDraft(detailTrack, detailAlbum));
-                              setEditingTrackTag(null);
-                            }
-                          }}
-                          value={trackTagDraft[field.key]}
-                        />
-                      ) : (
-                        <button
-                          className="track-tag-value"
-                          onClick={() => setEditingTrackTag(field.key)}
-                          type="button"
-                        >
-                          {trackTagDraft[field.key].trim() || t("trackDetail.emptyTag")}
-                        </button>
-                      )}
-                    </label>
-                  ))}
-                  <div className="track-tag-field readonly">
-                    <span>{t("trackDetail.duration")}</span>
-                    <strong>{formatTrackDuration(detailTrack)}</strong>
-                  </div>
-                  <div className="track-tag-field readonly wide">
-                    <span>{t("trackDetail.filePath")}</span>
-                    <strong>{detailTrack.filePath ?? t("trackDetail.noFilePath")}</strong>
-                  </div>
-                </div>
-                {trackTagMessage ? (
-                  <p className="tag-edit-message" aria-live="polite">
-                    {t(trackTagMessage.key, trackTagMessage.values)}
-                  </p>
-                ) : null}
-                <div className="album-tag-actions">
-                  <Button disabled={!hasTrackTagChanges || isSavingTrackTags} onClick={() => void saveTrackTags()} type="button">
-                    <Save />
-                    {isSavingTrackTags ? t("tags.saving") : t("tags.save")}
-                  </Button>
-                  <Button
-                    disabled={!hasTrackTagChanges || isSavingTrackTags}
-                    onClick={() => {
-                      setTrackTagDraft(makeTrackTagDraft(detailTrack, detailAlbum));
-                      setEditingTrackTag(null);
-                    }}
-                    type="button"
-                    variant="outline"
-                  >
-                    <X />
-                    {t("tags.cancel")}
-                  </Button>
-                </div>
-              </TabsContent>
-              <TabsContent className="track-detail-tab-panel" value="lyrics">
-                <pre className="lyrics-panel">{detailLyrics?.trim() || t("trackDetail.noLyrics")}</pre>
-              </TabsContent>
-              <TabsContent className="track-detail-tab-panel" value="artwork">
-                <div className="artwork-edit-panel">
-                  <div className="artwork-preview-card">
-                    <span>{t("trackDetail.currentArtwork")}</span>
-                    {detailArtworkSrc ? (
-                      <img
-                        alt={t("album.artworkAlt", { album: localizeLibraryText(detailAlbum.title, t) })}
-                        src={detailArtworkSrc}
-                      />
-                    ) : (
-                      <div className="artwork-empty-state">{t("trackDetail.noArtwork")}</div>
-                    )}
-                  </div>
-                  <div className="artwork-preview-card">
-                    <span>{t("trackDetail.selectedArtwork")}</span>
-                    {artworkPreviewSrc ? (
-                      <img
-                        alt={t("trackDetail.selectedArtwork")}
-                        src={artworkPreviewSrc}
-                      />
-                    ) : (
-                      <div className="artwork-empty-state">{t("trackDetail.artworkRequired")}</div>
-                    )}
-                  </div>
-                  <div className="album-tag-actions artwork-actions">
-                    <Button disabled={isSavingArtwork} onClick={() => void chooseArtwork()} type="button" variant="outline">
-                      <FolderOpen />
-                      {t("trackDetail.chooseArtwork")}
-                    </Button>
-                    <Button
-                      disabled={!artworkDraftPath || isSavingArtwork || !hasRealBackend}
-                      onClick={() => void saveTrackArtwork()}
-                      type="button"
-                    >
-                      <Save />
-                      {isSavingArtwork ? t("tags.saving") : t("trackDetail.saveArtwork")}
-                    </Button>
-                  </div>
-                  {!isTauriRuntime ? <p className="tag-edit-message">{t("trackDetail.artworkDesktopOnly")}</p> : null}
-                  {trackTagMessage ? (
-                    <p className="tag-edit-message" aria-live="polite">
-                      {t(trackTagMessage.key, trackTagMessage.values)}
-                    </p>
-                  ) : null}
-                </div>
-              </TabsContent>
-            </Tabs>
-          </section>
-        </div>
+        <TrackDetailDialog
+          artworkDraftPath={artworkDraftPath}
+          artworkPreviewSrc={artworkPreviewSrc}
+          detailAlbum={detailAlbum}
+          detailArtworkSrc={detailArtworkSrc}
+          detailLyrics={detailLyrics}
+          detailTrack={detailTrack}
+          editingTrackTag={editingTrackTag}
+          hasRealBackend={hasRealBackend}
+          hasTrackTagChanges={hasTrackTagChanges}
+          isSavingArtwork={isSavingArtwork}
+          isSavingTrackTags={isSavingTrackTags}
+          isTauriRuntime={isTauriRuntime}
+          onChangeTab={changeTrackDetailTab}
+          onChooseArtwork={() => void chooseArtwork()}
+          onClose={closeTrackDetail}
+          onSaveArtwork={() => void saveTrackArtwork()}
+          onSaveTrackTags={() => void saveTrackTags()}
+          onTrackTagDraftChange={setTrackTagDraft}
+          onTrackTagEditChange={setEditingTrackTag}
+          t={t}
+          trackDetailTab={trackDetailTab}
+          trackTagDraft={trackTagDraft}
+          trackTagMessage={trackTagMessage}
+        />
       ) : null}
     </main>
   );
