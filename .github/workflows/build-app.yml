@@ -68,6 +68,13 @@ jobs:
       - name: Build Tauri bundle
         run: npm run tauri -- build
 
+      - name: Sign macOS app bundle
+        if: matrix.platform.name == 'macos'
+        shell: bash
+        run: |
+          codesign --force --deep --sign - "src-tauri/target/release/bundle/macos/Musical.app"
+          codesign --verify --deep --strict --verbose=4 "src-tauri/target/release/bundle/macos/Musical.app"
+
       - name: Archive app bundle
         shell: bash
         run: |

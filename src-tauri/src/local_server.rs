@@ -1,6 +1,7 @@
 use crate::library::{
     self, AlbumTagUpdateRequest, TrackArtworkUpdateRequest, TrackTagUpdateRequest,
 };
+use log::{error, info};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::{
@@ -117,12 +118,8 @@ fn apply_remote_command_to_player_state(
             if let Some(is_shuffle) = payload.get("isShuffle").and_then(Value::as_bool) {
                 state.is_shuffle = is_shuffle;
             }
-            if let Some(queue_track_ids) = payload.get("queueTrackIds").and_then(Value::as_array)
-            {
-                state.queue_track_ids = queue_track_ids
-                    .iter()
-                    .filter_map(Value::as_i64)
-                    .collect();
+            if let Some(queue_track_ids) = payload.get("queueTrackIds").and_then(Value::as_array) {
+                state.queue_track_ids = queue_track_ids.iter().filter_map(Value::as_i64).collect();
             }
         }
         _ => {}
@@ -142,6 +139,7 @@ pub fn start(app: AppHandle) -> Result<String, String> {
     let listener = TcpListener::bind(LOCAL_SERVER_ADDR).map_err(|error| error.to_string())?;
     let url = format!("http://{LOCAL_SERVER_ADDR}");
     let remote_state = Arc::new(Mutex::new(RemoteServerState::default()));
+    info!("local server listening on {LOCAL_SERVER_ADDR}");
 
     thread::spawn(move || {
         for stream in listener.incoming() {
@@ -151,11 +149,15 @@ pub fn start(app: AppHandle) -> Result<String, String> {
                 Ok(stream) => {
                     thread::spawn(move || {
                         if let Err(error) = handle_connection(stream, app, remote_state) {
+                            error!("local server request failed: {error}");
                             eprintln!("local server request failed: {error}");
                         }
                     });
                 }
-                Err(error) => eprintln!("local server connection failed: {error}"),
+                Err(error) => {
+                    error!("local server connection failed: {error}");
+                    eprintln!("local server connection failed: {error}");
+                }
             }
         }
     });

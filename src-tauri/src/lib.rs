@@ -6,6 +6,7 @@ use library::{
     TrackArtworkUpdateRequest, TrackArtworkUpdateResult, TrackTagUpdateRequest,
     TrackTagUpdateResult,
 };
+use log::{error, info};
 
 #[tauri::command]
 fn app_status() -> &'static str {
@@ -55,11 +56,19 @@ fn update_track_artwork(
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_log::Builder::new().build())
         .plugin(tauri_plugin_opener::init())
         .setup(|app| {
+            info!("starting Musical desktop app");
             match local_server::start(app.handle().clone()) {
-                Ok(url) => eprintln!("local browser API is available at {url}"),
-                Err(error) => eprintln!("failed to start local browser API: {error}"),
+                Ok(url) => {
+                    info!("local browser API is available at {url}");
+                    eprintln!("local browser API is available at {url}");
+                }
+                Err(error) => {
+                    error!("failed to start local browser API: {error}");
+                    eprintln!("failed to start local browser API: {error}");
+                }
             }
 
             #[cfg(debug_assertions)]
@@ -67,6 +76,7 @@ pub fn run() {
                 use tauri_plugin_opener::OpenerExt;
 
                 if let Err(error) = app.opener().open_url("http://localhost:1420", None::<&str>) {
+                    error!("failed to open controller browser: {error}");
                     eprintln!("failed to open controller browser: {error}");
                 }
             }
