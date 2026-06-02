@@ -6,6 +6,7 @@ on:
     tags:
       - "v*"
       - "*.*.*"
+      - "test.*"
 
 permissions:
   contents: read
@@ -17,16 +18,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        platform:
-          - name: macos
-            runner: macos-latest
-            artifact: musical-macos
-          - name: windows
-            runner: windows-latest
-            artifact: musical-windows
-          - name: linux
-            runner: ubuntu-24.04
-            artifact: musical-linux
+        platform: ${{ fromJSON((github.event_name == 'push' && startsWith(github.ref_name, 'test.')) && '[{"name":"macos","runner":"macos-latest","artifact":"musical-macos"}]' || '[{"name":"macos","runner":"macos-latest","artifact":"musical-macos"},{"name":"windows","runner":"windows-latest","artifact":"musical-windows"},{"name":"linux","runner":"ubuntu-24.04","artifact":"musical-linux"}]') }}
 
     steps:
       - name: Checkout
