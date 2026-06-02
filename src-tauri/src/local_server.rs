@@ -7,7 +7,7 @@ use std::{
     collections::VecDeque,
     fs::File,
     io::{Read, Seek, SeekFrom, Write},
-    net::{TcpListener, TcpStream},
+    net::{Shutdown, TcpListener, TcpStream},
     path::Path,
     sync::{Arc, Mutex},
     thread,
@@ -16,6 +16,7 @@ use tauri::AppHandle;
 
 const LOCAL_SERVER_ADDR: &str = "127.0.0.1:1422";
 const MAX_REMOTE_COMMANDS: usize = 200;
+const RESPONSE_WRITE_CHUNK_SIZE: usize = 16 * 1024;
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -131,9 +132,12 @@ fn handle_connection(
 ) -> Result<(), String> {
     let request = read_request(&mut stream)?;
     let response = route_request(request, app, remote_state);
-    stream
-        .write_all(&response)
-        .map_err(|error| error.to_string())
+    for chunk in response.chunks(RESPONSE_WRITE_CHUNK_SIZE) {
+        stream.write_all(chunk).map_err(|error| error.to_string())?;
+        stream.flush().map_err(|error| error.to_string())?;
+    }
+    let _ = stream.shutdown(Shutdown::Write);
+    Ok(())
 }
 
 fn read_request(stream: &mut TcpStream) -> Result<Request, String> {

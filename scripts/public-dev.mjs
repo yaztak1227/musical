@@ -2,9 +2,13 @@ import { spawn } from "node:child_process";
 
 const port = String(process.env.PUBLIC_DEV_PORT || process.env.PORT || 1420);
 const host = process.env.PUBLIC_DEV_HOST || "0.0.0.0";
+const nodeOptions =
+  process.platform === "win32"
+    ? [process.env.NODE_OPTIONS, "--use-system-ca"].filter(Boolean).join(" ")
+    : process.env.NODE_OPTIONS;
 
 const vite = spawn("npm", ["run", "dev", "--", "--host", host, "--port", port], {
-  env: process.env,
+  env: { ...process.env, ...(nodeOptions ? { NODE_OPTIONS: nodeOptions } : {}) },
   shell: process.platform === "win32",
   stdio: "inherit",
 });

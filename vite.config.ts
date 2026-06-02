@@ -4,15 +4,56 @@ import tailwindcss from "@tailwindcss/vite";
 import path from "path";
 import { startTunnel as startCloudflareTunnel } from "untun";
 import { request as httpRequest, type IncomingMessage, type ServerResponse } from "node:http";
+import { getCACertificates, setDefaultCACertificates } from "node:tls";
 
 // @ts-expect-error process is a nodejs global
 const host = process.env.TAURI_DEV_HOST;
 const publicTunnelApiPath = "/api/public-dev-tunnel";
 const localBackendOrigin = "http://127.0.0.1:1422";
 const tunnelTimeoutMs = Number(process.env.PUBLIC_DEV_TUNNEL_TIMEOUT_MS || 45_000);
+const publicUrlReadyTimeoutMs = Number(process.env.PUBLIC_DEV_URL_READY_TIMEOUT_MS || 90_000);
+const publicUrlReadyIntervalMs = 1_000;
+let didConfigureSystemCertificates = false;
+
+type CloudflareTunnel = NonNullable<Awaited<ReturnType<typeof startCloudflareTunnel>>>;
+
+function configureWindowsSystemCertificates() {
+  if (didConfigureSystemCertificates) return;
+  didConfigureSystemCertificates = true;
+
+  setDefaultCACertificates(getCACertificates("system"));
+}
+
+async function createPublicDevTunnel(port: number) {
+  if (process.platform === "win32") return createWindowsPublicDevTunnel(port);
+  return createDefaultPublicDevTunnel(getDefaultPublicDevOriginUrl(port));
+}
+
+async function createWindowsPublicDevTunnel(port: number) {
+  configureWindowsSystemCertificates();
+  return createDefaultPublicDevTunnel(getWindowsPublicDevOriginUrl(port));
+}
+
+async function createDefaultPublicDevTunnel(originUrl: string): Promise<CloudflareTunnel> {
+  await waitForUrlReady(originUrl, 5_000, `Local dev server is unavailable at ${originUrl}`);
+  const nextTunnel = await startCloudflareTunnel({
+    acceptCloudflareNotice: true,
+    url: originUrl,
+  });
+  if (!nextTunnel) throw new Error("Cloudflare tunnel setup was skipped.");
+  return nextTunnel;
+}
+
+function getDefaultPublicDevOriginUrl(port: number) {
+  return `http://127.0.0.1:${port}`;
+}
+
+function getWindowsPublicDevOriginUrl(port: number) {
+  return `http://127.0.0.1:${port}`;
+}
 
 function publicDevTunnelPlugin() {
-  let tunnel: Awaited<ReturnType<typeof startCloudflareTunnel>> | undefined;
+  let tunnel: CloudflareTunnel | undefined;
   let publicUrl: string | undefined;
   let isStarting = false;
 
@@ -30,15 +71,22 @@ function publicDevTunnelPlugin() {
 
     isStarting = true;
     try {
-      tunnel = await startCloudflareTunnel({
-        acceptCloudflareNotice: true,
-        url: `http://127.0.0.1:${port}`,
-      });
+      tunnel = await createPublicDevTunnel(port);
       publicUrl = await withTimeout(
         tunnel.getURL(),
         tunnelTimeoutMs,
         `Timed out waiting for a public tunnel URL after ${tunnelTimeoutMs}ms`,
       );
+      try {
+        await waitForUrlReady(
+          publicUrl,
+          publicUrlReadyTimeoutMs,
+          `Public tunnel URL was created but did not become reachable after ${publicUrlReadyTimeoutMs}ms`,
+        );
+      } catch (error) {
+        await stopTunnel();
+        throw error;
+      }
       return publicUrl;
     } finally {
       isStarting = false;
@@ -103,12 +151,25 @@ function proxyLocalBackendRequest(request: IncomingMessage, response: ServerResp
       method: request.method,
     },
     (proxyResponse) => {
+      proxyResponse.on("error", (error) => {
+        if (response.headersSent) {
+          response.destroy(error);
+          return;
+        }
+
+        sendJson(response, 502, { error: `Local backend response failed: ${error.message}` });
+      });
       response.writeHead(proxyResponse.statusCode ?? 502, proxyResponse.headers);
       proxyResponse.pipe(response);
     },
   );
 
   proxyRequest.on("error", (error) => {
+    if (response.headersSent) {
+      response.destroy(error);
+      return;
+    }
+
     sendJson(response, 502, { error: `Local backend is unavailable: ${error.message}` });
   });
 
@@ -123,6 +184,35 @@ function withTimeout<T>(promise: Promise<T>, timeoutMs: number, message: string)
   });
 
   return Promise.race([promise, timer]).finally(() => clearTimeout(timeout));
+}
+
+async function waitForUrlReady(url: string, timeoutMs: number, message: string) {
+  const deadline = Date.now() + timeoutMs;
+  let lastError: unknown;
+
+  while (Date.now() < deadline) {
+    try {
+      const response = await withTimeout(
+        fetch(url, { cache: "no-store", method: "GET" }),
+        Math.min(publicUrlReadyIntervalMs, Math.max(1, deadline - Date.now())),
+        message,
+      );
+      await response.body?.cancel();
+      if (response.status >= 200 && response.status < 500) return;
+      lastError = new Error(`HTTP ${response.status}`);
+    } catch (error) {
+      lastError = error;
+    }
+
+    await delay(Math.min(publicUrlReadyIntervalMs, Math.max(1, deadline - Date.now())));
+  }
+
+  const detail = lastError instanceof Error ? `: ${lastError.message}` : "";
+  throw new Error(`${message}${detail}`);
+}
+
+function delay(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 function readJsonBody<T>(request: IncomingMessage) {
@@ -142,6 +232,11 @@ function readJsonBody<T>(request: IncomingMessage) {
 }
 
 function sendJson(response: ServerResponse, statusCode: number, body: unknown) {
+  if (response.headersSent) {
+    response.end();
+    return;
+  }
+
   response.statusCode = statusCode;
   response.setHeader("Content-Type", "application/json");
   response.end(JSON.stringify(body));
