@@ -1,6 +1,7 @@
 use crate::library::{
     self, AlbumTagUpdateRequest, TrackArtworkUpdateRequest, TrackTagUpdateRequest,
 };
+use include_dir::{include_dir, Dir};
 use log::{error, info};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -8,16 +9,18 @@ use std::{
     collections::VecDeque,
     fs::File,
     io::{Read, Seek, SeekFrom, Write},
-    net::{Shutdown, TcpListener, TcpStream},
+    net::{Shutdown, TcpListener, TcpStream, UdpSocket},
     path::Path,
     sync::{Arc, Mutex},
     thread,
 };
 use tauri::AppHandle;
 
-const LOCAL_SERVER_ADDR: &str = "127.0.0.1:1422";
+const LOCAL_SERVER_ADDR: &str = "0.0.0.0:1422";
+const LOCAL_SERVER_PORT: u16 = 1422;
 const MAX_REMOTE_COMMANDS: usize = 200;
 const RESPONSE_WRITE_CHUNK_SIZE: usize = 16 * 1024;
+static FRONTEND_DIST: Dir<'_> = include_dir!("$CARGO_MANIFEST_DIR/../dist");
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -44,6 +47,21 @@ struct TrackTagRequestBody {
 #[derive(Debug, Deserialize)]
 struct TrackArtworkRequestBody {
     request: TrackArtworkUpdateRequest,
+}
+
+#[derive(Debug, Deserialize)]
+struct LocalDevAccessBody {
+    enabled: bool,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct LocalDevAccessInfo {
+    available: bool,
+    enabled: bool,
+    host: Option<String>,
+    port: u16,
+    url: Option<String>,
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
@@ -88,6 +106,7 @@ struct RemotePlayerCommandsResponse {
 
 #[derive(Default)]
 struct RemoteServerState {
+    local_access_enabled: bool,
     next_command_id: u64,
     player_state: Option<RemotePlayerState>,
     commands: VecDeque<QueuedRemotePlayerCommand>,
@@ -133,6 +152,7 @@ struct Request {
     path: String,
     query: String,
     body: Vec<u8>,
+    is_local: bool,
 }
 
 pub fn start(app: AppHandle) -> Result<String, String> {
@@ -170,7 +190,11 @@ fn handle_connection(
     app: AppHandle,
     remote_state: SharedRemoteServerState,
 ) -> Result<(), String> {
-    let request = read_request(&mut stream)?;
+    let is_local = stream
+        .peer_addr()
+        .map(|address| address.ip().is_loopback())
+        .unwrap_or(false);
+    let request = read_request(&mut stream, is_local)?;
     let response = route_request(request, app, remote_state);
     for chunk in response.chunks(RESPONSE_WRITE_CHUNK_SIZE) {
         stream.write_all(chunk).map_err(|error| error.to_string())?;
@@ -180,7 +204,7 @@ fn handle_connection(
     Ok(())
 }
 
-fn read_request(stream: &mut TcpStream) -> Result<Request, String> {
+fn read_request(stream: &mut TcpStream, is_local: bool) -> Result<Request, String> {
     let mut buffer = Vec::new();
     let mut chunk = [0; 1024];
     let header_end;
@@ -239,6 +263,7 @@ fn read_request(stream: &mut TcpStream) -> Result<Request, String> {
         path,
         query,
         body,
+        is_local,
     })
 }
 
@@ -251,7 +276,32 @@ fn route_request(
         return empty_response(204);
     }
 
+    if !request.is_local && !is_local_access_enabled(&remote_state) {
+        return text_response(403, "remote access is private");
+    }
+
     match (request.method.as_str(), request.path.as_str()) {
+        ("GET", "/api/local-dev-access") => {
+            result_response(local_access_info(&remote_state))
+        }
+        ("POST", "/api/local-dev-access") => {
+            if !request.is_local {
+                return text_response(403, "remote access settings are only available locally");
+            }
+
+            let request_body = parse_json::<LocalDevAccessBody>(&request.body);
+            let result = request_body.and_then(|body| {
+                if body.enabled && lan_ipv4_address().is_none() {
+                    return Err("No LAN address is available".to_owned());
+                }
+
+                let mut state = remote_state.lock().map_err(|error| error.to_string())?;
+                state.local_access_enabled = body.enabled;
+                drop(state);
+                local_access_info(&remote_state)
+            });
+            result_response(result)
+        }
         ("GET", "/api/app_status") => json_response(200, &"Musical desktop bridge is ready"),
         ("GET", "/api/library_snapshot") => result_response(library::load_snapshot(&app)),
         ("GET", "/api/track_lyrics") => {
@@ -351,8 +401,40 @@ fn route_request(
                 text_response(400, "missing media path")
             }
         }
+        ("GET", path) if !path.starts_with("/api/") => frontend_response(path),
         _ => text_response(404, "not found"),
     }
+}
+
+fn is_local_access_enabled(remote_state: &SharedRemoteServerState) -> bool {
+    remote_state
+        .lock()
+        .map(|state| state.local_access_enabled)
+        .unwrap_or(false)
+}
+
+fn local_access_info(remote_state: &SharedRemoteServerState) -> Result<LocalDevAccessInfo, String> {
+    let enabled = is_local_access_enabled(remote_state);
+    let host = lan_ipv4_address();
+    let url = enabled
+        .then(|| host.as_ref().map(|host| format!("http://{host}:{LOCAL_SERVER_PORT}/")))
+        .flatten();
+
+    Ok(LocalDevAccessInfo {
+        available: enabled && host.is_some(),
+        enabled,
+        host,
+        port: LOCAL_SERVER_PORT,
+        url,
+    })
+}
+
+fn lan_ipv4_address() -> Option<String> {
+    let socket = UdpSocket::bind("0.0.0.0:0").ok()?;
+    socket.connect("8.8.8.8:80").ok()?;
+    let address = socket.local_addr().ok()?;
+    let ip = address.ip();
+    (!ip.is_loopback()).then(|| ip.to_string())
 }
 
 fn parse_json<T: for<'de> Deserialize<'de>>(body: &[u8]) -> Result<T, String> {
@@ -394,6 +476,28 @@ fn file_response(path: &str) -> Vec<u8> {
     }
 
     response(200, content_type(path), &bytes)
+}
+
+fn frontend_response(path: &str) -> Vec<u8> {
+    let requested_path = path.trim_start_matches('/');
+    if requested_path.contains("..") || requested_path.contains('\\') {
+        return text_response(400, "invalid frontend path");
+    }
+
+    let file_path = if requested_path.is_empty() {
+        "index.html"
+    } else {
+        requested_path
+    };
+
+    if let Some(file) = FRONTEND_DIST.get_file(file_path) {
+        return response(200, content_type(Path::new(file_path)), file.contents());
+    }
+
+    match FRONTEND_DIST.get_file("index.html") {
+        Some(index) => response(200, "text/html; charset=utf-8", index.contents()),
+        None => text_response(404, "frontend bundle not found"),
+    }
 }
 
 fn response(status: u16, content_type: &str, body: &[u8]) -> Vec<u8> {
@@ -464,8 +568,11 @@ fn content_type(path: &Path) -> &'static str {
         .unwrap_or("")
     {
         "aac" => "audio/aac",
+        "css" => "text/css; charset=utf-8",
         "flac" => "audio/flac",
         "gif" => "image/gif",
+        "html" => "text/html; charset=utf-8",
+        "js" => "text/javascript; charset=utf-8",
         "jpg" | "jpeg" => "image/jpeg",
         "m4a" | "mp4" => "audio/mp4",
         "mp3" => "audio/mpeg",
@@ -475,6 +582,7 @@ fn content_type(path: &Path) -> &'static str {
         "svg" => "image/svg+xml",
         "wav" => "audio/wav",
         "webp" => "image/webp",
+        "woff2" => "font/woff2",
         _ => "application/octet-stream",
     }
 }

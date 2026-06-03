@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { isTauriRuntime } from "./backend";
 import {
+  getLocalDevAccessInfo,
   getPublicDevTunnelInfo,
   renderRemoteAccessQrCode,
   setLocalDevAccess,
@@ -8,9 +9,8 @@ import {
   type RemoteAccessMode,
 } from "./remoteAccess";
 
-const isDevRemoteAccessRuntime = isTauriRuntime && import.meta.env.DEV;
-
 export function useRemoteAccess() {
+  const [isLocalDevApiAvailable, setIsLocalDevApiAvailable] = useState(false);
   const [isPublicDevApiAvailable, setIsPublicDevApiAvailable] = useState(false);
   const [isPublicDevEnabled, setIsPublicDevEnabled] = useState(false);
   const [isPublicDevStarting, setIsPublicDevStarting] = useState(false);
@@ -25,7 +25,7 @@ export function useRemoteAccess() {
   const remoteAccessMode: RemoteAccessMode = isPublicDevEnabled || isPublicDevStarting ? "open" : isLocalDevEnabled ? "lan" : "off";
 
   useEffect(() => {
-    if (!isDevRemoteAccessRuntime) return;
+    if (!isTauriRuntime) return;
     void initializeRemoteAccessMode();
   }, []);
 
@@ -58,6 +58,25 @@ export function useRemoteAccess() {
   }, [localDevUrl]);
 
   async function initializeRemoteAccessMode() {
+    let nextLocalInfo = null;
+
+    try {
+      nextLocalInfo = await getLocalDevAccessInfo();
+      setIsLocalDevApiAvailable(Boolean(nextLocalInfo));
+      setIsLocalDevEnabled(nextLocalInfo?.enabled ?? false);
+      setLocalDevUrl(nextLocalInfo?.url ?? null);
+      setLocalDevError(null);
+    } catch {
+      setIsLocalDevApiAvailable(false);
+      setIsLocalDevEnabled(false);
+      setLocalDevUrl(null);
+    }
+
+    if (!import.meta.env.DEV) {
+      setIsPublicDevApiAvailable(false);
+      return;
+    }
+
     try {
       const tunnelInfo = await getPublicDevTunnelInfo();
       if (!tunnelInfo) return;
@@ -72,9 +91,11 @@ export function useRemoteAccess() {
       setIsPublicDevStarting(false);
       setPublicDevUrl(null);
       setPublicDevError(null);
-      setIsLocalDevEnabled(false);
-      setLocalDevUrl(null);
-      setLocalDevError(null);
+      if (!nextLocalInfo?.enabled) {
+        setIsLocalDevEnabled(false);
+        setLocalDevUrl(null);
+        setLocalDevError(null);
+      }
     } catch {
       setIsPublicDevApiAvailable(false);
     }
@@ -117,8 +138,12 @@ export function useRemoteAccess() {
   async function setRemoteAccessMode(nextMode: RemoteAccessMode) {
     if (nextMode === "off") {
       setLocalDevError(null);
-      setIsLocalDevEnabled(false);
-      setLocalDevUrl(null);
+      if (isLocalDevEnabled || localDevUrl) {
+        await setLocalDevAccessEnabled(false);
+      } else {
+        setIsLocalDevEnabled(false);
+        setLocalDevUrl(null);
+      }
       if (isPublicDevEnabled || isPublicDevStarting || publicDevUrl) {
         await setPublicDevTunnelEnabled(false);
       } else {
@@ -147,6 +172,7 @@ export function useRemoteAccess() {
   }
 
   return {
+    isLocalDevApiAvailable,
     isLocalDevEnabled,
     isPublicDevApiAvailable,
     isPublicDevEnabled,

@@ -1,4 +1,5 @@
 import { toDataURL } from "qrcode";
+import { isTauriRuntime, localApiRequest } from "./backend";
 
 const publicDevTunnelApiPath = "/api/public-dev-tunnel";
 const localDevAccessApiPath = "/api/local-dev-access";
@@ -37,6 +38,18 @@ export async function getPublicDevTunnelInfo() {
   return isPublicDevTunnelInfo(tunnelInfo) ? tunnelInfo : null;
 }
 
+export async function getLocalDevAccessInfo() {
+  if (isTauriRuntime) {
+    return localApiRequest<LocalDevAccessInfo>(localDevAccessApiPath);
+  }
+
+  const response = await fetch(localDevAccessApiPath);
+  if (!response.ok) return null;
+
+  const accessInfo = (await response.json()) as unknown;
+  return isLocalDevAccessInfo(accessInfo) ? accessInfo : null;
+}
+
 export async function setPublicDevTunnel(enabled: boolean) {
   const response = await fetch(publicDevTunnelApiPath, {
     body: JSON.stringify({ enabled }),
@@ -53,6 +66,20 @@ export async function setPublicDevTunnel(enabled: boolean) {
 }
 
 export async function setLocalDevAccess(enabled: boolean) {
+  if (isTauriRuntime) {
+    const accessInfo = await localApiRequest<LocalDevAccessInfo>(localDevAccessApiPath, {
+      body: JSON.stringify({ enabled }),
+      headers: { "Content-Type": "application/json" },
+      method: "POST",
+    });
+
+    if (!isLocalDevAccessInfo(accessInfo) || (enabled && (!accessInfo.available || !accessInfo.url))) {
+      throw new Error("No LAN address is available");
+    }
+
+    return accessInfo;
+  }
+
   const response = await fetch(localDevAccessApiPath, {
     body: JSON.stringify({ enabled }),
     headers: { "Content-Type": "application/json" },

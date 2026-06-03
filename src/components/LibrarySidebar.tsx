@@ -125,6 +125,7 @@ export function LibrarySidebar({
         </Button>
 
         <RemoteAccessControls
+          isLocalDevApiAvailable={remoteAccess.isLocalDevApiAvailable}
           isLocalDevEnabled={remoteAccess.isLocalDevEnabled}
           isPublicDevApiAvailable={remoteAccess.isPublicDevApiAvailable}
           isPublicDevEnabled={remoteAccess.isPublicDevEnabled}

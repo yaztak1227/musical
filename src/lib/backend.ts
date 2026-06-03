@@ -100,7 +100,7 @@ export function getBackendMediaSrc(path: string) {
   return `/api/media?path=${encodeURIComponent(path)}`;
 }
 
-async function localApiRequest<T>(path: string, init?: RequestInit) {
+export async function localApiRequest<T>(path: string, init?: RequestInit) {
   const response = await fetch(`${isTauriRuntime ? localApiBaseUrl : ""}${path}`, init);
   if (!response.ok) {
     throw await response.text();

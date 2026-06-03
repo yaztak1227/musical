@@ -19,6 +19,7 @@ tauri-build = { version = "2", features = [] }
 
 [dependencies]
 encoding_rs = "0.8.35"
+include_dir = "0.7"
 lofty = "0.24.0"
 jwalk = "0.8.1"
 log = "0.4"

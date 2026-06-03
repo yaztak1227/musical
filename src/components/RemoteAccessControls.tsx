@@ -2,6 +2,7 @@ import type { TFunction } from "@/types/app";
 import type { RemoteAccessMode } from "@/lib/remoteAccess";
 
 type RemoteAccessControlsProps = {
+  isLocalDevApiAvailable: boolean;
   isLocalDevEnabled: boolean;
   isPublicDevApiAvailable: boolean;
   isPublicDevEnabled: boolean;
@@ -19,6 +20,7 @@ type RemoteAccessControlsProps = {
 };
 
 export function RemoteAccessControls({
+  isLocalDevApiAvailable,
   isLocalDevEnabled,
   isPublicDevApiAvailable,
   isPublicDevEnabled,
@@ -34,12 +36,14 @@ export function RemoteAccessControls({
   remoteAccessMode,
   t,
 }: RemoteAccessControlsProps) {
-  if (!isTauriRuntime || !isPublicDevApiAvailable) return null;
+  if (!isTauriRuntime || (!isLocalDevApiAvailable && !isPublicDevApiAvailable)) return null;
+
+  const modes: RemoteAccessMode[] = isPublicDevApiAvailable ? ["off", "lan", "open"] : ["off", "lan"];
 
   return (
     <>
       <div className="remote-access-mode" role="group" aria-label={t("remoteAccess.modeLabel")}>
-        {(["off", "lan", "open"] as const).map((mode) => (
+        {modes.map((mode) => (
           <button
             aria-pressed={remoteAccessMode === mode}
             className="remote-access-mode-button"
