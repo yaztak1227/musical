@@ -51,6 +51,8 @@ export const translationKeys = [
   "sort.yearAsc",
   "albums.heading",
   "albums.count",
+  "albums.scrollIndexLabel",
+  "albums.jumpToIndex",
   "sidebar.collapse",
   "sidebar.expand",
   "remoteAccess.label",

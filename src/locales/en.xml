@@ -44,6 +44,8 @@
   <message key="sort.yearAsc">Oldest</message>
   <message key="albums.heading">Albums</message>
   <message key="albums.count">{count} albums</message>
+  <message key="albums.scrollIndexLabel">Album letter index</message>
+  <message key="albums.jumpToIndex">Jump to {letter}</message>
   <message key="sidebar.collapse">Collapse library panel</message>
   <message key="sidebar.expand">Expand library panel</message>
   <message key="remoteAccess.label">Remote access</message>

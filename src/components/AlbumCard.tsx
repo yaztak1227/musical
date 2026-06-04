@@ -55,6 +55,7 @@ type AlbumCardProps = {
   isActive: boolean;
   isPlaying: boolean;
   isTauriRuntime: boolean;
+  scrollIndexLabel: string;
   variant: AlbumCardVariant;
   t: TFunction;
   onPause: () => void;
@@ -62,7 +63,18 @@ type AlbumCardProps = {
   onSelect: (album: Album) => void;
 };
 
-function AlbumCardComponent({ album, isActive, isPlaying, isTauriRuntime, variant, t, onPause, onPlay, onSelect }: AlbumCardProps) {
+function AlbumCardComponent({
+  album,
+  isActive,
+  isPlaying,
+  isTauriRuntime,
+  scrollIndexLabel,
+  variant,
+  t,
+  onPause,
+  onPlay,
+  onSelect,
+}: AlbumCardProps) {
   const albumTitle = localizeLibraryText(album.title, t);
   const albumArtist = localizeLibraryText(album.artist, t);
   const albumYear = album.yearLabel ?? album.year;
@@ -80,6 +92,8 @@ function AlbumCardComponent({ album, isActive, isPlaying, isTauriRuntime, varian
     <Button
       className={[isActive ? "album-card active" : "album-card", isPlaying ? "playing-album" : ""].filter(Boolean).join(" ")}
       data-album-id={album.id}
+      data-scroll-index-id={`album-${album.id}`}
+      data-scroll-index-label={scrollIndexLabel}
       onFocus={prepareMarquee}
       onMouseEnter={prepareMarquee}
       onClick={() => onSelect(album)}

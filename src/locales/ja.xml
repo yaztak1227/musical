@@ -44,6 +44,8 @@
   <message key="sort.yearAsc">古い順</message>
   <message key="albums.heading">アルバム</message>
   <message key="albums.count">{count} 件</message>
+  <message key="albums.scrollIndexLabel">アルバム頭文字インデックス</message>
+  <message key="albums.jumpToIndex">{letter} へ移動</message>
   <message key="sidebar.collapse">左パネルを閉じる</message>
   <message key="sidebar.expand">左パネルを開く</message>
   <message key="remoteAccess.label">外部接続</message>
