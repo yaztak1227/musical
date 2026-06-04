@@ -152,12 +152,13 @@ fn load_cached_track_analysis(
              WHERE track_id = ?1
                AND file_path = ?2
                AND file_modified_ms = ?3
-               AND analyzed_at >= ?4
-               AND analysis_version = ?5",
+               AND (?4 <= 0 OR analyzed_at >= ?5)
+               AND analysis_version = ?6",
             params![
                 cache_key.track_id,
                 cache_key.file_path,
                 cache_key.file_modified_ms,
+                AUDIO_ANALYSIS_CACHE_TTL_SECONDS,
                 cache_key.analyzed_at - AUDIO_ANALYSIS_CACHE_TTL_SECONDS,
                 AUDIO_ANALYSIS_CACHE_VERSION,
             ],

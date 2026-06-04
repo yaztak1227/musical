@@ -9,7 +9,7 @@ export const audioAnalysisConfig = {
 } as const;
 
 export const remoteAudioAnalysisConfig = {
-  chunkDurationSeconds: 60,
+  chunkDurationSeconds: 30,
   durationPaddingSeconds: 2,
   fallbackDurationSeconds: 15 * 60,
 } as const;

@@ -216,6 +216,24 @@ pub fn load_track_file_path(app: &AppHandle, track_id: i64) -> Result<String, St
         .ok_or_else(|| format!("library.error.trackNotFound\t{track_id}"))
 }
 
+pub fn load_track_file_path_and_duration(
+    app: &AppHandle,
+    track_id: i64,
+) -> Result<(String, i64), String> {
+    let database_path = app_database_path(app)?;
+    let connection = open_database(&database_path)?;
+
+    connection
+        .query_row(
+            "SELECT file_path, duration_seconds FROM tracks WHERE id = ?1",
+            [track_id],
+            |row| Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?)),
+        )
+        .optional()
+        .map_err(to_error_string)?
+        .ok_or_else(|| format!("library.error.trackNotFound\t{track_id}"))
+}
+
 pub fn scan_folder(app: &AppHandle, folder_path: &str) -> Result<ScanSummary, String> {
     let canonical_root = fs::canonicalize(folder_path)
         .map_err(|error| format!("library.error.folderOpen\t{folder_path}\t{error}"))?;

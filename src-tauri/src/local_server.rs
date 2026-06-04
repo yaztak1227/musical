@@ -10,7 +10,7 @@ use log::{error, info};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::{
-    collections::{HashMap, VecDeque},
+    collections::{HashMap, HashSet, VecDeque},
     fs::File,
     io::{Read, Seek, SeekFrom, Write},
     net::{Shutdown, TcpListener, TcpStream, UdpSocket},
@@ -120,6 +120,7 @@ struct RemoteServerState {
     player_state: Option<RemotePlayerState>,
     player_state_sent_at_ms: Option<f64>,
     commands: VecDeque<QueuedRemotePlayerCommand>,
+    active_track_analysis_prefetches: HashSet<i64>,
     track_analysis_builds: HashMap<i64, TrackAnalysisBuild>,
 }
 
@@ -513,7 +514,9 @@ fn get_track_analysis_segment(
             .cloned()
             .collect::<Vec<_>>()
     };
-    if !loaded_analysis.is_complete {
+    let should_prefetch_next = if loaded_analysis.is_complete {
+        true
+    } else {
         let complete_analysis = collect_track_analysis_chunk(
             remote_state,
             track_id,
@@ -526,7 +529,13 @@ fn get_track_analysis_segment(
         )?;
         if let Some(analysis) = complete_analysis {
             audio_analysis::save_track_analysis_cache(app, track_id, &file_path, &analysis)?;
+            true
+        } else {
+            false
         }
+    };
+    if should_prefetch_next {
+        prefetch_next_track_analysis(app.clone(), remote_state.clone(), track_id);
     }
 
     Ok(RemoteAudioAnalysisSegment {
@@ -598,6 +607,72 @@ fn collect_track_analysis_chunk(
     };
     state.track_analysis_builds.remove(&track_id);
     Ok(Some(analysis))
+}
+
+fn prefetch_next_track_analysis(
+    app: AppHandle,
+    remote_state: SharedRemoteServerState,
+    completed_track_id: i64,
+) {
+    let Ok(Some(next_track_id)) =
+        reserve_next_track_analysis_prefetch(&remote_state, completed_track_id)
+    else {
+        return;
+    };
+
+    thread::spawn(move || {
+        let result = prefetch_track_analysis(&app, next_track_id);
+        if let Err(error) = result {
+            info!("next track analysis prefetch skipped for {next_track_id}: {error}");
+        }
+        if let Ok(mut state) = remote_state.lock() {
+            state
+                .active_track_analysis_prefetches
+                .remove(&next_track_id);
+        }
+    });
+}
+
+fn reserve_next_track_analysis_prefetch(
+    remote_state: &SharedRemoteServerState,
+    completed_track_id: i64,
+) -> Result<Option<i64>, String> {
+    let mut state = remote_state.lock().map_err(|error| error.to_string())?;
+    let Some(player_state) = state.player_state.as_ref() else {
+        return Ok(None);
+    };
+    let Some(next_track_id) =
+        next_queue_track_id(&player_state.queue_track_ids, completed_track_id)
+    else {
+        return Ok(None);
+    };
+    if !state.active_track_analysis_prefetches.insert(next_track_id) {
+        return Ok(None);
+    }
+    Ok(Some(next_track_id))
+}
+
+fn next_queue_track_id(queue_track_ids: &[i64], completed_track_id: i64) -> Option<i64> {
+    let current_index = queue_track_ids
+        .iter()
+        .position(|track_id| *track_id == completed_track_id)?;
+    queue_track_ids.get(current_index + 1).copied()
+}
+
+fn prefetch_track_analysis(app: &AppHandle, track_id: i64) -> Result<(), String> {
+    let (file_path, duration_seconds) = library::load_track_file_path_and_duration(app, track_id)?;
+    let duration = (duration_seconds.max(1) as f64) + 2.0;
+    let loaded_analysis =
+        audio_analysis::get_or_analyze_track_segment(app, track_id, &file_path, 0.0, duration)?;
+    if !loaded_analysis.is_complete {
+        audio_analysis::save_track_analysis_cache(
+            app,
+            track_id,
+            &file_path,
+            &loaded_analysis.analysis,
+        )?;
+    }
+    Ok(())
 }
 
 fn merge_covered_ranges(ranges: &mut Vec<(f64, f64)>) {
