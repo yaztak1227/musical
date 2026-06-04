@@ -9,7 +9,7 @@ on:
       - "test.*"
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   build:
@@ -66,7 +66,25 @@ jobs:
         run: cargo test
 
       - name: Build Tauri bundle
+        if: matrix.platform.name != 'windows'
         run: npm run tauri -- build
+
+      - name: Build Windows installers with updater
+        if: matrix.platform.name == 'windows'
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          TAURI_UPDATER_ENDPOINT: ${{ vars.TAURI_UPDATER_ENDPOINT }}
+          TAURI_UPDATER_PUBKEY: ${{ vars.TAURI_UPDATER_PUBKEY }}
+        run: |
+          if (-not $env:TAURI_SIGNING_PRIVATE_KEY) {
+            throw "TAURI_SIGNING_PRIVATE_KEY secret is required for updater-enabled Windows installers."
+          }
+          if (-not $env:TAURI_UPDATER_PUBKEY) {
+            throw "TAURI_UPDATER_PUBKEY repository variable is required for updater-enabled Windows installers."
+          }
+          node scripts/write-tauri-updater-config.mjs src-tauri/tauri-updater.generated.conf.json
+          npm run tauri -- build --bundles msi,nsis --config src-tauri/tauri-updater.generated.conf.json
 
       - name: Sign macOS app bundle
         if: matrix.platform.name == 'macos'
@@ -75,19 +93,41 @@ jobs:
           codesign --force --deep --sign - "src-tauri/target/release/bundle/macos/Musical.app"
           codesign --verify --deep --strict --verbose=4 "src-tauri/target/release/bundle/macos/Musical.app"
 
-      - name: Archive app bundle
+      - name: Collect app bundle
         shell: bash
         run: |
           mkdir -p artifacts
           if [ "${{ matrix.platform.name }}" = "macos" ]; then
             tar -C src-tauri/target/release/bundle/macos -czf "artifacts/${{ matrix.platform.artifact }}.tar.gz" Musical.app
+          elif [ "${{ matrix.platform.name }}" = "windows" ]; then
+            cp src-tauri/target/release/bundle/msi/*.msi artifacts/
+            cp src-tauri/target/release/bundle/msi/*.msi.sig artifacts/
+            cp src-tauri/target/release/bundle/nsis/*.exe artifacts/
+            cp src-tauri/target/release/bundle/nsis/*.exe.sig artifacts/
           else
             tar -C src-tauri/target/release/bundle -czf "artifacts/${{ matrix.platform.artifact }}.tar.gz" .
           fi
+
+      - name: Generate Windows updater manifest
+        if: matrix.platform.name == 'windows' && github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
+        run: node scripts/write-tauri-windows-latest-json.mjs artifacts artifacts/latest.json
 
       - name: Upload app bundle
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.platform.artifact }}
-          path: artifacts/${{ matrix.platform.artifact }}.tar.gz
+          path: artifacts/*
           if-no-files-found: error
+          compression-level: 0
+
+      - name: Publish Windows release assets
+        if: matrix.platform.name == 'windows' && github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          if gh release view "${GITHUB_REF_NAME}" >/dev/null 2>&1; then
+            gh release upload "${GITHUB_REF_NAME}" artifacts/* --clobber
+          else
+            gh release create "${GITHUB_REF_NAME}" artifacts/* --title "${GITHUB_REF_NAME}" --notes "Automated Windows build for ${GITHUB_REF_NAME}"
+          fi

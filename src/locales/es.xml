@@ -20,6 +20,13 @@
   <message key="scan.chooseFolder">Elegir carpeta</message>
   <message key="scan.button">Escanear biblioteca</message>
   <message key="scan.buttonScanning">Escaneando...</message>
+  <message key="updates.label">Actualizaciones</message>
+  <message key="updates.check">Buscar actualizaciones</message>
+  <message key="updates.checking">Buscando...</message>
+  <message key="updates.installing">Instalando actualización...</message>
+  <message key="updates.installed">Versión {version} instalada. Reinicia Musical para finalizar.</message>
+  <message key="updates.none">Musical está actualizado.</message>
+  <message key="updates.desktopOnly">Las actualizaciones están disponibles en la app de escritorio.</message>
   <message key="search.label">Buscar álbumes</message>
   <message key="search.placeholder">Álbum, artista, año</message>
   <message key="search.lyricsFilter">Mostrar álbumes con letras</message>

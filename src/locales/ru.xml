@@ -20,6 +20,13 @@
   <message key="scan.chooseFolder">Выбрать папку</message>
   <message key="scan.button">Сканировать медиатеку</message>
   <message key="scan.buttonScanning">Сканирование...</message>
+  <message key="updates.label">Обновления</message>
+  <message key="updates.check">Проверить обновления</message>
+  <message key="updates.checking">Проверка...</message>
+  <message key="updates.installing">Установка обновления...</message>
+  <message key="updates.installed">Версия {version} установлена. Перезапустите Musical для завершения.</message>
+  <message key="updates.none">Musical обновлен.</message>
+  <message key="updates.desktopOnly">Обновления доступны в настольном приложении.</message>
   <message key="search.label">Поиск альбомов</message>
   <message key="search.placeholder">Альбом, исполнитель, год</message>
   <message key="search.lyricsFilter">Показывать альбомы с текстами</message>

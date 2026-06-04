@@ -5,11 +5,14 @@ import type { I18nMessage, TFunction } from "@/types/app";
 
 type LibrarySettingsDialogProps = {
   isScanning: boolean;
+  isCheckingForUpdate: boolean;
   isTauriRuntime: boolean;
   libraryInfo: I18nMessage | null;
   libraryPath: string;
+  updateInfo: I18nMessage | null;
   onChooseFolder: () => void;
   onClose: () => void;
+  onCheckForUpdate: () => void;
   onLibraryPathChange: (path: string) => void;
   onScan: () => void;
   t: TFunction;
@@ -17,10 +20,13 @@ type LibrarySettingsDialogProps = {
 
 export function LibrarySettingsDialog({
   isScanning,
+  isCheckingForUpdate,
   isTauriRuntime,
   libraryInfo,
   libraryPath,
+  updateInfo,
   onChooseFolder,
+  onCheckForUpdate,
   onClose,
   onLibraryPathChange,
   onScan,
@@ -89,6 +95,26 @@ export function LibrarySettingsDialog({
                 {t(libraryInfo.key, libraryInfo.values)}
               </p>
             ) : null}
+          </div>
+
+          <div className="update-actions">
+            <div>
+              <p className="eyebrow">{t("updates.label")}</p>
+              {updateInfo ? (
+                <p className="info-text" aria-live="polite">
+                  {t(updateInfo.key, updateInfo.values)}
+                </p>
+              ) : null}
+            </div>
+            <Button
+              disabled={isCheckingForUpdate || !isTauriRuntime}
+              onClick={onCheckForUpdate}
+              title={!isTauriRuntime ? t("updates.desktopOnly") : undefined}
+              type="button"
+              variant="outline"
+            >
+              {isCheckingForUpdate ? t("updates.checking") : t("updates.check")}
+            </Button>
           </div>
         </div>
       </section>

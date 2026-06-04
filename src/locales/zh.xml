@@ -20,6 +20,13 @@
   <message key="scan.chooseFolder">选择文件夹</message>
   <message key="scan.button">扫描音乐库</message>
   <message key="scan.buttonScanning">正在扫描...</message>
+  <message key="updates.label">更新</message>
+  <message key="updates.check">检查更新</message>
+  <message key="updates.checking">正在检查...</message>
+  <message key="updates.installing">正在安装更新...</message>
+  <message key="updates.installed">已安装版本 {version}。请重启 Musical 以完成更新。</message>
+  <message key="updates.none">Musical 已是最新版本。</message>
+  <message key="updates.desktopOnly">更新功能可在桌面应用中使用。</message>
   <message key="search.label">搜索专辑</message>
   <message key="search.placeholder">专辑、艺术家、年份</message>
   <message key="search.lyricsFilter">显示带歌词的专辑</message>

@@ -20,6 +20,13 @@
   <message key="scan.chooseFolder">폴더 선택</message>
   <message key="scan.button">라이브러리 스캔</message>
   <message key="scan.buttonScanning">스캔 중...</message>
+  <message key="updates.label">업데이트</message>
+  <message key="updates.check">업데이트 확인</message>
+  <message key="updates.checking">확인 중...</message>
+  <message key="updates.installing">업데이트 설치 중...</message>
+  <message key="updates.installed">버전 {version}을 설치했습니다. 완료하려면 Musical을 다시 시작하세요.</message>
+  <message key="updates.none">Musical이 최신 상태입니다.</message>
+  <message key="updates.desktopOnly">업데이트는 데스크톱 앱에서 사용할 수 있습니다.</message>
   <message key="search.label">앨범 검색</message>
   <message key="search.placeholder">앨범, 아티스트, 연도</message>
   <message key="search.lyricsFilter">가사가 있는 앨범 표시</message>

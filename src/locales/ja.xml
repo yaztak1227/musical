@@ -20,6 +20,13 @@
   <message key="scan.chooseFolder">フォルダ指定</message>
   <message key="scan.button">ライブラリを読み込み</message>
   <message key="scan.buttonScanning">スキャン中...</message>
+  <message key="updates.label">アップデート</message>
+  <message key="updates.check">アップデートを確認</message>
+  <message key="updates.checking">確認中...</message>
+  <message key="updates.installing">アップデートをインストール中...</message>
+  <message key="updates.installed">バージョン {version} をインストールしました。Musical を再起動すると完了します。</message>
+  <message key="updates.none">Musical は最新です。</message>
+  <message key="updates.desktopOnly">アップデートはデスクトップアプリで利用できます。</message>
   <message key="search.label">アルバム検索</message>
   <message key="search.placeholder">アルバム、アーティスト、年</message>
   <message key="search.lyricsFilter">歌詞があるアルバムだけ表示</message>

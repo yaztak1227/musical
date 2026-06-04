@@ -788,6 +788,20 @@ h2 {
   align-items: start;
 }
 
+.update-actions {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+  padding-top: 4px;
+  border-top: 1px solid color-mix(in oklch, var(--border), transparent 34%);
+}
+
+.update-actions .info-text {
+  margin-top: 4px;
+}
+
 .scan-loading-rail {
   position: relative;
   display: grid;
@@ -1747,7 +1761,7 @@ button.album-card {
   grid-template-rows: auto auto;
   gap: 16px;
   width: min(560px, 100%);
-  max-height: min(520px, calc(100dvh - 48px));
+  max-height: min(580px, calc(100dvh - 48px));
   min-width: 0;
   padding: 22px;
   overflow-x: hidden;

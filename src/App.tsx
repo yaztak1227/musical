@@ -25,6 +25,7 @@ import {
   isThemeName,
 } from "./types/app";
 import { updateAlbumTags, updateTrackArtwork, updateTrackTags, type AlbumTagDraft, type TrackTagDraft } from "./lib/tagEditing";
+import { checkAndInstallAppUpdate } from "./lib/appUpdates";
 import {
   backendInvoke,
   getBackendMediaSrc,
@@ -259,6 +260,8 @@ function App() {
   const [libraryInfo, setLibraryInfo] = useState<I18nMessage | null>(
     hasRealBackend ? { key: "status.noLibraryScanned" } : { key: "status.webMockMode" },
   );
+  const [updateInfo, setUpdateInfo] = useState<I18nMessage | null>(null);
+  const [isCheckingForUpdate, setIsCheckingForUpdate] = useState(false);
   const [albums, setAlbums] = useState<Album[]>(hasRealBackend ? [] : mockAlbums);
   const [selectedAlbumId, setSelectedAlbumId] = useState<number | null>(() =>
     hasRealBackend ? null : getInitialAlbumId(mockAlbums, storedPlaybackPreferences.selectedAlbumId),
@@ -670,6 +673,26 @@ function App() {
       setLibraryInfo(toI18nError(error));
     } finally {
       setIsScanning(false);
+    }
+  }
+
+  async function handleCheckForUpdate() {
+    setIsCheckingForUpdate(true);
+    setUpdateInfo({ key: "updates.checking" });
+
+    try {
+      const result = await checkAndInstallAppUpdate();
+      if (result.status === "installed") {
+        setUpdateInfo({ key: "updates.installed", values: { version: result.version } });
+      } else if (result.status === "unsupported") {
+        setUpdateInfo({ key: "updates.desktopOnly" });
+      } else {
+        setUpdateInfo({ key: "updates.none" });
+      }
+    } catch (error) {
+      setUpdateInfo(toI18nError(error));
+    } finally {
+      setIsCheckingForUpdate(false);
     }
   }
 
@@ -1815,15 +1838,18 @@ function App() {
       ) : null}
       {isLibrarySettingsOpen ? (
         <LibrarySettingsDialog
+          isCheckingForUpdate={isCheckingForUpdate}
           isScanning={isScanning}
           isTauriRuntime={isTauriRuntime}
           libraryInfo={libraryInfo}
           libraryPath={libraryPath}
           onChooseFolder={() => void handleChooseFolder()}
+          onCheckForUpdate={() => void handleCheckForUpdate()}
           onClose={() => setIsLibrarySettingsOpen(false)}
           onLibraryPathChange={setLibraryPath}
           onScan={() => void handleScan()}
           t={t}
+          updateInfo={updateInfo}
         />
       ) : null}
       {detailTrack && detailAlbum ? (

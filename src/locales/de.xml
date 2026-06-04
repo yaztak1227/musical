@@ -20,6 +20,13 @@
   <message key="scan.chooseFolder">Ordner wählen</message>
   <message key="scan.button">Mediathek scannen</message>
   <message key="scan.buttonScanning">Scannen...</message>
+  <message key="updates.label">Updates</message>
+  <message key="updates.check">Nach Updates suchen</message>
+  <message key="updates.checking">Suche...</message>
+  <message key="updates.installing">Update wird installiert...</message>
+  <message key="updates.installed">Version {version} installiert. Starten Sie Musical neu, um abzuschließen.</message>
+  <message key="updates.none">Musical ist auf dem neuesten Stand.</message>
+  <message key="updates.desktopOnly">Updates sind in der Desktop-App verfügbar.</message>
   <message key="search.label">Alben suchen</message>
   <message key="search.placeholder">Album, Künstler, Jahr</message>
   <message key="search.lyricsFilter">Alben mit Liedtexten anzeigen</message>

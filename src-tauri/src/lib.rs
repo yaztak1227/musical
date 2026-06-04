@@ -64,6 +64,7 @@ pub fn run() {
                 .build(),
         )
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .setup(|app| {
             info!("starting Musical desktop app");
             match local_server::start(app.handle().clone()) {
