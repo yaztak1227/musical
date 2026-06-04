@@ -22,12 +22,17 @@ export type RemotePlayerState = {
   repeatMode: string;
   currentTime: number;
   volume: number;
-  audioAnalysisDuration?: number | null;
-  audioAnalysisCurrentTimeAtReceived?: number | null;
-  audioAnalysisFrameTimecodes?: number[] | null;
-  audioAnalysisFrames?: number[][] | null;
-  audioAnalysisReceivedAtAgeMs?: number | null;
-  audioAnalysisStartTime?: number | null;
+};
+
+export type RemoteAudioAnalysisSegmentFrame = {
+  timecode: number;
+  values: number[];
+};
+
+export type RemoteAudioAnalysisSegment = {
+  frameIntervalMs: number;
+  frames: RemoteAudioAnalysisSegmentFrame[];
+  trackId: number;
 };
 
 export type RemotePlayerCommandType =
@@ -54,6 +59,12 @@ export type QueuedRemotePlayerCommand = {
   payload?: Record<string, unknown> | null;
 };
 
+export type RemotePlayerStateResponse = {
+  receivedAtMs: number;
+  sentAtMs: number | null;
+  state: RemotePlayerState | null;
+};
+
 export async function backendInvoke<T>(command: string, payload?: Record<string, unknown>) {
   if (isTauriRuntime) {
     return invoke<T>(command, payload);
@@ -73,15 +84,31 @@ export async function backendInvoke<T>(command: string, payload?: Record<string,
 }
 
 export async function publishRemotePlayerState(state: RemotePlayerState) {
+  const sentAtMs = Date.now();
   return localApiRequest<boolean>("/api/player_state", {
     body: JSON.stringify({ state }),
-    headers: { "Content-Type": "application/json" },
+    headers: {
+      "Content-Type": "application/json",
+      "X-Musical-Client-Sent-At-Ms": String(sentAtMs),
+    },
     method: "POST",
   });
 }
 
 export async function getRemotePlayerState() {
-  return localApiRequest<RemotePlayerState | null>("/api/player_state");
+  const response = await fetch(`${isTauriRuntime ? localApiBaseUrl : ""}/api/player_state`);
+  const receivedAtMs = Date.now();
+  if (!response.ok) {
+    throw await response.text();
+  }
+
+  const sentAtHeader = response.headers.get("X-Musical-State-Sent-At-Ms");
+  const sentAtMs = sentAtHeader === null ? null : Number(sentAtHeader);
+  return {
+    receivedAtMs,
+    sentAtMs: Number.isFinite(sentAtMs) ? sentAtMs : null,
+    state: await response.json() as RemotePlayerState | null,
+  } satisfies RemotePlayerStateResponse;
 }
 
 export async function sendRemotePlayerCommand(
@@ -99,6 +126,19 @@ export async function getRemotePlayerCommands(afterId: number) {
   return localApiRequest<{ commands: QueuedRemotePlayerCommand[] }>(
     `/api/player_commands?after=${encodeURIComponent(String(afterId))}`,
   );
+}
+
+export async function getRemoteTrackAnalysisSegment(trackId: number, from: number, duration: number) {
+  const query = new URLSearchParams({
+    duration: String(duration),
+    from: String(from),
+    trackId: String(trackId),
+  });
+  return localApiRequest<RemoteAudioAnalysisSegment>(`/api/track_analysis?${query.toString()}`);
+}
+
+export async function getRemoteAudioAnalysisSegment(trackId: number, from: number, duration: number) {
+  return getRemoteTrackAnalysisSegment(trackId, from, duration);
 }
 
 export function getBackendMediaSrc(path: string) {

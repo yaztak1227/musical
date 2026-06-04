@@ -1,23 +1,26 @@
-use crate::library::{
-    self, AlbumTagUpdateRequest, TrackArtworkUpdateRequest, TrackTagUpdateRequest,
+use crate::{
+    audio_analysis::{self, TrackAnalysis},
+    library::{self, AlbumTagUpdateRequest, TrackArtworkUpdateRequest, TrackTagUpdateRequest},
 };
 use include_dir::{include_dir, Dir};
 use log::{error, info};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::{
-    collections::VecDeque,
+    collections::{HashMap, VecDeque},
     fs::File,
     io::{Read, Seek, SeekFrom, Write},
     net::{Shutdown, TcpListener, TcpStream, UdpSocket},
     path::Path,
     sync::{Arc, Mutex},
     thread,
+    time::{SystemTime, UNIX_EPOCH},
 };
 use tauri::AppHandle;
 
 const LOCAL_SERVER_ADDR: &str = "0.0.0.0:1422";
 const LOCAL_SERVER_PORT: u16 = 1422;
+const TRACK_ANALYSIS_MEMORY_CACHE_TTL_MS: u128 = 24 * 60 * 60 * 1000;
 const MAX_REMOTE_COMMANDS: usize = 200;
 const RESPONSE_WRITE_CHUNK_SIZE: usize = 16 * 1024;
 static FRONTEND_DIST: Dir<'_> = include_dir!("$CARGO_MANIFEST_DIR/../dist");
@@ -76,17 +79,19 @@ struct RemotePlayerState {
     repeat_mode: String,
     current_time: f64,
     volume: f64,
-    audio_analysis_duration: Option<f64>,
-    audio_analysis_current_time_at_received: Option<f64>,
-    audio_analysis_frame_timecodes: Option<Vec<f64>>,
-    audio_analysis_frames: Option<Vec<Vec<u8>>>,
-    audio_analysis_received_at_age_ms: Option<f64>,
-    audio_analysis_start_time: Option<f64>,
 }
 
 #[derive(Debug, Deserialize)]
 struct RemotePlayerStateBody {
     state: RemotePlayerState,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct RemoteAudioAnalysisSegment {
+    frame_interval_ms: f64,
+    frames: Vec<audio_analysis::AudioAnalysisFrame>,
+    track_id: i64,
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
@@ -115,7 +120,15 @@ struct RemoteServerState {
     local_access_enabled: bool,
     next_command_id: u64,
     player_state: Option<RemotePlayerState>,
+    player_state_sent_at_ms: Option<f64>,
     commands: VecDeque<QueuedRemotePlayerCommand>,
+    track_analysis_by_track: HashMap<i64, CachedTrackAnalysis>,
+}
+
+#[derive(Clone)]
+struct CachedTrackAnalysis {
+    analysis: TrackAnalysis,
+    cached_at_ms: u128,
 }
 
 fn apply_remote_command_to_player_state(
@@ -157,6 +170,7 @@ struct Request {
     method: String,
     path: String,
     query: String,
+    headers: HashMap<String, String>,
     body: Vec<u8>,
     is_local: bool,
 }
@@ -243,10 +257,13 @@ fn read_request(stream: &mut TcpStream, is_local: bool) -> Result<Request, Strin
     let target = request_parts
         .next()
         .ok_or_else(|| "missing request target".to_owned())?;
-    let content_length = lines
+    let headers = lines
         .filter_map(|line| line.split_once(':'))
-        .find(|(key, _)| key.eq_ignore_ascii_case("content-length"))
-        .and_then(|(_, value)| value.trim().parse::<usize>().ok())
+        .map(|(key, value)| (key.trim().to_ascii_lowercase(), value.trim().to_owned()))
+        .collect::<HashMap<_, _>>();
+    let content_length = headers
+        .get("content-length")
+        .and_then(|value| value.parse::<usize>().ok())
         .unwrap_or(0);
 
     let mut body = buffer[header_end..].to_vec();
@@ -268,6 +285,7 @@ fn read_request(stream: &mut TcpStream, is_local: bool) -> Result<Request, Strin
         method,
         path,
         query,
+        headers,
         body,
         is_local,
     })
@@ -287,9 +305,7 @@ fn route_request(
     }
 
     match (request.method.as_str(), request.path.as_str()) {
-        ("GET", "/api/local-dev-access") => {
-            result_response(local_access_info(&remote_state))
-        }
+        ("GET", "/api/local-dev-access") => result_response(local_access_info(&remote_state)),
         ("POST", "/api/local-dev-access") => {
             if !request.is_local {
                 return text_response(403, "remote access settings are only available locally");
@@ -349,19 +365,39 @@ fn route_request(
             )
         }
         ("GET", "/api/player_state") => {
-            let state = remote_state
+            let state_result = remote_state
                 .lock()
-                .map(|state| state.player_state.clone())
+                .map(|state| (state.player_state.clone(), state.player_state_sent_at_ms))
                 .map_err(|error| error.to_string());
-            result_response(state)
+            match state_result {
+                Ok((state, sent_at_ms)) => {
+                    let mut headers = Vec::new();
+                    if let Some(sent_at_ms) = sent_at_ms {
+                        headers.push((
+                            "X-Musical-State-Sent-At-Ms".to_owned(),
+                            sent_at_ms.to_string(),
+                        ));
+                    }
+                    json_response_with_headers(200, &state, &headers)
+                }
+                Err(error) => text_response(500, &error),
+            }
         }
         ("POST", "/api/player_state") => {
             let request_body = parse_json::<RemotePlayerStateBody>(&request.body);
             let result = request_body.and_then(|body| {
                 let mut state = remote_state.lock().map_err(|error| error.to_string())?;
+                state.player_state_sent_at_ms = request
+                    .headers
+                    .get("x-musical-client-sent-at-ms")
+                    .and_then(|value| value.parse::<f64>().ok());
                 state.player_state = Some(body.state);
                 Ok(true)
             });
+            result_response(result)
+        }
+        ("GET", "/api/track_analysis") | ("GET", "/api/audio_analysis_segment") => {
+            let result = get_track_analysis_segment(&app, &request, &remote_state);
             result_response(result)
         }
         ("POST", "/api/player_command") => {
@@ -423,7 +459,10 @@ fn local_access_info(remote_state: &SharedRemoteServerState) -> Result<LocalDevA
     let enabled = is_local_access_enabled(remote_state);
     let host = lan_ipv4_address();
     let url = enabled
-        .then(|| host.as_ref().map(|host| format!("http://{host}:{LOCAL_SERVER_PORT}/")))
+        .then(|| {
+            host.as_ref()
+                .map(|host| format!("http://{host}:{LOCAL_SERVER_PORT}/"))
+        })
         .flatten();
 
     Ok(LocalDevAccessInfo {
@@ -435,12 +474,82 @@ fn local_access_info(remote_state: &SharedRemoteServerState) -> Result<LocalDevA
     })
 }
 
+fn get_track_analysis_segment(
+    app: &AppHandle,
+    request: &Request,
+    remote_state: &SharedRemoteServerState,
+) -> Result<RemoteAudioAnalysisSegment, String> {
+    let track_id = query_param(&request.query, "trackId")
+        .and_then(|value| value.parse::<i64>().ok())
+        .ok_or_else(|| "missing trackId".to_owned())?;
+    let from = query_param(&request.query, "from")
+        .and_then(|value| value.parse::<f64>().ok())
+        .filter(|value| value.is_finite())
+        .unwrap_or(0.0)
+        .max(0.0);
+    let duration = query_param(&request.query, "duration")
+        .and_then(|value| value.parse::<f64>().ok())
+        .filter(|value| value.is_finite())
+        .unwrap_or(4.0)
+        .clamp(0.25, 60.0 * 60.0 * 4.0);
+    let to = from + duration;
+
+    let now_ms = unix_timestamp_millis()?;
+    let cached_analysis = remote_state
+        .lock()
+        .map_err(|error| error.to_string())?
+        .track_analysis_by_track
+        .get(&track_id)
+        .filter(|entry| {
+            now_ms.saturating_sub(entry.cached_at_ms) < TRACK_ANALYSIS_MEMORY_CACHE_TTL_MS
+        })
+        .map(|entry| entry.analysis.clone());
+    let analysis = match cached_analysis {
+        Some(analysis) => analysis,
+        None => {
+            let file_path = library::load_track_file_path(app, track_id)?;
+            let analysis = audio_analysis::get_or_analyze_track_file(app, track_id, &file_path)?;
+            remote_state
+                .lock()
+                .map_err(|error| error.to_string())?
+                .track_analysis_by_track
+                .insert(
+                    track_id,
+                    CachedTrackAnalysis {
+                        analysis: analysis.clone(),
+                        cached_at_ms: now_ms,
+                    },
+                );
+            analysis
+        }
+    };
+    let frames = analysis
+        .frames
+        .iter()
+        .filter(|frame| frame.timecode >= from && frame.timecode <= to)
+        .cloned()
+        .collect::<Vec<_>>();
+
+    Ok(RemoteAudioAnalysisSegment {
+        frame_interval_ms: analysis.frame_interval_ms,
+        frames,
+        track_id,
+    })
+}
+
 fn lan_ipv4_address() -> Option<String> {
     let socket = UdpSocket::bind("0.0.0.0:0").ok()?;
     socket.connect("8.8.8.8:80").ok()?;
     let address = socket.local_addr().ok()?;
     let ip = address.ip();
     (!ip.is_loopback()).then(|| ip.to_string())
+}
+
+fn unix_timestamp_millis() -> Result<u128, String> {
+    Ok(SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_err(|error| error.to_string())?
+        .as_millis())
 }
 
 fn parse_json<T: for<'de> Deserialize<'de>>(body: &[u8]) -> Result<T, String> {
@@ -457,6 +566,20 @@ fn result_response<T: serde::Serialize>(result: Result<T, String>) -> Vec<u8> {
 fn json_response<T: serde::Serialize>(status: u16, value: &T) -> Vec<u8> {
     let body = serde_json::to_vec(value).unwrap_or_else(|_| b"null".to_vec());
     response(status, "application/json; charset=utf-8", &body)
+}
+
+fn json_response_with_headers<T: serde::Serialize>(
+    status: u16,
+    value: &T,
+    extra_headers: &[(String, String)],
+) -> Vec<u8> {
+    let body = serde_json::to_vec(value).unwrap_or_else(|_| b"null".to_vec());
+    response_with_headers(
+        status,
+        "application/json; charset=utf-8",
+        &body,
+        extra_headers,
+    )
 }
 
 fn text_response(status: u16, message: &str) -> Vec<u8> {
@@ -507,6 +630,15 @@ fn frontend_response(path: &str) -> Vec<u8> {
 }
 
 fn response(status: u16, content_type: &str, body: &[u8]) -> Vec<u8> {
+    response_with_headers(status, content_type, body, &[])
+}
+
+fn response_with_headers(
+    status: u16,
+    content_type: &str,
+    body: &[u8],
+    extra_headers: &[(String, String)],
+) -> Vec<u8> {
     let reason = match status {
         200 => "OK",
         204 => "No Content",
@@ -515,17 +647,23 @@ fn response(status: u16, content_type: &str, body: &[u8]) -> Vec<u8> {
         500 => "Internal Server Error",
         _ => "OK",
     };
-    let headers = format!(
+    let mut headers = format!(
         "HTTP/1.1 {status} {reason}\r\n\
          Content-Length: {}\r\n\
          Content-Type: {content_type}\r\n\
          Access-Control-Allow-Origin: *\r\n\
          Access-Control-Allow-Methods: GET, POST, OPTIONS\r\n\
-         Access-Control-Allow-Headers: Content-Type\r\n\
-         Connection: close\r\n\
-         \r\n",
+         Access-Control-Allow-Headers: Content-Type, X-Musical-Client-Sent-At-Ms\r\n\
+         Access-Control-Expose-Headers: X-Musical-State-Sent-At-Ms\r\n",
         body.len()
     );
+    for (key, value) in extra_headers {
+        headers.push_str(key);
+        headers.push_str(": ");
+        headers.push_str(value);
+        headers.push_str("\r\n");
+    }
+    headers.push_str("Connection: close\r\n\r\n");
     [headers.as_bytes(), body].concat()
 }
 

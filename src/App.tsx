@@ -30,16 +30,19 @@ import {
   getBackendMediaSrc,
   getRemotePlayerCommands,
   getRemotePlayerState,
+  getRemoteTrackAnalysisSegment,
   hasRealBackend,
   isBrowserBackendRuntime,
+  isMockDataRuntime,
   isTauriRuntime,
   publishRemotePlayerState,
   sendRemotePlayerCommand,
   type QueuedRemotePlayerCommand,
+  type RemoteAudioAnalysisSegment,
   type RemotePlayerState,
 } from "./lib/backend";
 import { useGlobalMediaKeys } from "./lib/useGlobalMediaKeys";
-import { mockAlbums } from "./lib/mockData";
+import { getMockAudioAnalysisSegment, mockAlbums } from "./lib/mockData";
 import { filterAndSortAlbums } from "./lib/albumFilters";
 import { localizeLibraryText, getArtworkSrc, getAlbumJumpTarget, toI18nError } from "./lib/libraryUtils";
 import { makeAlbumTagDraft, isAlbumTagDraftChanged, parseOptionalYear } from "./lib/tagDraftUtils";
@@ -59,7 +62,6 @@ import {
 import { getHeapUsageMb, logRenderDiagnostic, releaseAudioSource } from "./lib/renderDiagnostics";
 import { isTrackTagDraftChanged, makeTrackTagDraft } from "./lib/trackTagDraftUtils";
 import { useRemoteAccess } from "./lib/useRemoteAccess";
-import { getAudioVisualizerNode, sampleAudioAnalysis } from "./lib/audioAnalysis";
 import { AlbumBrowser } from "./components/AlbumBrowser";
 import { LibrarySidebar } from "./components/LibrarySidebar";
 import { LibrarySettingsDialog } from "./components/LibrarySettingsDialog";
@@ -69,12 +71,13 @@ import { TrackDetailDialog } from "./components/TrackDetailDialog";
 
 const albumPanelSwipeThreshold = 36;
 const albumPanelDragTolerance = 8;
-const audioAnalysisBucketCount = 256;
-const audioAnalysisFrameCount = 30;
-const audioAnalysisPacketIntervalMs = 250;
 const audioAnalysisSampleIntervalMs = 33;
-const audioAnalysisRetainedBufferMs = 3000;
+const remoteAudioAnalysisFallbackDurationSeconds = 15 * 60;
+const remoteAudioAnalysisDurationPaddingSeconds = 2;
 const remotePlayerStateSyncIntervalMs = 250;
+const remotePlayerStateTransitDelayMaxSeconds = 5;
+const staleRemotePlayerStateToleranceSeconds = 0.05;
+const remotePlaybackClockSnapThresholdSeconds = 0.45;
 const trackLongPressDelayMs = 520;
 const trackLongPressMoveTolerance = 10;
 const PlayerVisualizerOverlay = lazy(() => import("./components/PlayerVisualizerOverlay"));
@@ -107,6 +110,19 @@ export type RemoteAudioAnalysisPacket = {
   startTime: number;
 };
 
+type RemotePlaybackClock = {
+  currentTime: number;
+  isPlaying: boolean;
+  receivedAt: number;
+  trackId: number | null;
+};
+
+type RemotePlayerStateSnapshot = {
+  currentTime: number;
+  isPlaying: boolean;
+  trackId: number | null;
+};
+
 function areNumberArraysEqual(first: number[] | null, second: number[] | null) {
   if (first === second) return true;
   if (!first || !second || first.length !== second.length) return false;
@@ -126,54 +142,27 @@ function getRoundedAudioAnalysisTimecode(timecode: number) {
   return (getAudioAnalysisTick(timecode) * audioAnalysisSampleIntervalMs) / 1000;
 }
 
-function getAudioAnalysisTimecodes(frameCount: number, startTime: number) {
-  return Array.from({ length: frameCount }, (_, index) =>
-    getRoundedAudioAnalysisTimecode(startTime + (index * audioAnalysisSampleIntervalMs) / 1000),
-  );
+function estimateRemotePlaybackTime(clock: RemotePlaybackClock | null) {
+  if (!clock) return 0;
+  const elapsed = clock.isPlaying ? Math.max(0, performance.now() - clock.receivedAt) / 1000 : 0;
+  return Math.max(0, clock.currentTime + elapsed);
 }
 
-function mergeAudioAnalysisPacket(
-  currentPacket: RemoteAudioAnalysisPacket | null,
-  nextPacket: RemoteAudioAnalysisPacket,
+function makeAudioAnalysisPacketFromSegment(
+  segment: RemoteAudioAnalysisSegment,
+  currentTimeAtReceived: number,
 ) {
-  const framesByTick = new Map<number, { timecode: number; values: number[] }>();
-  const addFrames = (packet: RemoteAudioAnalysisPacket) => {
-    for (let index = 0; index < packet.frames.length; index += 1) {
-      const timecode = packet.frameTimecodes[index] ?? packet.startTime + (index * audioAnalysisSampleIntervalMs) / 1000;
-      framesByTick.set(getAudioAnalysisTick(timecode), {
-        timecode: getRoundedAudioAnalysisTimecode(timecode),
-        values: packet.frames[index] ?? [],
-      });
-    }
-  };
-
-  if (currentPacket) addFrames(currentPacket);
-  addFrames(nextPacket);
-
-  const latestTimecode = Math.max(...Array.from(framesByTick.values()).map((frame) => frame.timecode), nextPacket.startTime);
-  const minimumTimecode = latestTimecode - audioAnalysisRetainedBufferMs / 1000;
-  const mergedFrames = Array.from(framesByTick.values())
-    .filter((frame) => frame.timecode >= minimumTimecode)
-    .sort((first, second) => first.timecode - second.timecode);
-  const currentEstimatedTime = currentPacket
-    ? currentPacket.currentTimeAtReceived + Math.max(0, nextPacket.receivedAt - currentPacket.receivedAt) / 1000
-    : null;
-  const shouldUseNextPlaybackClock =
-    currentEstimatedTime === null ||
-    Math.abs(nextPacket.currentTimeAtReceived - currentEstimatedTime) > 0.35 ||
-    nextPacket.currentTimeAtReceived > currentEstimatedTime + 0.18;
+  const frames = segment.frames;
+  if (frames.length === 0) return null;
 
   return {
-    ...nextPacket,
-    currentTimeAtReceived: shouldUseNextPlaybackClock
-      ? nextPacket.currentTimeAtReceived
-      : currentPacket?.currentTimeAtReceived ?? nextPacket.currentTimeAtReceived,
-    duration: Math.max(audioAnalysisSampleIntervalMs, mergedFrames.length * audioAnalysisSampleIntervalMs),
-    frameTimecodes: mergedFrames.map((frame) => frame.timecode),
-    frames: mergedFrames.map((frame) => frame.values.slice()),
-    receivedAt: shouldUseNextPlaybackClock ? nextPacket.receivedAt : currentPacket?.receivedAt ?? nextPacket.receivedAt,
-    startTime: mergedFrames[0]?.timecode ?? nextPacket.startTime,
-  };
+    currentTimeAtReceived,
+    duration: Math.max(audioAnalysisSampleIntervalMs, frames.length * segment.frameIntervalMs),
+    frameTimecodes: frames.map((frame) => getRoundedAudioAnalysisTimecode(frame.timecode)),
+    frames: frames.map((frame) => frame.values.slice()),
+    receivedAt: performance.now(),
+    startTime: getRoundedAudioAnalysisTimecode(frames[0]?.timecode ?? 0),
+  } satisfies RemoteAudioAnalysisPacket;
 }
 
 function App() {
@@ -186,7 +175,10 @@ function App() {
   const suppressedTrackClickRef = useRef<SuppressedTrackClick | null>(null);
   const lastLibraryCommandIdRef = useRef(0);
   const lastRemoteCommandIdRef = useRef(0);
+  const loadedRemoteAudioAnalysisTrackIdRef = useRef<number | null>(null);
+  const lastRemotePlayerStateRef = useRef<RemotePlayerStateSnapshot | null>(null);
   const remoteSyncRequestIdRef = useRef(0);
+  const remotePlaybackClockRef = useRef<RemotePlaybackClock | null>(null);
   const playbackResolutionRef = useRef<PlaybackResolutionState | null>(null);
   const renderCountRef = useRef(0);
   const [locale, setLocale] = useState<Locale>(() => getInitialLocale());
@@ -361,71 +353,6 @@ function App() {
     }
   }, [audioSourceKey, isPlaying]);
 
-  useEffect(() => {
-    if (!isTauriRuntime || !isPlaying || !audioSourceKey) {
-      if (!isBrowserBackendRuntime) {
-        audioAnalysisPacketRef.current = null;
-      }
-      return;
-    }
-
-    const audio = audioRef.current;
-    if (!audio) {
-      audioAnalysisPacketRef.current = null;
-      return;
-    }
-
-    try {
-      const playbackNode = getAudioVisualizerNode(audio);
-      if (!playbackNode) {
-        audioAnalysisPacketRef.current = null;
-        return;
-      }
-
-      if (playbackNode.context.state === "suspended") {
-        void playbackNode.context.resume();
-      }
-
-      let samplesSincePacket = 0;
-      const sampledFrame: number[] = [];
-      const frameBuffer: Array<{ timecode: number; values: number[] }> = [];
-      const sample = () => {
-        sampleAudioAnalysis(playbackNode.analyser, audioAnalysisBucketCount, sampledFrame);
-        frameBuffer.push({
-          timecode: getRoundedAudioAnalysisTimecode(audio.currentTime),
-          values: sampledFrame.slice(),
-        });
-        if (frameBuffer.length > audioAnalysisFrameCount) {
-          frameBuffer.splice(0, frameBuffer.length - audioAnalysisFrameCount);
-        }
-        samplesSincePacket += 1;
-
-        if (
-          frameBuffer.length >= audioAnalysisFrameCount &&
-          samplesSincePacket * audioAnalysisSampleIntervalMs >= audioAnalysisPacketIntervalMs
-        ) {
-          const firstFrame = frameBuffer[0];
-          audioAnalysisPacketRef.current = {
-            duration: audioAnalysisFrameCount * audioAnalysisSampleIntervalMs,
-            frameTimecodes: frameBuffer.map((entry) => entry.timecode),
-            frames: frameBuffer.map((entry) => entry.values.slice()),
-            currentTimeAtReceived: audio.currentTime,
-            receivedAt: performance.now(),
-            startTime: firstFrame?.timecode ?? getRoundedAudioAnalysisTimecode(audio.currentTime),
-          };
-          samplesSincePacket = 0;
-        }
-      };
-
-      sample();
-      const timer = window.setInterval(sample, audioAnalysisSampleIntervalMs);
-      return () => window.clearInterval(timer);
-    } catch {
-      audioAnalysisPacketRef.current = null;
-      return;
-    }
-  }, [audioSourceKey, isPlaying, isTauriRuntime]);
-
   function clearAudioAnalysisPacket() {
     audioAnalysisPacketRef.current = null;
   }
@@ -583,7 +510,45 @@ function App() {
     return numbers.length === value.length ? numbers : null;
   }
 
-  function applyRemotePlayerState(state: RemotePlayerState) {
+  function applyRemotePlayerState(
+    state: RemotePlayerState,
+    timing: { receivedAtMs: number; sentAtMs: number | null } = { receivedAtMs: Date.now(), sentAtMs: null },
+  ) {
+    const now = performance.now();
+    const previousClock = remotePlaybackClockRef.current;
+    const previousRemoteState = lastRemotePlayerStateRef.current;
+    const transitDelaySeconds =
+      state.isPlaying && timing.sentAtMs !== null
+        ? Math.max(
+          0,
+          Math.min(
+            remotePlayerStateTransitDelayMaxSeconds,
+            (timing.receivedAtMs - timing.sentAtMs) / 1000,
+          ),
+        )
+        : 0;
+    const correctedStateTime = state.currentTime + transitDelaySeconds;
+    const isSameTrack = previousClock?.trackId === state.currentTrackId;
+    const isRepeatedRemoteTime =
+      previousRemoteState?.trackId === state.currentTrackId &&
+      previousRemoteState.isPlaying === state.isPlaying &&
+      Math.abs(previousRemoteState.currentTime - state.currentTime) < 0.001;
+    const estimatedTime = estimateRemotePlaybackTime(previousClock);
+    const shouldKeepEstimatedTime = Boolean(isSameTrack && previousClock?.isPlaying && state.isPlaying) && (
+      Math.abs(correctedStateTime - estimatedTime) < remotePlaybackClockSnapThresholdSeconds ||
+      (isRepeatedRemoteTime && correctedStateTime < estimatedTime - staleRemotePlayerStateToleranceSeconds)
+    );
+    const syncedCurrentTime = shouldKeepEstimatedTime ? estimatedTime : correctedStateTime;
+
+    if (previousClock?.trackId !== state.currentTrackId) {
+      audioAnalysisPacketRef.current = null;
+      loadedRemoteAudioAnalysisTrackIdRef.current = null;
+    }
+    lastRemotePlayerStateRef.current = {
+      currentTime: state.currentTime,
+      isPlaying: state.isPlaying,
+      trackId: state.currentTrackId,
+    };
     setPlaybackAlbumId(state.playbackAlbumId);
     const syncedTrack = findTrackById(state.currentTrackId);
     setCurrentTrack(syncedTrack);
@@ -593,25 +558,16 @@ function App() {
     setIsPlaying(state.isPlaying);
     setIsShuffle(state.isShuffle);
     setRepeatMode(isRepeatMode(state.repeatMode) ? state.repeatMode : "off");
-    if (state.audioAnalysisFrames?.length) {
-      const duration = state.audioAnalysisDuration ?? audioAnalysisFrameCount * audioAnalysisSampleIntervalMs;
-      const startTime = state.audioAnalysisStartTime ?? Math.max(0, state.currentTime - duration / 1000);
-      const frameTimecodes = state.audioAnalysisFrameTimecodes?.length === state.audioAnalysisFrames.length
-        ? state.audioAnalysisFrameTimecodes
-        : getAudioAnalysisTimecodes(state.audioAnalysisFrames.length, startTime);
-      const receivedAtAgeMs = state.audioAnalysisReceivedAtAgeMs ?? 0;
-      audioAnalysisPacketRef.current = mergeAudioAnalysisPacket(audioAnalysisPacketRef.current, {
-        duration,
-        frameTimecodes,
-        frames: state.audioAnalysisFrames,
-        currentTimeAtReceived: state.audioAnalysisCurrentTimeAtReceived ?? state.currentTime,
-        receivedAt: performance.now() - Math.max(0, receivedAtAgeMs),
-        startTime: frameTimecodes[0] ?? startTime,
-      });
-    } else {
+    remotePlaybackClockRef.current = {
+      currentTime: syncedCurrentTime,
+      isPlaying: state.isPlaying,
+      receivedAt: now,
+      trackId: state.currentTrackId,
+    };
+    if (!state.currentTrackId || !state.isPlaying) {
       audioAnalysisPacketRef.current = null;
     }
-    playerBarRef.current?.seekTo(state.currentTime, "remote-sync");
+    playerBarRef.current?.seekTo(syncedCurrentTime, "remote-sync");
     setVolume(state.volume, "remote-sync");
   }
 
@@ -1427,8 +1383,6 @@ function App() {
   });
 
   const publishCurrentRemotePlayerState = useEffectEvent(() => {
-    const audioAnalysisPacket = audioAnalysisPacketRef.current;
-    const now = performance.now();
     const state: RemotePlayerState = {
       currentTime: playerBarRef.current?.getCurrentTime() ?? 0,
       currentTrackId: currentTrack?.id ?? null,
@@ -1439,12 +1393,6 @@ function App() {
       repeatMode,
       selectedAlbumId,
       volume: playerBarRef.current?.getVolume() ?? 0.85,
-      audioAnalysisDuration: audioAnalysisPacket?.duration ?? null,
-      audioAnalysisCurrentTimeAtReceived: audioAnalysisPacket?.currentTimeAtReceived ?? null,
-      audioAnalysisFrameTimecodes: audioAnalysisPacket?.frameTimecodes ?? null,
-      audioAnalysisFrames: audioAnalysisPacket?.frames ?? null,
-      audioAnalysisReceivedAtAgeMs: audioAnalysisPacket ? Math.max(0, now - audioAnalysisPacket.receivedAt) : null,
-      audioAnalysisStartTime: audioAnalysisPacket?.startTime ?? null,
     };
     void publishRemotePlayerState(state).catch(() => {
       // State publication is best-effort; playback should not be interrupted.
@@ -1455,12 +1403,35 @@ function App() {
     const requestId = remoteSyncRequestIdRef.current + 1;
     remoteSyncRequestIdRef.current = requestId;
     void getRemotePlayerState()
-      .then((state) => {
+      .then(({ receivedAtMs, sentAtMs, state }) => {
         if (requestId !== remoteSyncRequestIdRef.current) return;
-        if (state) applyRemotePlayerState(state);
+        if (state) applyRemotePlayerState(state, { receivedAtMs, sentAtMs });
       })
       .catch((error: unknown) => {
         if (requestId === remoteSyncRequestIdRef.current) setPlaybackError(String(error));
+      });
+  });
+
+  const loadRemoteTrackAnalysis = useEffectEvent((track: Track) => {
+    const clock = remotePlaybackClockRef.current;
+    if (clock?.trackId !== track.id) return;
+    if (loadedRemoteAudioAnalysisTrackIdRef.current === track.id) return;
+
+    loadedRemoteAudioAnalysisTrackIdRef.current = track.id;
+    const duration = Math.max(
+      remoteAudioAnalysisFallbackDurationSeconds,
+      (track.durationSeconds ?? 0) + remoteAudioAnalysisDurationPaddingSeconds,
+    );
+
+    void getRemoteTrackAnalysisSegment(track.id, 0, duration)
+      .then((segment) => {
+        if (segment.trackId !== remotePlaybackClockRef.current?.trackId) return;
+        const nextPacket = makeAudioAnalysisPacketFromSegment(segment, estimateRemotePlaybackTime(remotePlaybackClockRef.current));
+        if (nextPacket) audioAnalysisPacketRef.current = nextPacket;
+      })
+      .catch(() => {
+        if (loadedRemoteAudioAnalysisTrackIdRef.current === track.id) loadedRemoteAudioAnalysisTrackIdRef.current = null;
+        // Missing analysis is allowed while the desktop app is still decoding the file or a format is unsupported.
       });
   });
 
@@ -1498,6 +1469,32 @@ function App() {
     const timer = window.setInterval(() => syncRemotePlayerState(), remotePlayerStateSyncIntervalMs);
     return () => window.clearInterval(timer);
   }, []);
+
+  useEffect(() => {
+    if (!isBrowserBackendRuntime) return;
+    if (!currentTrack || !isPlaying) {
+      audioAnalysisPacketRef.current = null;
+      loadedRemoteAudioAnalysisTrackIdRef.current = null;
+      return;
+    }
+
+    loadRemoteTrackAnalysis(currentTrack);
+  }, [currentTrack?.id, isPlaying]);
+
+  useEffect(() => {
+    if (!isMockDataRuntime || !isPlaying || !currentTrack) {
+      if (isMockDataRuntime) audioAnalysisPacketRef.current = null;
+      return;
+    }
+
+    const duration = Math.max(
+      remoteAudioAnalysisFallbackDurationSeconds,
+      (currentTrack.durationSeconds ?? 0) + remoteAudioAnalysisDurationPaddingSeconds,
+    );
+    const segment = getMockAudioAnalysisSegment(currentTrack.id, 0, duration);
+    const nextPacket = makeAudioAnalysisPacketFromSegment(segment, playerBarRef.current?.getCurrentTime() ?? 0);
+    audioAnalysisPacketRef.current = nextPacket;
+  }, [currentTrack?.id, isPlaying]);
 
   useEffect(() => {
     if (!isBrowserBackendRuntime) return;
@@ -1676,7 +1673,8 @@ function App() {
             onPreviousTrack={playPreviousTrack}
             onQueueTrackPlay={playQueuedTrack}
             onTogglePlayback={togglePlayback}
-            preferRemoteAudioAnalysis={isBrowserBackendRuntime}
+            preferRemoteAudioAnalysis={isBrowserBackendRuntime || isMockDataRuntime}
+            remotePlaybackClockRef={remotePlaybackClockRef}
             t={t}
           />
         </Suspense>

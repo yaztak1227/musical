@@ -201,6 +201,21 @@ pub fn load_track_lyrics(app: &AppHandle, track_id: i64) -> Result<Option<String
         .ok_or_else(|| format!("library.error.trackNotFound\t{track_id}"))
 }
 
+pub fn load_track_file_path(app: &AppHandle, track_id: i64) -> Result<String, String> {
+    let database_path = app_database_path(app)?;
+    let connection = open_database(&database_path)?;
+
+    connection
+        .query_row(
+            "SELECT file_path FROM tracks WHERE id = ?1",
+            [track_id],
+            |row| row.get::<_, String>(0),
+        )
+        .optional()
+        .map_err(to_error_string)?
+        .ok_or_else(|| format!("library.error.trackNotFound\t{track_id}"))
+}
+
 pub fn scan_folder(app: &AppHandle, folder_path: &str) -> Result<ScanSummary, String> {
     let canonical_root = fs::canonicalize(folder_path)
         .map_err(|error| format!("library.error.folderOpen\t{folder_path}\t{error}"))?;

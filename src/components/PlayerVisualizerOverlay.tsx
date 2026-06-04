@@ -17,6 +17,13 @@ type RemoteAudioAnalysisPacket = {
   startTime: number;
 };
 
+type RemotePlaybackClock = {
+  currentTime: number;
+  isPlaying: boolean;
+  receivedAt: number;
+  trackId: number | null;
+};
+
 type PlayerVisualizerOverlayProps = {
   audioAnalysisPacketRef: RefObject<RemoteAudioAnalysisPacket | null>;
   audioRef: RefObject<HTMLAudioElement | null>;
@@ -29,13 +36,14 @@ type PlayerVisualizerOverlayProps = {
   onQueueTrackPlay: (track: Track) => void;
   onTogglePlayback: () => void;
   preferRemoteAudioAnalysis?: boolean;
+  remotePlaybackClockRef?: RefObject<RemotePlaybackClock | null>;
   queueTracks: Track[];
   t: TFunction;
 };
 
 const visualizerCanvasMaxScale = 1.35;
 const remoteVisualizerCanvasMaxScale = 1;
-const remoteAnalysisDisplayLagSeconds = 0.28;
+const remoteAnalysisDisplayLagSeconds = 1.15;
 
 function drawIdleSpectrum(context: CanvasRenderingContext2D, width: number, height: number) {
   const barCount = 36;
@@ -138,7 +146,18 @@ function copyAnalysisFrame(source: number[], target: Uint8Array) {
   }
 }
 
-function copyRemoteAnalysisFrame(packet: RemoteAudioAnalysisPacket, time: number, target: Uint8Array) {
+function estimateRemotePlaybackTime(clock: RemotePlaybackClock | null) {
+  if (!clock) return null;
+  const elapsed = clock.isPlaying ? Math.max(0, performance.now() - clock.receivedAt) / 1000 : 0;
+  return Math.max(0, clock.currentTime + elapsed);
+}
+
+function copyRemoteAnalysisFrame(
+  packet: RemoteAudioAnalysisPacket,
+  time: number,
+  target: Uint8Array,
+  playbackTime: number | null,
+) {
   const { frames } = packet;
   const frameTimecodes = packet.frameTimecodes ?? [];
   const frameCount = frames.length;
@@ -148,7 +167,8 @@ function copyRemoteAnalysisFrame(packet: RemoteAudioAnalysisPacket, time: number
   }
 
   const currentTime =
-    packet.currentTimeAtReceived + Math.max(0, time - packet.receivedAt) / 1000 - remoteAnalysisDisplayLagSeconds;
+    (playbackTime ?? packet.currentTimeAtReceived + Math.max(0, time - packet.receivedAt) / 1000) -
+    remoteAnalysisDisplayLagSeconds;
   let firstFrameIndex = 0;
   let secondFrameIndex = 0;
   let blend = 0;
@@ -346,6 +366,7 @@ export function PlayerVisualizerOverlay({
   onQueueTrackPlay,
   onTogglePlayback,
   preferRemoteAudioAnalysis = false,
+  remotePlaybackClockRef,
   queueTracks,
   t,
 }: PlayerVisualizerOverlayProps) {
@@ -459,7 +480,12 @@ export function PlayerVisualizerOverlay({
       const analyser = analyserRef.current;
       const currentAudioAnalysisPacket = audioAnalysisPacketRef.current;
       if (currentAudioAnalysisPacket?.frames.length) {
-        copyRemoteAnalysisFrame(currentAudioAnalysisPacket, time, frequencyValues);
+        copyRemoteAnalysisFrame(
+          currentAudioAnalysisPacket,
+          time,
+          frequencyValues,
+          estimateRemotePlaybackTime(remotePlaybackClockRef?.current ?? null),
+        );
       } else if (analyser) {
         analyser.getByteFrequencyData(frequencyValues);
       } else if (currentAudioAnalysisPacket?.frames[0]?.length) {
@@ -489,7 +515,7 @@ export function PlayerVisualizerOverlay({
       window.cancelAnimationFrame(animationFrame);
       resizeObserver.disconnect();
     };
-  }, [audioAnalysisPacketRef, isVisualizerLive, mode, preferRemoteAudioAnalysis]);
+  }, [audioAnalysisPacketRef, isVisualizerLive, mode, preferRemoteAudioAnalysis, remotePlaybackClockRef]);
 
   return (
     <section aria-label={t("player.visualizerLabel")} aria-modal="true" className="player-visualizer-overlay" role="dialog" style={overlayStyle}>

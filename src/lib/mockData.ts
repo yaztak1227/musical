@@ -1,5 +1,8 @@
 import { type Album } from "../types/audio";
 
+const mockAudioAnalysisBucketCount = 256;
+const mockAudioAnalysisFrameIntervalMs = 33;
+
 const scrollTestAlbums: Album[] = [
   {
     id: 4,
@@ -172,3 +175,43 @@ export const mockAlbums: Album[] = [
   },
   ...scrollTestAlbums,
 ];
+
+export type MockAudioAnalysisSegment = {
+  frameIntervalMs: number;
+  frames: Array<{ timecode: number; values: number[] }>;
+  trackId: number;
+};
+
+export function getMockAudioAnalysisSegment(trackId: number, from: number, duration: number): MockAudioAnalysisSegment {
+  const startTime = Math.max(0, from);
+  const frameIntervalSeconds = mockAudioAnalysisFrameIntervalMs / 1000;
+  const frameCount = Math.max(1, Math.ceil(Math.max(0.25, duration) / frameIntervalSeconds));
+  const trackSeed = (trackId % 997) / 997;
+
+  return {
+    frameIntervalMs: mockAudioAnalysisFrameIntervalMs,
+    frames: Array.from({ length: frameCount }, (_, frameIndex) => {
+      const timecode = startTime + frameIndex * frameIntervalSeconds;
+      return {
+        timecode,
+        values: makeMockAudioAnalysisValues(trackSeed, timecode),
+      };
+    }),
+    trackId,
+  };
+}
+
+function makeMockAudioAnalysisValues(trackSeed: number, timecode: number) {
+  const beat = (Math.sin(timecode * 6.1 + trackSeed * 4.7) + 1) / 2;
+  const pulse = Math.pow(beat, 2.8);
+
+  return Array.from({ length: mockAudioAnalysisBucketCount }, (_, index) => {
+    const band = index / Math.max(1, mockAudioAnalysisBucketCount - 1);
+    const bass = Math.max(0, 1 - band * 3.3) * (96 + pulse * 118);
+    const mid = Math.max(0, 1 - Math.abs(band - 0.34) * 4.4) * (52 + Math.sin(timecode * 3.2 + band * 18) * 22);
+    const high = Math.max(0, 1 - Math.abs(band - 0.74) * 5.2) * (34 + Math.sin(timecode * 8.4 + trackSeed * 9 + band * 28) * 26);
+    const shimmer = (Math.sin(timecode * (2.4 + band * 4.2) + trackSeed * 18 + index * 0.11) + 1) * 12;
+
+    return Math.max(0, Math.min(255, Math.round(bass + mid + high + shimmer)));
+  });
+}

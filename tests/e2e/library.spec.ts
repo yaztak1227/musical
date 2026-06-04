@@ -11,6 +11,27 @@ async function playTrackFromTrackTable(page: Page, trackTitle: string) {
   await page.locator(".album-list-table.tracks .album-table-row").filter({ hasText: trackTitle }).getByRole("button", { name: "Play" }).click();
 }
 
+async function visualizerCanvasSignature(page: Page) {
+  return page.locator(".visualizer-canvas").evaluate((canvasElement) => {
+    const canvas = canvasElement as HTMLCanvasElement;
+    const context = canvas.getContext("2d");
+    if (!context || canvas.width === 0 || canvas.height === 0) return { changedPixels: 0, hash: 0 };
+
+    const image = context.getImageData(0, 0, canvas.width, canvas.height).data;
+    let hash = 0;
+    let changedPixels = 0;
+    const stride = Math.max(4, Math.floor(image.length / 1800 / 4) * 4);
+
+    for (let index = 0; index < image.length; index += stride) {
+      const alpha = image[index + 3] ?? 0;
+      if (alpha > 0) changedPixels += 1;
+      hash = (hash * 31 + (image[index] ?? 0) * 3 + (image[index + 1] ?? 0) * 5 + (image[index + 2] ?? 0) * 7 + alpha) >>> 0;
+    }
+
+    return { changedPixels, hash };
+  });
+}
+
 test("filters albums, selects a track, and opens track details", async ({ page }) => {
   await page.addInitScript(() => window.localStorage.setItem("musical.locale", "en"));
   await page.goto("/");
@@ -328,6 +349,25 @@ test("shows and toggles the player queue popover", async ({ page }) => {
   await expect(queuePopover).toBeVisible();
   await queueToggle.click();
   await expect(queuePopover).not.toBeVisible();
+});
+
+test("renders animated mock audio analysis in player mode", async ({ page }) => {
+  await page.addInitScript(() => window.localStorage.setItem("musical.locale", "en"));
+  await page.goto("/");
+
+  await page.getByLabel("Player").getByRole("button", { name: "Play", exact: true }).click();
+  await expect(page.getByLabel("Player").getByRole("button", { name: "Pause" })).toBeVisible();
+  await page.getByLabel("Player").getByRole("button", { name: "Player mode" }).click();
+  await expect(page.getByRole("dialog", { name: "Player visualizer" })).toBeVisible();
+  await expect(page.locator(".visualizer-canvas")).toBeVisible();
+
+  await page.waitForTimeout(450);
+  const firstSignature = await visualizerCanvasSignature(page);
+  await page.waitForTimeout(700);
+  const secondSignature = await visualizerCanvasSignature(page);
+
+  expect(firstSignature.changedPixels).toBeGreaterThan(0);
+  expect(secondSignature.hash).not.toBe(firstSignature.hash);
 });
 
 test("collapses and expands the mobile album panel with vertical swipes", async ({ page }) => {
