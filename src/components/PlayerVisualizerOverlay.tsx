@@ -43,7 +43,6 @@ type PlayerVisualizerOverlayProps = {
 
 const visualizerCanvasMaxScale = 1.35;
 const remoteVisualizerCanvasMaxScale = 1;
-const remoteAnalysisDisplayLagSeconds = 1.15;
 
 function drawIdleSpectrum(context: CanvasRenderingContext2D, width: number, height: number) {
   const barCount = 36;
@@ -166,9 +165,7 @@ function copyRemoteAnalysisFrame(
     return;
   }
 
-  const currentTime =
-    (playbackTime ?? packet.currentTimeAtReceived + Math.max(0, time - packet.receivedAt) / 1000) -
-    remoteAnalysisDisplayLagSeconds;
+  const currentTime = playbackTime ?? packet.currentTimeAtReceived + Math.max(0, time - packet.receivedAt) / 1000;
   let firstFrameIndex = 0;
   let secondFrameIndex = 0;
   let blend = 0;
