@@ -77,8 +77,10 @@ struct RemotePlayerState {
     current_time: f64,
     volume: f64,
     audio_analysis_duration: Option<f64>,
+    audio_analysis_current_time_at_received: Option<f64>,
     audio_analysis_frame_timecodes: Option<Vec<f64>>,
     audio_analysis_frames: Option<Vec<Vec<u8>>>,
+    audio_analysis_received_at_age_ms: Option<f64>,
     audio_analysis_start_time: Option<f64>,
 }
 

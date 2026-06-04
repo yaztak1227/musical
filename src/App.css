@@ -2698,7 +2698,7 @@ button.album-card {
 
 .visualizer-queue-row {
   display: grid;
-  grid-template-columns: 28px minmax(0, 1fr);
+  grid-template-columns: 28px minmax(0, 1fr) 34px;
   align-items: center;
   gap: 10px;
   min-width: 0;
@@ -2778,6 +2778,42 @@ button.album-card {
   color: rgba(255, 255, 255, 0.62);
 }
 
+.visualizer-queue-play-button.icon-button {
+  width: 30px;
+  height: 30px;
+  min-height: 30px;
+  border-color: rgba(255, 255, 255, 0.18);
+  background: rgba(255, 255, 255, 0.08);
+  color: rgba(255, 255, 255, 0.82);
+  opacity: 0;
+  transition:
+    background-color 180ms ease,
+    border-color 180ms ease,
+    color 180ms ease,
+    opacity 180ms ease;
+}
+
+.visualizer-queue-play-button.icon-button svg {
+  width: 14px;
+  height: 14px;
+}
+
+.visualizer-queue-row:hover .visualizer-queue-play-button.icon-button,
+.visualizer-queue-row:focus-within .visualizer-queue-play-button.icon-button,
+.visualizer-queue-panel:focus-within .visualizer-queue-play-button.icon-button {
+  opacity: 1;
+}
+
+.visualizer-queue-play-button.icon-button:hover {
+  border-color: rgba(255, 255, 255, 0.42);
+  background: rgba(255, 255, 255, 0.18);
+  color: white;
+}
+
+.visualizer-queue-play-button.icon-button:disabled {
+  opacity: 0.42;
+}
+
 @media (hover: none) {
   .visualizer-queue-panel {
     opacity: 0.86;
@@ -2789,6 +2825,10 @@ button.album-card {
 
   .visualizer-queue-row.current {
     opacity: 0.9;
+  }
+
+  .visualizer-queue-play-button.icon-button {
+    opacity: 0.78;
   }
 }
 

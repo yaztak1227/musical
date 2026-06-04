@@ -26,6 +26,7 @@ type PlayerVisualizerOverlayProps = {
   onClose: () => void;
   onNextTrack: () => void;
   onPreviousTrack: () => void;
+  onQueueTrackPlay: (track: Track) => void;
   onTogglePlayback: () => void;
   preferRemoteAudioAnalysis?: boolean;
   queueTracks: Track[];
@@ -34,7 +35,7 @@ type PlayerVisualizerOverlayProps = {
 
 const visualizerCanvasMaxScale = 1.35;
 const remoteVisualizerCanvasMaxScale = 1;
-const remoteAnalysisDisplayOffsetSeconds = 0.1;
+const remoteAnalysisDisplayLagSeconds = 0.28;
 
 function drawIdleSpectrum(context: CanvasRenderingContext2D, width: number, height: number) {
   const barCount = 36;
@@ -147,7 +148,7 @@ function copyRemoteAnalysisFrame(packet: RemoteAudioAnalysisPacket, time: number
   }
 
   const currentTime =
-    packet.currentTimeAtReceived + Math.max(0, time - packet.receivedAt) / 1000 + remoteAnalysisDisplayOffsetSeconds;
+    packet.currentTimeAtReceived + Math.max(0, time - packet.receivedAt) / 1000 - remoteAnalysisDisplayLagSeconds;
   let firstFrameIndex = 0;
   let secondFrameIndex = 0;
   let blend = 0;
@@ -257,12 +258,16 @@ function drawSpectrum(
   width: number,
   height: number,
   time: number,
+  peakValues: Float32Array,
 ) {
   const barCount = 48;
   const gap = 5;
   const barWidth = Math.max(4, (width * 0.82) / barCount - gap);
   const startX = (width - (barWidth + gap) * barCount) / 2;
   const baseY = height * 0.72;
+  const capHeight = Math.max(2, Math.min(4, height * 0.005));
+  const capGap = Math.max(4, height * 0.01);
+  const peakDrop = height * 0.0022;
 
   context.shadowBlur = 0;
   for (let index = 0; index < barCount; index += 1) {
@@ -271,9 +276,18 @@ function drawSpectrum(
     const normalized = value / 255;
     const barHeight = normalized * height * 0.48;
     const hue = (index / barCount) * 210 + 168 + Math.sin(time * 0.0008) * 32;
+    const x = startX + index * (barWidth + gap);
+    const previousPeak = peakValues[index] ?? 0;
+    const nextPeak = Math.max(barHeight, Math.max(0, previousPeak - peakDrop));
+    peakValues[index] = nextPeak;
 
     context.fillStyle = `hsla(${hue}, 96%, ${58 + normalized * 18}%, ${0.52 + normalized * 0.42})`;
-    context.fillRect(startX + index * (barWidth + gap), baseY - barHeight, barWidth, barHeight);
+    context.fillRect(x, baseY - barHeight, barWidth, barHeight);
+
+    context.fillStyle = `hsla(${hue}, 96%, 78%, ${0.54 + Math.min(1, nextPeak / Math.max(1, height * 0.48)) * 0.32})`;
+    context.beginPath();
+    context.roundRect(x, baseY - nextPeak - capGap, barWidth, capHeight, 999);
+    context.fill();
   }
 }
 
@@ -329,6 +343,7 @@ export function PlayerVisualizerOverlay({
   onClose,
   onNextTrack,
   onPreviousTrack,
+  onQueueTrackPlay,
   onTogglePlayback,
   preferRemoteAudioAnalysis = false,
   queueTracks,
@@ -403,6 +418,7 @@ export function PlayerVisualizerOverlay({
     const frequencyValues = new Uint8Array(256);
     const smoothedFrequencyValues = new Uint8Array(256);
     const visualFrequencyValues = new Uint8Array(256);
+    const spectrumPeakValues = new Float32Array(48);
 
     const resizeObserver = new ResizeObserver(() => {
       rect = canvasElement.getBoundingClientRect();
@@ -461,7 +477,7 @@ export function PlayerVisualizerOverlay({
       } else if (mode === "circle") {
         drawCircle(drawingContext, drawableFrequencyValues, rect.width, rect.height, time);
       } else {
-        drawSpectrum(drawingContext, drawableFrequencyValues, rect.width, rect.height, time);
+        drawSpectrum(drawingContext, drawableFrequencyValues, rect.width, rect.height, time, spectrumPeakValues);
       }
 
       drawingContext.globalCompositeOperation = "source-over";
@@ -510,6 +526,20 @@ export function PlayerVisualizerOverlay({
                     <strong>{localizeLibraryText(track.title, t)}</strong>
                     <span>{localizeLibraryText(track.artist, t)}</span>
                   </span>
+                  <Button
+                    aria-label={t("player.play")}
+                    className="visualizer-queue-play-button icon-button musical-ripple-button"
+                    disabled={isCurrentTrack && isPlaying}
+                    onClick={() => {
+                      if (isCurrentTrack) onTogglePlayback();
+                      else onQueueTrackPlay(track);
+                    }}
+                    title={t("player.play")}
+                    type="button"
+                    variant="outline"
+                  >
+                    <Play />
+                  </Button>
                 </div>
               );
             })}

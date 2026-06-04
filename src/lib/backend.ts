@@ -23,8 +23,10 @@ export type RemotePlayerState = {
   currentTime: number;
   volume: number;
   audioAnalysisDuration?: number | null;
+  audioAnalysisCurrentTimeAtReceived?: number | null;
   audioAnalysisFrameTimecodes?: number[] | null;
   audioAnalysisFrames?: number[][] | null;
+  audioAnalysisReceivedAtAgeMs?: number | null;
   audioAnalysisStartTime?: number | null;
 };
 
