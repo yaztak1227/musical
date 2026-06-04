@@ -1,7 +1,8 @@
 import { type Album } from "../types/audio";
+import { audioAnalysisConfig } from "../config/appConfig";
 
-const mockAudioAnalysisBucketCount = 256;
-const mockAudioAnalysisFrameIntervalMs = 33;
+const mockAudioAnalysisBucketCount = audioAnalysisConfig.bucketCount;
+const mockAudioAnalysisFrameIntervalMs = audioAnalysisConfig.sampleIntervalMs;
 
 const scrollTestAlbums: Album[] = [
   {

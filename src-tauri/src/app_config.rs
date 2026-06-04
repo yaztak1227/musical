@@ -1,0 +1,14 @@
+pub const LOCAL_SERVER_ADDR: &str = "0.0.0.0:1422";
+pub const LOCAL_SERVER_PORT: u16 = 1422;
+pub const MAX_REMOTE_COMMANDS: usize = 200;
+pub const RESPONSE_WRITE_CHUNK_SIZE: usize = 16 * 1024;
+
+pub const AUDIO_ANALYSIS_BUCKETS: usize = 256;
+pub const AUDIO_ANALYSIS_CACHE_DATABASE_NAME: &str = "audio-analysis-cache.sqlite";
+pub const AUDIO_ANALYSIS_CACHE_TTL_SECONDS: i64 = 24 * 60 * 60;
+pub const AUDIO_ANALYSIS_CACHE_VERSION: i64 = 2;
+pub const AUDIO_ANALYSIS_FRAME_INTERVAL_MS: f64 = 33.0;
+pub const AUDIO_ANALYSER_MAX_DECIBELS: f32 = -18.0;
+pub const AUDIO_ANALYSER_MIN_DECIBELS: f32 = -88.0;
+pub const AUDIO_ANALYSER_SMOOTHING_TIME_CONSTANT: f32 = 0.58;
+pub const AUDIO_ANALYSIS_FFT_SIZE: usize = 512;

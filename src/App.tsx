@@ -68,18 +68,33 @@ import { LibrarySettingsDialog } from "./components/LibrarySettingsDialog";
 import { PlayerBar, type PlayerBarHandle } from "./components/PlayerBar";
 import { SelectedAlbumPanel } from "./components/SelectedAlbumPanel";
 import { TrackDetailDialog } from "./components/TrackDetailDialog";
+import {
+  appInteractionConfig,
+  audioAnalysisConfig,
+  remoteAudioAnalysisConfig,
+  remotePlaybackConfig,
+} from "./config/appConfig";
 
-const albumPanelSwipeThreshold = 36;
-const albumPanelDragTolerance = 8;
-const audioAnalysisSampleIntervalMs = 33;
-const remoteAudioAnalysisFallbackDurationSeconds = 15 * 60;
-const remoteAudioAnalysisDurationPaddingSeconds = 2;
-const remotePlayerStateSyncIntervalMs = 250;
-const remotePlayerStateTransitDelayMaxSeconds = 5;
-const staleRemotePlayerStateToleranceSeconds = 0.05;
-const remotePlaybackClockSnapThresholdSeconds = 0.45;
-const trackLongPressDelayMs = 520;
-const trackLongPressMoveTolerance = 10;
+const {
+  albumPanelDragTolerance,
+  albumPanelSwipeThreshold,
+  trackLongPressDelayMs,
+  trackLongPressMoveTolerance,
+} = appInteractionConfig;
+const audioAnalysisSampleIntervalMs: number = audioAnalysisConfig.sampleIntervalMs;
+const {
+  chunkDurationSeconds: remoteAudioAnalysisChunkDurationSeconds,
+  durationPaddingSeconds: remoteAudioAnalysisDurationPaddingSeconds,
+  fallbackDurationSeconds: remoteAudioAnalysisFallbackDurationSeconds,
+} = remoteAudioAnalysisConfig;
+const {
+  clockSnapThresholdSeconds: remotePlaybackClockSnapThresholdSeconds,
+  libraryCommandPollIntervalMs,
+  playerCommandPollIntervalMs,
+  playerStateSyncIntervalMs: remotePlayerStateSyncIntervalMs,
+  stateTransitDelayMaxSeconds: remotePlayerStateTransitDelayMaxSeconds,
+  stalePlayerStateToleranceSeconds: staleRemotePlayerStateToleranceSeconds,
+} = remotePlaybackConfig;
 const PlayerVisualizerOverlay = lazy(() => import("./components/PlayerVisualizerOverlay"));
 
 type AlbumPanelDragStart = {
@@ -123,6 +138,16 @@ type RemotePlayerStateSnapshot = {
   trackId: number | null;
 };
 
+type RemoteAudioAnalysisLoadState = {
+  requestId: number;
+  trackId: number;
+};
+
+type RemoteAudioAnalysisFrameEntry = {
+  timecode: number;
+  values: number[];
+};
+
 function areNumberArraysEqual(first: number[] | null, second: number[] | null) {
   if (first === second) return true;
   if (!first || !second || first.length !== second.length) return false;
@@ -152,17 +177,53 @@ function makeAudioAnalysisPacketFromSegment(
   segment: RemoteAudioAnalysisSegment,
   currentTimeAtReceived: number,
 ) {
-  const frames = segment.frames;
+  return makeAudioAnalysisPacketFromFrames(
+    segment.trackId,
+    segment.frames,
+    segment.frameIntervalMs,
+    currentTimeAtReceived,
+  );
+}
+
+function makeAudioAnalysisPacketFromFrames(
+  _trackId: number,
+  frames: RemoteAudioAnalysisFrameEntry[],
+  frameIntervalMs: number,
+  currentTimeAtReceived: number,
+) {
   if (frames.length === 0) return null;
 
   return {
     currentTimeAtReceived,
-    duration: Math.max(audioAnalysisSampleIntervalMs, frames.length * segment.frameIntervalMs),
+    duration: Math.max(audioAnalysisSampleIntervalMs, frames.length * frameIntervalMs),
     frameTimecodes: frames.map((frame) => getRoundedAudioAnalysisTimecode(frame.timecode)),
     frames: frames.map((frame) => frame.values.slice()),
     receivedAt: performance.now(),
     startTime: getRoundedAudioAnalysisTimecode(frames[0]?.timecode ?? 0),
   } satisfies RemoteAudioAnalysisPacket;
+}
+
+function mergeRemoteAudioAnalysisFrames(
+  currentFrames: RemoteAudioAnalysisFrameEntry[],
+  nextFrames: RemoteAudioAnalysisFrameEntry[],
+) {
+  const framesByTick = new Map<number, RemoteAudioAnalysisFrameEntry>();
+
+  for (const frame of currentFrames) {
+    framesByTick.set(getAudioAnalysisTick(frame.timecode), {
+      timecode: getRoundedAudioAnalysisTimecode(frame.timecode),
+      values: frame.values.slice(),
+    });
+  }
+
+  for (const frame of nextFrames) {
+    framesByTick.set(getAudioAnalysisTick(frame.timecode), {
+      timecode: getRoundedAudioAnalysisTimecode(frame.timecode),
+      values: frame.values.slice(),
+    });
+  }
+
+  return Array.from(framesByTick.values()).sort((first, second) => first.timecode - second.timecode);
 }
 
 function App() {
@@ -175,6 +236,8 @@ function App() {
   const suppressedTrackClickRef = useRef<SuppressedTrackClick | null>(null);
   const lastLibraryCommandIdRef = useRef(0);
   const lastRemoteCommandIdRef = useRef(0);
+  const remoteAudioAnalysisLoadStateRef = useRef<RemoteAudioAnalysisLoadState | null>(null);
+  const remoteAudioAnalysisPacketsByTrackRef = useRef(new Map<number, RemoteAudioAnalysisPacket>());
   const loadedRemoteAudioAnalysisTrackIdRef = useRef<number | null>(null);
   const lastRemotePlayerStateRef = useRef<RemotePlayerStateSnapshot | null>(null);
   const remoteSyncRequestIdRef = useRef(0);
@@ -542,6 +605,7 @@ function App() {
 
     if (previousClock?.trackId !== state.currentTrackId) {
       audioAnalysisPacketRef.current = null;
+      remoteAudioAnalysisLoadStateRef.current = null;
       loadedRemoteAudioAnalysisTrackIdRef.current = null;
     }
     lastRemotePlayerStateRef.current = {
@@ -1415,24 +1479,86 @@ function App() {
   const loadRemoteTrackAnalysis = useEffectEvent((track: Track) => {
     const clock = remotePlaybackClockRef.current;
     if (clock?.trackId !== track.id) return;
-    if (loadedRemoteAudioAnalysisTrackIdRef.current === track.id) return;
 
-    loadedRemoteAudioAnalysisTrackIdRef.current = track.id;
+    const cachedPacket = remoteAudioAnalysisPacketsByTrackRef.current.get(track.id);
+    if (cachedPacket) {
+      audioAnalysisPacketRef.current = cachedPacket;
+      loadedRemoteAudioAnalysisTrackIdRef.current = track.id;
+      return;
+    }
+
+    if (remoteAudioAnalysisLoadStateRef.current?.trackId === track.id) return;
+
     const duration = Math.max(
       remoteAudioAnalysisFallbackDurationSeconds,
       (track.durationSeconds ?? 0) + remoteAudioAnalysisDurationPaddingSeconds,
     );
+    const requestId = (remoteAudioAnalysisLoadStateRef.current?.requestId ?? 0) + 1;
+    const chunkCount = Math.max(1, Math.ceil(duration / remoteAudioAnalysisChunkDurationSeconds));
+    remoteAudioAnalysisLoadStateRef.current = { requestId, trackId: track.id };
+    loadedRemoteAudioAnalysisTrackIdRef.current = null;
 
-    void getRemoteTrackAnalysisSegment(track.id, 0, duration)
-      .then((segment) => {
-        if (segment.trackId !== remotePlaybackClockRef.current?.trackId) return;
-        const nextPacket = makeAudioAnalysisPacketFromSegment(segment, estimateRemotePlaybackTime(remotePlaybackClockRef.current));
-        if (nextPacket) audioAnalysisPacketRef.current = nextPacket;
-      })
-      .catch(() => {
-        if (loadedRemoteAudioAnalysisTrackIdRef.current === track.id) loadedRemoteAudioAnalysisTrackIdRef.current = null;
-        // Missing analysis is allowed while the desktop app is still decoding the file or a format is unsupported.
-      });
+    void (async () => {
+      let frames: RemoteAudioAnalysisFrameEntry[] = [];
+      let frameIntervalMs = audioAnalysisSampleIntervalMs;
+
+      for (let chunkIndex = 0; chunkIndex < chunkCount; chunkIndex += 1) {
+        if (
+          remoteAudioAnalysisLoadStateRef.current?.requestId !== requestId ||
+          remotePlaybackClockRef.current?.trackId !== track.id
+        ) {
+          return;
+        }
+
+        const from = chunkIndex * remoteAudioAnalysisChunkDurationSeconds;
+        const chunkDuration = Math.min(remoteAudioAnalysisChunkDurationSeconds, duration - from);
+        const segment = await getRemoteTrackAnalysisSegment(track.id, from, chunkDuration, duration);
+        if (
+          segment.trackId !== track.id ||
+          remoteAudioAnalysisLoadStateRef.current?.requestId !== requestId ||
+          remotePlaybackClockRef.current?.trackId !== track.id
+        ) {
+          return;
+        }
+
+        frameIntervalMs = segment.frameIntervalMs;
+        frames = mergeRemoteAudioAnalysisFrames(frames, segment.frames);
+        const partialPacket = makeAudioAnalysisPacketFromFrames(
+          track.id,
+          frames,
+          frameIntervalMs,
+          estimateRemotePlaybackTime(remotePlaybackClockRef.current),
+        );
+        if (partialPacket) audioAnalysisPacketRef.current = partialPacket;
+
+        if (segment.isComplete) break;
+      }
+
+      if (
+        remoteAudioAnalysisLoadStateRef.current?.requestId !== requestId ||
+        remotePlaybackClockRef.current?.trackId !== track.id
+      ) {
+        return;
+      }
+
+      const completePacket = makeAudioAnalysisPacketFromFrames(
+        track.id,
+        frames,
+        frameIntervalMs,
+        estimateRemotePlaybackTime(remotePlaybackClockRef.current),
+      );
+      if (completePacket) {
+        remoteAudioAnalysisPacketsByTrackRef.current.set(track.id, completePacket);
+        audioAnalysisPacketRef.current = completePacket;
+        loadedRemoteAudioAnalysisTrackIdRef.current = track.id;
+      }
+      remoteAudioAnalysisLoadStateRef.current = null;
+    })().catch(() => {
+      if (remoteAudioAnalysisLoadStateRef.current?.requestId === requestId) {
+        remoteAudioAnalysisLoadStateRef.current = null;
+      }
+      // Partial browser analysis is intentionally not cached unless every chunk completes.
+    });
   });
 
   useEffect(() => {
@@ -1458,7 +1584,7 @@ function App() {
     };
 
     pollCommands();
-    const timer = window.setInterval(pollCommands, 250);
+    const timer = window.setInterval(pollCommands, playerCommandPollIntervalMs);
     return () => window.clearInterval(timer);
   }, []);
 
@@ -1474,6 +1600,7 @@ function App() {
     if (!isBrowserBackendRuntime) return;
     if (!currentTrack || !isPlaying) {
       audioAnalysisPacketRef.current = null;
+      remoteAudioAnalysisLoadStateRef.current = null;
       loadedRemoteAudioAnalysisTrackIdRef.current = null;
       return;
     }
@@ -1513,7 +1640,7 @@ function App() {
     };
 
     pollLibraryCommands();
-    const timer = window.setInterval(pollLibraryCommands, 1000);
+    const timer = window.setInterval(pollLibraryCommands, libraryCommandPollIntervalMs);
     return () => window.clearInterval(timer);
   }, []);
 

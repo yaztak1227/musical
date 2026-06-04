@@ -1,5 +1,8 @@
 use crate::{
-    audio_analysis::{self, TrackAnalysis},
+    app_config::{
+        LOCAL_SERVER_ADDR, LOCAL_SERVER_PORT, MAX_REMOTE_COMMANDS, RESPONSE_WRITE_CHUNK_SIZE,
+    },
+    audio_analysis,
     library::{self, AlbumTagUpdateRequest, TrackArtworkUpdateRequest, TrackTagUpdateRequest},
 };
 use include_dir::{include_dir, Dir};
@@ -14,15 +17,9 @@ use std::{
     path::Path,
     sync::{Arc, Mutex},
     thread,
-    time::{SystemTime, UNIX_EPOCH},
 };
 use tauri::AppHandle;
 
-const LOCAL_SERVER_ADDR: &str = "0.0.0.0:1422";
-const LOCAL_SERVER_PORT: u16 = 1422;
-const TRACK_ANALYSIS_MEMORY_CACHE_TTL_MS: u128 = 24 * 60 * 60 * 1000;
-const MAX_REMOTE_COMMANDS: usize = 200;
-const RESPONSE_WRITE_CHUNK_SIZE: usize = 16 * 1024;
 static FRONTEND_DIST: Dir<'_> = include_dir!("$CARGO_MANIFEST_DIR/../dist");
 
 #[derive(Debug, Deserialize)]
@@ -91,6 +88,7 @@ struct RemotePlayerStateBody {
 struct RemoteAudioAnalysisSegment {
     frame_interval_ms: f64,
     frames: Vec<audio_analysis::AudioAnalysisFrame>,
+    is_complete: bool,
     track_id: i64,
 }
 
@@ -122,13 +120,15 @@ struct RemoteServerState {
     player_state: Option<RemotePlayerState>,
     player_state_sent_at_ms: Option<f64>,
     commands: VecDeque<QueuedRemotePlayerCommand>,
-    track_analysis_by_track: HashMap<i64, CachedTrackAnalysis>,
+    track_analysis_builds: HashMap<i64, TrackAnalysisBuild>,
 }
 
-#[derive(Clone)]
-struct CachedTrackAnalysis {
-    analysis: TrackAnalysis,
-    cached_at_ms: u128,
+struct TrackAnalysisBuild {
+    covered_ranges: Vec<(f64, f64)>,
+    expected_duration: f64,
+    file_path: String,
+    frame_interval_ms: f64,
+    frames_by_tick: HashMap<i64, audio_analysis::AudioAnalysisFrame>,
 }
 
 fn apply_remote_command_to_player_state(
@@ -492,49 +492,139 @@ fn get_track_analysis_segment(
         .filter(|value| value.is_finite())
         .unwrap_or(4.0)
         .clamp(0.25, 60.0 * 60.0 * 4.0);
+    let total_duration = query_param(&request.query, "totalDuration")
+        .and_then(|value| value.parse::<f64>().ok())
+        .filter(|value| value.is_finite())
+        .unwrap_or(duration)
+        .clamp(duration, 60.0 * 60.0 * 4.0);
     let to = from + duration;
 
-    let now_ms = unix_timestamp_millis()?;
-    let cached_analysis = remote_state
-        .lock()
-        .map_err(|error| error.to_string())?
-        .track_analysis_by_track
-        .get(&track_id)
-        .filter(|entry| {
-            now_ms.saturating_sub(entry.cached_at_ms) < TRACK_ANALYSIS_MEMORY_CACHE_TTL_MS
-        })
-        .map(|entry| entry.analysis.clone());
-    let analysis = match cached_analysis {
-        Some(analysis) => analysis,
-        None => {
-            let file_path = library::load_track_file_path(app, track_id)?;
-            let analysis = audio_analysis::get_or_analyze_track_file(app, track_id, &file_path)?;
-            remote_state
-                .lock()
-                .map_err(|error| error.to_string())?
-                .track_analysis_by_track
-                .insert(
-                    track_id,
-                    CachedTrackAnalysis {
-                        analysis: analysis.clone(),
-                        cached_at_ms: now_ms,
-                    },
-                );
-            analysis
-        }
+    let file_path = library::load_track_file_path(app, track_id)?;
+    let loaded_analysis =
+        audio_analysis::get_or_analyze_track_segment(app, track_id, &file_path, from, duration)?;
+    let frames = if loaded_analysis.is_complete {
+        loaded_analysis.analysis.frames.clone()
+    } else {
+        loaded_analysis
+            .analysis
+            .frames
+            .iter()
+            .filter(|frame| frame.timecode >= from && frame.timecode <= to)
+            .cloned()
+            .collect::<Vec<_>>()
     };
-    let frames = analysis
-        .frames
-        .iter()
-        .filter(|frame| frame.timecode >= from && frame.timecode <= to)
-        .cloned()
-        .collect::<Vec<_>>();
+    if !loaded_analysis.is_complete {
+        let complete_analysis = collect_track_analysis_chunk(
+            remote_state,
+            track_id,
+            &file_path,
+            loaded_analysis.analysis.frame_interval_ms,
+            &frames,
+            from,
+            to,
+            total_duration,
+        )?;
+        if let Some(analysis) = complete_analysis {
+            audio_analysis::save_track_analysis_cache(app, track_id, &file_path, &analysis)?;
+        }
+    }
 
     Ok(RemoteAudioAnalysisSegment {
-        frame_interval_ms: analysis.frame_interval_ms,
+        frame_interval_ms: loaded_analysis.analysis.frame_interval_ms,
         frames,
+        is_complete: loaded_analysis.is_complete,
         track_id,
     })
+}
+
+fn collect_track_analysis_chunk(
+    remote_state: &SharedRemoteServerState,
+    track_id: i64,
+    file_path: &str,
+    frame_interval_ms: f64,
+    frames: &[audio_analysis::AudioAnalysisFrame],
+    from: f64,
+    to: f64,
+    total_duration: f64,
+) -> Result<Option<audio_analysis::TrackAnalysis>, String> {
+    let mut state = remote_state.lock().map_err(|error| error.to_string())?;
+    let build = state
+        .track_analysis_builds
+        .entry(track_id)
+        .or_insert_with(|| TrackAnalysisBuild {
+            covered_ranges: Vec::new(),
+            expected_duration: total_duration,
+            file_path: file_path.to_owned(),
+            frame_interval_ms,
+            frames_by_tick: HashMap::new(),
+        });
+
+    if build.file_path != file_path {
+        *build = TrackAnalysisBuild {
+            covered_ranges: Vec::new(),
+            expected_duration: total_duration,
+            file_path: file_path.to_owned(),
+            frame_interval_ms,
+            frames_by_tick: HashMap::new(),
+        };
+    }
+
+    build.expected_duration = build.expected_duration.max(total_duration);
+    build.frame_interval_ms = frame_interval_ms;
+    for frame in frames {
+        let tick = ((frame.timecode * 1000.0) / frame_interval_ms).round() as i64;
+        build.frames_by_tick.insert(tick, frame.clone());
+    }
+    build.covered_ranges.push((from.max(0.0), to.max(from)));
+    merge_covered_ranges(&mut build.covered_ranges);
+
+    if !ranges_cover_track(
+        &build.covered_ranges,
+        build.expected_duration,
+        frame_interval_ms,
+    ) {
+        return Ok(None);
+    }
+
+    let mut frames = build
+        .frames_by_tick
+        .values()
+        .cloned()
+        .collect::<Vec<audio_analysis::AudioAnalysisFrame>>();
+    frames.sort_by(|first, second| first.timecode.total_cmp(&second.timecode));
+    let analysis = audio_analysis::TrackAnalysis {
+        frame_interval_ms: build.frame_interval_ms,
+        frames,
+    };
+    state.track_analysis_builds.remove(&track_id);
+    Ok(Some(analysis))
+}
+
+fn merge_covered_ranges(ranges: &mut Vec<(f64, f64)>) {
+    ranges.sort_by(|first, second| first.0.total_cmp(&second.0));
+    let mut merged: Vec<(f64, f64)> = Vec::with_capacity(ranges.len());
+
+    for (start, end) in ranges.drain(..) {
+        let Some((_, last_end)) = merged.last_mut() else {
+            merged.push((start, end));
+            continue;
+        };
+
+        if start <= *last_end + 0.1 {
+            *last_end = last_end.max(end);
+        } else {
+            merged.push((start, end));
+        }
+    }
+
+    *ranges = merged;
+}
+
+fn ranges_cover_track(ranges: &[(f64, f64)], total_duration: f64, frame_interval_ms: f64) -> bool {
+    let tolerance = (frame_interval_ms / 1000.0).max(0.1);
+    ranges
+        .first()
+        .is_some_and(|(start, end)| *start <= tolerance && *end + tolerance >= total_duration)
 }
 
 fn lan_ipv4_address() -> Option<String> {
@@ -543,13 +633,6 @@ fn lan_ipv4_address() -> Option<String> {
     let address = socket.local_addr().ok()?;
     let ip = address.ip();
     (!ip.is_loopback()).then(|| ip.to_string())
-}
-
-fn unix_timestamp_millis() -> Result<u128, String> {
-    Ok(SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map_err(|error| error.to_string())?
-        .as_millis())
 }
 
 fn parse_json<T: for<'de> Deserialize<'de>>(body: &[u8]) -> Result<T, String> {

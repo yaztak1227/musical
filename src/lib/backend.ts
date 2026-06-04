@@ -1,10 +1,11 @@
 import { convertFileSrc, invoke } from "@tauri-apps/api/core";
+import { localServerConfig } from "../config/appConfig";
 
 export const isTauriRuntime = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 export const isMockDataRuntime = import.meta.env.VITE_MOCK_DATA === "true";
 
 const localBrowserHosts = new Set(["localhost", "127.0.0.1", "::1"]);
-const localApiBaseUrl = "http://127.0.0.1:1422";
+const localApiBaseUrl = `http://${localServerConfig.host}:${localServerConfig.port}`;
 
 export const isLocalBrowserRuntime =
   typeof window !== "undefined" && !isTauriRuntime && localBrowserHosts.has(window.location.hostname);
@@ -32,6 +33,7 @@ export type RemoteAudioAnalysisSegmentFrame = {
 export type RemoteAudioAnalysisSegment = {
   frameIntervalMs: number;
   frames: RemoteAudioAnalysisSegmentFrame[];
+  isComplete?: boolean;
   trackId: number;
 };
 
@@ -128,12 +130,18 @@ export async function getRemotePlayerCommands(afterId: number) {
   );
 }
 
-export async function getRemoteTrackAnalysisSegment(trackId: number, from: number, duration: number) {
+export async function getRemoteTrackAnalysisSegment(
+  trackId: number,
+  from: number,
+  duration: number,
+  totalDuration?: number,
+) {
   const query = new URLSearchParams({
     duration: String(duration),
     from: String(from),
     trackId: String(trackId),
   });
+  if (totalDuration !== undefined) query.set("totalDuration", String(totalDuration));
   return localApiRequest<RemoteAudioAnalysisSegment>(`/api/track_analysis?${query.toString()}`);
 }
 
