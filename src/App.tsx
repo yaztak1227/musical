@@ -455,6 +455,7 @@ function App() {
     [detailAlbum?.artworkPath, detailAlbum?.coverUrl],
   );
   const detailLyrics = detailTrack ? trackLyricsById[detailTrack.id] : null;
+  const currentLyrics = currentTrack ? trackLyricsById[currentTrack.id] : null;
   const hasTrackTagChanges = detailTrack
     ? isTrackTagDraftChanged(trackTagDraft, detailTrack, detailAlbum)
     : false;
@@ -849,6 +850,11 @@ function App() {
       void loadTrackLyrics(detailTrack);
     }
   }
+
+  useEffect(() => {
+    if (!isPlayerVisualizerOpen || !currentTrack) return;
+    void loadTrackLyrics(currentTrack);
+  }, [currentTrack, isPlayerVisualizerOpen]);
 
   function closeTrackDetail() {
     if (isSavingTrackTags || isSavingArtwork) return;
@@ -1792,6 +1798,7 @@ function App() {
             audioRef={audioRef}
             audioAnalysisPacketRef={audioAnalysisPacketRef}
             currentAlbum={playbackAlbum}
+            currentLyrics={currentLyrics}
             currentTrack={currentTrack}
             isPlaying={isPlaying}
             queueTracks={queue}

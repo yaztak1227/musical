@@ -149,6 +149,7 @@ export const translationKeys = [
   "player.queue",
   "player.queueCount",
   "player.queueToggle",
+  "player.lyrics",
   "player.openVisualizer",
   "player.closeVisualizer",
   "player.visualizerLabel",

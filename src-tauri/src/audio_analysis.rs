@@ -69,6 +69,16 @@ pub fn get_or_analyze_track_segment(
     })
 }
 
+pub fn get_cached_track_analysis(
+    app: &AppHandle,
+    track_id: i64,
+    file_path: &str,
+) -> Result<Option<TrackAnalysis>, String> {
+    let cache_key = TrackAnalysisCacheKey::from_file(track_id, file_path)?;
+    let connection = open_cache_database(app)?;
+    load_cached_track_analysis(&connection, &cache_key)
+}
+
 pub fn analyze_track_file_segment(
     track_id: i64,
     file_path: &str,

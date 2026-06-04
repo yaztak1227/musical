@@ -142,6 +142,7 @@
   <message key="player.queue">Queue</message>
   <message key="player.queueCount">{count} tracks</message>
   <message key="player.queueToggle">Show or hide queue</message>
+  <message key="player.lyrics">Lyrics</message>
   <message key="player.openVisualizer">Player mode</message>
   <message key="player.closeVisualizer">Close player mode</message>
   <message key="player.visualizerLabel">Player visualizer</message>

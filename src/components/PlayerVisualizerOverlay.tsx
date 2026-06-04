@@ -5,6 +5,7 @@ import type { Album, Track } from "@/types/audio";
 import type { TFunction } from "@/types/app";
 import { getAudioVisualizerNode } from "@/lib/audioAnalysis";
 import { getArtworkSrc, localizeLibraryText } from "@/lib/libraryUtils";
+import { prepareMarquee } from "@/lib/marqueeUtils";
 
 type VisualizerMode = "wave" | "spectrum" | "circle";
 
@@ -28,6 +29,7 @@ type PlayerVisualizerOverlayProps = {
   audioAnalysisPacketRef: RefObject<RemoteAudioAnalysisPacket | null>;
   audioRef: RefObject<HTMLAudioElement | null>;
   currentAlbum: Album | null;
+  currentLyrics?: string | null;
   currentTrack: Track | null;
   isPlaying: boolean;
   onClose: () => void;
@@ -355,6 +357,7 @@ export function PlayerVisualizerOverlay({
   audioAnalysisPacketRef,
   audioRef,
   currentAlbum,
+  currentLyrics,
   currentTrack,
   isPlaying,
   onClose,
@@ -375,6 +378,7 @@ export function PlayerVisualizerOverlay({
   const trackTitle = currentTrack ? localizeLibraryText(currentTrack.title, t) : t("player.nothingSelected");
   const artist = currentTrack ? localizeLibraryText(currentTrack.artist, t) : t("player.pickPrompt");
   const artworkSrc = currentAlbum ? getArtworkSrc(currentAlbum) : "";
+  const lyricLines = currentLyrics ? currentLyrics.replace(/\r\n/g, "\n").split("\n") : [];
   const isVisualizerLive = isPlaying && (hasAudioAnalysis || preferRemoteAudioAnalysis || Boolean(audioAnalysisPacketRef.current?.frames.length));
   const overlayStyle = artworkSrc
     ? ({ "--visualizer-artwork": `url("${artworkSrc.replace(/"/g, '\\"')}")` } as CSSProperties)
@@ -526,12 +530,32 @@ export function PlayerVisualizerOverlay({
       <div className="visualizer-content">
         <div className="visualizer-primary">
           <header className="visualizer-header">
-            <div>
-              <p className="eyebrow">{albumTitle || t("player.nowPlaying")}</p>
-              <h2>{trackTitle}</h2>
-              <span>{artist}</span>
+            <div className="visualizer-now-playing" onMouseEnter={prepareMarquee}>
+              <div className="visualizer-track-artwork" aria-hidden="true">
+                {artworkSrc ? <img alt="" src={artworkSrc} /> : null}
+              </div>
+              <div className="visualizer-track-copy">
+                <p className="eyebrow">{albumTitle || t("player.nowPlaying")}</p>
+                <h2 className="visualizer-track-title marquee-wrap">
+                  <span className="marquee-text">{trackTitle}</span>
+                </h2>
+                <span>{artist}</span>
+              </div>
             </div>
           </header>
+
+          {lyricLines.length > 0 ? (
+            <section className="visualizer-lyrics-panel" aria-label={t("player.lyrics")}>
+              <div className="visualizer-lyrics-header">
+                <span>{t("player.lyrics")}</span>
+              </div>
+              <div className="visualizer-lyrics-textbox">
+                {lyricLines.map((line, index) => (
+                  <p key={`${line}-${index}`}>{line}</p>
+                ))}
+              </div>
+            </section>
+          ) : null}
         </div>
 
         <aside className="visualizer-queue-panel" aria-label={t("player.queue")}>

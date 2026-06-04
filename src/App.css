@@ -1086,7 +1086,8 @@ h2 {
 .album-table-select-button:focus-visible .marquee-wrap[data-marquee="true"] .marquee-text,
 .album-table-row:hover .table-track-title[data-marquee="true"] .marquee-text,
 .album-table-row:focus-visible .table-track-title[data-marquee="true"] .marquee-text,
-.album-table-row:focus-within .table-track-title[data-marquee="true"] .marquee-text {
+.album-table-row:focus-within .table-track-title[data-marquee="true"] .marquee-text,
+.visualizer-now-playing:hover .visualizer-track-title[data-marquee="true"] .marquee-text {
   max-width: none;
   width: max-content;
   overflow: visible;
@@ -2020,7 +2021,8 @@ button.album-card {
   .album-table-select-button:focus-visible .marquee-wrap[data-marquee="true"] .marquee-text,
   .album-table-row:hover .table-track-title[data-marquee="true"] .marquee-text,
   .album-table-row:focus-visible .table-track-title[data-marquee="true"] .marquee-text,
-  .album-table-row:focus-within .table-track-title[data-marquee="true"] .marquee-text {
+  .album-table-row:focus-within .table-track-title[data-marquee="true"] .marquee-text,
+  .visualizer-now-playing:hover .visualizer-track-title[data-marquee="true"] .marquee-text {
     animation: none;
   }
 }
@@ -2513,7 +2515,9 @@ button.album-card {
 
 .visualizer-primary {
   display: grid;
-  grid-template-rows: auto;
+  grid-template-rows: auto minmax(0, 1fr);
+  align-content: start;
+  gap: 22px;
   min-width: 0;
   min-height: 0;
 }
@@ -2529,12 +2533,58 @@ button.album-card {
   padding: 0;
 }
 
+.visualizer-now-playing {
+  display: grid;
+  grid-template-columns: clamp(54px, 7vw, 82px) minmax(0, 1fr);
+  align-items: start;
+  gap: 16px;
+  min-width: 0;
+}
+
+.visualizer-track-artwork {
+  width: clamp(54px, 7vw, 82px);
+  aspect-ratio: 1;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  border-radius: 7px;
+  background:
+    linear-gradient(135deg, rgba(255, 255, 255, 0.18), rgba(255, 255, 255, 0.04)),
+    color-mix(in oklch, var(--primary), black 62%);
+  box-shadow: 0 18px 42px rgba(0, 0, 0, 0.3);
+}
+
+.visualizer-track-artwork img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.visualizer-track-copy {
+  min-width: 0;
+}
+
 .visualizer-header h2 {
   max-width: min(860px, 88vw);
+  overflow: hidden;
   color: white;
   font-size: clamp(2rem, 5.8vw, 5.8rem);
   line-height: 0.96;
   text-shadow: 0 16px 48px rgba(0, 0, 0, 0.48);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.visualizer-header h2 .marquee-text {
+  display: block;
+  max-width: 100%;
+  margin-top: 0;
+  overflow: hidden;
+  color: inherit;
+  font: inherit;
+  text-overflow: ellipsis;
+  text-shadow: inherit;
+  white-space: nowrap;
 }
 
 .visualizer-header span {
@@ -2551,6 +2601,83 @@ button.album-card {
 
 .visualizer-header .eyebrow {
   color: rgba(255, 255, 255, 0.62);
+}
+
+.visualizer-lyrics-panel {
+  position: relative;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  width: min(440px, 100%);
+  min-width: 0;
+  min-height: 0;
+  max-height: min(34dvh, 310px);
+  justify-self: start;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 7px;
+  background: transparent;
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.14);
+  opacity: 0.88;
+}
+
+.visualizer-lyrics-header {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  padding: 12px 14px 8px;
+}
+
+.visualizer-lyrics-header span,
+.visualizer-lyrics-header strong {
+  color: rgba(255, 255, 255, 0.54);
+  font-size: 0.78rem;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.visualizer-lyrics-textbox {
+  min-width: 0;
+  min-height: 0;
+  padding: 0 14px 14px;
+  direction: rtl;
+  overflow-x: hidden;
+  overflow-y: auto;
+  scrollbar-color: rgba(255, 255, 255, 0.26) transparent;
+  scrollbar-width: thin;
+  white-space: pre-wrap;
+}
+
+.visualizer-lyrics-textbox::-webkit-scrollbar {
+  width: 8px;
+}
+
+.visualizer-lyrics-textbox::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.visualizer-lyrics-textbox::-webkit-scrollbar-thumb {
+  border: 2px solid transparent;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.3);
+  background-clip: padding-box;
+}
+
+.visualizer-lyrics-textbox p {
+  min-width: 0;
+  min-height: 1.35em;
+  margin: 0 0 0.42em;
+  color: rgba(255, 255, 255, 0.78);
+  direction: ltr;
+  font-size: 0.92rem;
+  font-weight: 760;
+  line-height: 1.35;
+  text-align: left;
+}
+
+.visualizer-lyrics-textbox p:last-child {
+  margin-bottom: 0;
 }
 
 .visualizer-close-button {
@@ -2941,6 +3068,11 @@ button.album-card {
 
   .visualizer-queue-panel {
     min-height: 0;
+  }
+
+  .visualizer-lyrics-panel {
+    width: min(100%, 420px);
+    max-height: 22dvh;
   }
 
   .visualizer-controls {
@@ -3639,6 +3771,15 @@ button.album-card {
 
   .visualizer-header h2 {
     font-size: clamp(2.2rem, 14vw, 4.2rem);
+  }
+
+  .visualizer-now-playing {
+    grid-template-columns: 56px minmax(0, 1fr);
+    gap: 12px;
+  }
+
+  .visualizer-track-artwork {
+    width: 56px;
   }
 
   .visualizer-mode-switch {

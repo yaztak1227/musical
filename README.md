@@ -61,6 +61,10 @@ The track list shows song title, track artist, album, and duration across the li
 
 Start playback from an album or individual track. The player at the bottom of the app handles play / pause, previous, next, seek, volume, shuffle, and repeat.
 
+Player mode expands the current song into a visualizer with artwork, queue controls, transport controls, and synced access to saved lyrics.
+
+![Player visualizer with lyrics](docs/images/musical-en-visualizer.png)
+
 ## View And Edit Track Details
 
 Track details include info, lyrics, and artwork tabs. In the desktop app, you can edit title, artist, album, year, genre, track number, disc number, and artwork.

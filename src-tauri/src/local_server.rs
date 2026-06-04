@@ -15,7 +15,7 @@ use std::{
     io::{Read, Seek, SeekFrom, Write},
     net::{Shutdown, TcpListener, TcpStream, UdpSocket},
     path::Path,
-    sync::{Arc, Mutex},
+    sync::{Arc, Condvar, LockResult, Mutex, MutexGuard},
     thread,
 };
 use tauri::AppHandle;
@@ -120,16 +120,8 @@ struct RemoteServerState {
     player_state: Option<RemotePlayerState>,
     player_state_sent_at_ms: Option<f64>,
     commands: VecDeque<QueuedRemotePlayerCommand>,
+    active_track_analysis_loads: HashSet<i64>,
     active_track_analysis_prefetches: HashSet<i64>,
-    track_analysis_builds: HashMap<i64, TrackAnalysisBuild>,
-}
-
-struct TrackAnalysisBuild {
-    covered_ranges: Vec<(f64, f64)>,
-    expected_duration: f64,
-    file_path: String,
-    frame_interval_ms: f64,
-    frames_by_tick: HashMap<i64, audio_analysis::AudioAnalysisFrame>,
 }
 
 fn apply_remote_command_to_player_state(
@@ -165,7 +157,25 @@ fn apply_remote_command_to_player_state(
     }
 }
 
-type SharedRemoteServerState = Arc<Mutex<RemoteServerState>>;
+struct RemoteServerStateStore {
+    state: Mutex<RemoteServerState>,
+    track_analysis_finished: Condvar,
+}
+
+impl RemoteServerStateStore {
+    fn new() -> Self {
+        Self {
+            state: Mutex::new(RemoteServerState::default()),
+            track_analysis_finished: Condvar::new(),
+        }
+    }
+
+    fn lock(&self) -> LockResult<MutexGuard<'_, RemoteServerState>> {
+        self.state.lock()
+    }
+}
+
+type SharedRemoteServerState = Arc<RemoteServerStateStore>;
 
 struct Request {
     method: String,
@@ -179,7 +189,7 @@ struct Request {
 pub fn start(app: AppHandle) -> Result<String, String> {
     let listener = TcpListener::bind(LOCAL_SERVER_ADDR).map_err(|error| error.to_string())?;
     let url = format!("http://{LOCAL_SERVER_ADDR}");
-    let remote_state = Arc::new(Mutex::new(RemoteServerState::default()));
+    let remote_state = Arc::new(RemoteServerStateStore::new());
     info!("local server listening on {LOCAL_SERVER_ADDR}");
 
     thread::spawn(move || {
@@ -502,7 +512,7 @@ fn get_track_analysis_segment(
 
     let file_path = library::load_track_file_path(app, track_id)?;
     let loaded_analysis =
-        audio_analysis::get_or_analyze_track_segment(app, track_id, &file_path, from, duration)?;
+        get_or_analyze_track_once(app, remote_state, track_id, &file_path, total_duration)?;
     let frames = if loaded_analysis.is_complete {
         loaded_analysis.analysis.frames.clone()
     } else {
@@ -514,29 +524,7 @@ fn get_track_analysis_segment(
             .cloned()
             .collect::<Vec<_>>()
     };
-    let should_prefetch_next = if loaded_analysis.is_complete {
-        true
-    } else {
-        let complete_analysis = collect_track_analysis_chunk(
-            remote_state,
-            track_id,
-            &file_path,
-            loaded_analysis.analysis.frame_interval_ms,
-            &frames,
-            from,
-            to,
-            total_duration,
-        )?;
-        if let Some(analysis) = complete_analysis {
-            audio_analysis::save_track_analysis_cache(app, track_id, &file_path, &analysis)?;
-            true
-        } else {
-            false
-        }
-    };
-    if should_prefetch_next {
-        prefetch_next_track_analysis(app.clone(), remote_state.clone(), track_id);
-    }
+    prefetch_next_track_analysis(app.clone(), remote_state.clone(), track_id);
 
     Ok(RemoteAudioAnalysisSegment {
         frame_interval_ms: loaded_analysis.analysis.frame_interval_ms,
@@ -546,67 +534,80 @@ fn get_track_analysis_segment(
     })
 }
 
-fn collect_track_analysis_chunk(
+fn get_or_analyze_track_once(
+    app: &AppHandle,
     remote_state: &SharedRemoteServerState,
     track_id: i64,
     file_path: &str,
-    frame_interval_ms: f64,
-    frames: &[audio_analysis::AudioAnalysisFrame],
-    from: f64,
-    to: f64,
     total_duration: f64,
-) -> Result<Option<audio_analysis::TrackAnalysis>, String> {
-    let mut state = remote_state.lock().map_err(|error| error.to_string())?;
-    let build = state
-        .track_analysis_builds
-        .entry(track_id)
-        .or_insert_with(|| TrackAnalysisBuild {
-            covered_ranges: Vec::new(),
-            expected_duration: total_duration,
-            file_path: file_path.to_owned(),
-            frame_interval_ms,
-            frames_by_tick: HashMap::new(),
+) -> Result<audio_analysis::TrackAnalysisLoad, String> {
+    if let Some(analysis) = audio_analysis::get_cached_track_analysis(app, track_id, file_path)? {
+        return Ok(audio_analysis::TrackAnalysisLoad {
+            analysis,
+            is_complete: true,
         });
-
-    if build.file_path != file_path {
-        *build = TrackAnalysisBuild {
-            covered_ranges: Vec::new(),
-            expected_duration: total_duration,
-            file_path: file_path.to_owned(),
-            frame_interval_ms,
-            frames_by_tick: HashMap::new(),
-        };
     }
 
-    build.expected_duration = build.expected_duration.max(total_duration);
-    build.frame_interval_ms = frame_interval_ms;
-    for frame in frames {
-        let tick = ((frame.timecode * 1000.0) / frame_interval_ms).round() as i64;
-        build.frames_by_tick.insert(tick, frame.clone());
+    loop {
+        let mut state = remote_state.lock().map_err(|error| error.to_string())?;
+        if state.active_track_analysis_loads.insert(track_id) {
+            break;
+        }
+        drop(
+            remote_state
+                .track_analysis_finished
+                .wait(state)
+                .map_err(|error| error.to_string())?,
+        );
+        if let Some(analysis) = audio_analysis::get_cached_track_analysis(app, track_id, file_path)?
+        {
+            return Ok(audio_analysis::TrackAnalysisLoad {
+                analysis,
+                is_complete: true,
+            });
+        }
     }
-    build.covered_ranges.push((from.max(0.0), to.max(from)));
-    merge_covered_ranges(&mut build.covered_ranges);
 
-    if !ranges_cover_track(
-        &build.covered_ranges,
-        build.expected_duration,
-        frame_interval_ms,
-    ) {
-        return Ok(None);
+    let result = analyze_and_cache_track(app, track_id, file_path, total_duration);
+    if let Ok(mut state) = remote_state.lock() {
+        state.active_track_analysis_loads.remove(&track_id);
+        remote_state.track_analysis_finished.notify_all();
+    }
+    result
+}
+
+fn analyze_and_cache_track(
+    app: &AppHandle,
+    track_id: i64,
+    file_path: &str,
+    total_duration: f64,
+) -> Result<audio_analysis::TrackAnalysisLoad, String> {
+    if let Some(analysis) = audio_analysis::get_cached_track_analysis(app, track_id, file_path)? {
+        return Ok(audio_analysis::TrackAnalysisLoad {
+            analysis,
+            is_complete: true,
+        });
     }
 
-    let mut frames = build
-        .frames_by_tick
-        .values()
-        .cloned()
-        .collect::<Vec<audio_analysis::AudioAnalysisFrame>>();
-    frames.sort_by(|first, second| first.timecode.total_cmp(&second.timecode));
-    let analysis = audio_analysis::TrackAnalysis {
-        frame_interval_ms: build.frame_interval_ms,
-        frames,
-    };
-    state.track_analysis_builds.remove(&track_id);
-    Ok(Some(analysis))
+    let loaded_analysis = audio_analysis::get_or_analyze_track_segment(
+        app,
+        track_id,
+        file_path,
+        0.0,
+        total_duration,
+    )?;
+    if !loaded_analysis.is_complete {
+        audio_analysis::save_track_analysis_cache(
+            app,
+            track_id,
+            file_path,
+            &loaded_analysis.analysis,
+        )?;
+    }
+    Ok(audio_analysis::TrackAnalysisLoad {
+        analysis: loaded_analysis.analysis,
+        is_complete: true,
+    })
 }
 
 fn prefetch_next_track_analysis(
@@ -621,7 +622,7 @@ fn prefetch_next_track_analysis(
     };
 
     thread::spawn(move || {
-        let result = prefetch_track_analysis(&app, next_track_id);
+        let result = prefetch_track_analysis(&app, &remote_state, next_track_id);
         if let Err(error) = result {
             info!("next track analysis prefetch skipped for {next_track_id}: {error}");
         }
@@ -659,47 +660,15 @@ fn next_queue_track_id(queue_track_ids: &[i64], completed_track_id: i64) -> Opti
     queue_track_ids.get(current_index + 1).copied()
 }
 
-fn prefetch_track_analysis(app: &AppHandle, track_id: i64) -> Result<(), String> {
+fn prefetch_track_analysis(
+    app: &AppHandle,
+    remote_state: &SharedRemoteServerState,
+    track_id: i64,
+) -> Result<(), String> {
     let (file_path, duration_seconds) = library::load_track_file_path_and_duration(app, track_id)?;
     let duration = (duration_seconds.max(1) as f64) + 2.0;
-    let loaded_analysis =
-        audio_analysis::get_or_analyze_track_segment(app, track_id, &file_path, 0.0, duration)?;
-    if !loaded_analysis.is_complete {
-        audio_analysis::save_track_analysis_cache(
-            app,
-            track_id,
-            &file_path,
-            &loaded_analysis.analysis,
-        )?;
-    }
+    get_or_analyze_track_once(app, remote_state, track_id, &file_path, duration)?;
     Ok(())
-}
-
-fn merge_covered_ranges(ranges: &mut Vec<(f64, f64)>) {
-    ranges.sort_by(|first, second| first.0.total_cmp(&second.0));
-    let mut merged: Vec<(f64, f64)> = Vec::with_capacity(ranges.len());
-
-    for (start, end) in ranges.drain(..) {
-        let Some((_, last_end)) = merged.last_mut() else {
-            merged.push((start, end));
-            continue;
-        };
-
-        if start <= *last_end + 0.1 {
-            *last_end = last_end.max(end);
-        } else {
-            merged.push((start, end));
-        }
-    }
-
-    *ranges = merged;
-}
-
-fn ranges_cover_track(ranges: &[(f64, f64)], total_duration: f64, frame_interval_ms: f64) -> bool {
-    let tolerance = (frame_interval_ms / 1000.0).max(0.1);
-    ranges
-        .first()
-        .is_some_and(|(start, end)| *start <= tolerance && *end + tolerance >= total_duration)
 }
 
 fn lan_ipv4_address() -> Option<String> {
