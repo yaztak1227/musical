@@ -74,6 +74,16 @@ export function LibrarySettingsDialog({
             <Button className="scan-button" disabled={isScanning} onClick={onScan} type="button">
               {isScanning ? t("scan.buttonScanning") : t("scan.button")}
             </Button>
+            {isScanning ? (
+              <div className="scan-loading-rail" aria-hidden="true">
+                <span className="scan-note">♪</span>
+                <span className="scan-note">♫</span>
+                <span className="scan-note">♬</span>
+                <span className="scan-skeleton-card" />
+                <span className="scan-skeleton-card" />
+                <span className="scan-skeleton-card" />
+              </div>
+            ) : null}
             {libraryInfo ? (
               <p className="info-text" aria-live="polite">
                 {t(libraryInfo.key, libraryInfo.values)}

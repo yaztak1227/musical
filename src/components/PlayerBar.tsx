@@ -1,5 +1,5 @@
 import { type CSSProperties, forwardRef, type RefObject, useEffect, useEffectEvent, useId, useImperativeHandle, useRef, useState } from "react";
-import { ChevronLeft, ChevronRight, Pause, Play, Repeat, Repeat1, Shuffle, Volume2, VolumeX } from "lucide-react";
+import { ChevronLeft, ChevronRight, Maximize2, Pause, Play, Repeat, Repeat1, Shuffle, Volume2, VolumeX } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Slider } from "@/components/ui/slider";
 import { Toggle } from "@/components/ui/toggle";
@@ -44,6 +44,7 @@ type PlayerBarProps = {
   onSelectCurrentAlbum: () => void;
   onShuffleChange: (isShuffle: boolean) => void;
   onTogglePlayback: () => void;
+  onOpenVisualizer: () => void;
   onVolumeChange: (nextVolume: number) => void;
 };
 
@@ -71,6 +72,7 @@ export const PlayerBar = forwardRef<PlayerBarHandle, PlayerBarProps>(function Pl
     onSelectCurrentAlbum,
     onShuffleChange,
     onTogglePlayback,
+    onOpenVisualizer,
     onVolumeChange,
   },
   ref,
@@ -91,6 +93,10 @@ export const PlayerBar = forwardRef<PlayerBarHandle, PlayerBarProps>(function Pl
   const seekProgress = effectiveDuration > 0 ? Math.min(100, Math.max(0, (currentTime / effectiveDuration) * 100)) : 0;
   const currentAlbumTitle = currentAlbum ? localizeLibraryText(currentAlbum.title, t) : "";
   const currentArtworkSrc = currentAlbum ? getArtworkSrc(currentAlbum) : "";
+  const isQueueOpen = isQueueHovered || isQueuePinnedOpen;
+  const playerStyle = currentArtworkSrc
+    ? ({ "--player-artwork-bg": `url("${currentArtworkSrc.replace(/"/g, '\\"')}")` } as CSSProperties)
+    : undefined;
 
   function publishPosition(nextTime: number, nextDuration = durationRef.current) {
     const boundedDuration = Math.max(0, nextDuration);
@@ -288,7 +294,18 @@ export const PlayerBar = forwardRef<PlayerBarHandle, PlayerBarProps>(function Pl
   }, [currentTrack, effectiveDuration, isPlaying, isRemoteSynced, isTauriRuntime, onEnded]);
 
   return (
-    <section className={isMobileOptionsOpen ? "player-bar mobile-options-open" : "player-bar"} aria-label={t("player.label")}>
+    <section
+      className={[
+        isMobileOptionsOpen ? "player-bar mobile-options-open" : "player-bar",
+        currentArtworkSrc ? "has-artwork-bg" : "",
+        isPlaying ? "is-playing" : "",
+        isQueueOpen ? "queue-popover-open" : "",
+      ]
+        .filter(Boolean)
+        .join(" ")}
+      aria-label={t("player.label")}
+      style={playerStyle}
+    >
       <button
         aria-expanded={isMobileOptionsOpen}
         aria-label={t("player.options")}
@@ -319,7 +336,7 @@ export const PlayerBar = forwardRef<PlayerBarHandle, PlayerBarProps>(function Pl
             <span aria-hidden="true">{currentAlbumTitle.charAt(0).toUpperCase()}</span>
           )}
         </button>
-        <div className="player-track-copy">
+        <div className="player-track-copy" key={currentTrack?.id ?? "empty"}>
           <p className="eyebrow">{t("player.nowPlaying")}</p>
           <strong>{currentTrack ? localizeLibraryText(currentTrack.title, t) : t("player.nothingSelected")}</strong>
           <span>{currentTrack ? localizeLibraryText(currentTrack.artist, t) : t("player.pickPrompt")}</span>
@@ -332,7 +349,7 @@ export const PlayerBar = forwardRef<PlayerBarHandle, PlayerBarProps>(function Pl
         <div className="transport-controls">
           <Button
             aria-label={t("player.previous")}
-            className="control-button icon-button"
+            className="control-button icon-button musical-ripple-button"
             disabled={!currentTrack}
             onClick={onPreviousTrack}
             title={t("player.previous")}
@@ -343,7 +360,7 @@ export const PlayerBar = forwardRef<PlayerBarHandle, PlayerBarProps>(function Pl
           </Button>
           <Button
             aria-label={currentTrack ? (isPlaying ? t("player.pause") : t("player.play")) : t("player.idle")}
-            className="play-button icon-button"
+            className="play-button icon-button musical-ripple-button"
             disabled={!currentTrack}
             onClick={onTogglePlayback}
             title={currentTrack ? (isPlaying ? t("player.pause") : t("player.play")) : t("player.idle")}
@@ -353,7 +370,7 @@ export const PlayerBar = forwardRef<PlayerBarHandle, PlayerBarProps>(function Pl
           </Button>
           <Button
             aria-label={t("player.next")}
-            className="control-button icon-button"
+            className="control-button icon-button musical-ripple-button"
             disabled={!currentTrack}
             onClick={onNextTrack}
             title={t("player.next")}
@@ -406,41 +423,54 @@ export const PlayerBar = forwardRef<PlayerBarHandle, PlayerBarProps>(function Pl
             value={[volume]}
           />
         </label>
-        <div
-          className={isQueueHovered || isQueuePinnedOpen ? "queue-popover-wrap open" : "queue-popover-wrap"}
-          onMouseEnter={() => setIsQueueHovered(true)}
-          onMouseLeave={() => setIsQueueHovered(false)}
-        >
-          <button
-            aria-controls={queuePopoverId}
-            aria-expanded={isQueueHovered || isQueuePinnedOpen}
-            aria-label={t("player.queueToggle")}
-            className="queue-count"
-            onClick={() => {
-              setIsQueueHovered(false);
-              setIsQueuePinnedOpen((value) => !value);
-            }}
-            type="button"
+        <div className="queue-actions-row">
+          <div
+            className={isQueueOpen ? "queue-popover-wrap open" : "queue-popover-wrap"}
+            onMouseEnter={() => setIsQueueHovered(true)}
+            onMouseLeave={() => setIsQueueHovered(false)}
           >
-            {t("player.queue")} / {t("player.queueCount", { count: queueLength })}
-          </button>
-          <div className="queue-popover" id={queuePopoverId} role="region" aria-label={t("player.queue")}>
-            <div className="queue-popover-list">
-              {queueTracks.map((track, index) => {
-                const isCurrentTrack = currentTrack?.id === track.id;
-                return (
-                  <div className={isCurrentTrack ? "queue-popover-row current" : "queue-popover-row"} key={track.id}>
-                    <span className="queue-track-index">{index + 1}</span>
-                    <span className="queue-track-copy">
-                      <strong>{localizeLibraryText(track.title, t)}</strong>
-                      <span>{localizeLibraryText(track.artist, t)}</span>
-                    </span>
-                    <span className="queue-track-duration">{formatTrackDuration(track)}</span>
-                  </div>
-                );
-              })}
+            <button
+              aria-controls={queuePopoverId}
+              aria-expanded={isQueueOpen}
+              aria-label={t("player.queueToggle")}
+              className="queue-count"
+              onClick={() => {
+                setIsQueueHovered(false);
+                setIsQueuePinnedOpen((value) => !value);
+              }}
+              type="button"
+            >
+              {t("player.queue")} / {t("player.queueCount", { count: queueLength })}
+            </button>
+            <div className="queue-popover" id={queuePopoverId} role="region" aria-label={t("player.queue")}>
+              <div className="queue-popover-list">
+                {queueTracks.map((track, index) => {
+                  const isCurrentTrack = currentTrack?.id === track.id;
+                  return (
+                    <div className={isCurrentTrack ? "queue-popover-row current" : "queue-popover-row"} key={track.id}>
+                      <span className="queue-track-index">{index + 1}</span>
+                      <span className="queue-track-copy">
+                        <strong>{localizeLibraryText(track.title, t)}</strong>
+                        <span>{localizeLibraryText(track.artist, t)}</span>
+                      </span>
+                      <span className="queue-track-duration">{formatTrackDuration(track)}</span>
+                    </div>
+                  );
+                })}
+              </div>
             </div>
           </div>
+          <Button
+            aria-label={t("player.openVisualizer")}
+            className="visualizer-open-icon-button icon-button musical-ripple-button"
+            disabled={!currentTrack}
+            onClick={onOpenVisualizer}
+            title={t("player.openVisualizer")}
+            type="button"
+            variant="outline"
+          >
+            <Maximize2 />
+          </Button>
         </div>
       </div>
     </section>

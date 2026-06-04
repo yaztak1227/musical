@@ -22,6 +22,10 @@ export type RemotePlayerState = {
   repeatMode: string;
   currentTime: number;
   volume: number;
+  audioAnalysisDuration?: number | null;
+  audioAnalysisFrameTimecodes?: number[] | null;
+  audioAnalysisFrames?: number[][] | null;
+  audioAnalysisStartTime?: number | null;
 };
 
 export type RemotePlayerCommandType =

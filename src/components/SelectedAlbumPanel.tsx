@@ -1,5 +1,5 @@
-import type { PointerEvent, RefObject, TouchEvent } from "react";
-import { Pencil, Play, Save, ScrollText, X } from "lucide-react";
+import type { CSSProperties, PointerEvent, RefObject, TouchEvent } from "react";
+import { Check, Pencil, Play, Save, ScrollText, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Separator } from "@/components/ui/separator";
@@ -80,11 +80,22 @@ export function SelectedAlbumPanel({
   t,
 }: SelectedAlbumPanelProps) {
   const selectedAlbumArtworkSrc = selectedAlbum ? getArtworkSrc(selectedAlbum) : "";
+  const hasAlbumSaveSuccess =
+    albumTagMessage?.key === "tags.saved" || albumTagMessage?.key === "tags.partialSaved" || albumTagMessage?.key === "tags.mockSaved";
+  const albumPanelStyle = selectedAlbumArtworkSrc
+    ? ({ "--selected-artwork-bg": `url("${selectedAlbumArtworkSrc.replace(/"/g, '\\"')}")` } as CSSProperties)
+    : undefined;
 
   return (
     <section
       aria-label={t("library.selectedAlbumLabel")}
-      className={isAlbumPanelCollapsed ? "album-panel collapsed" : "album-panel"}
+      className={[
+        isAlbumPanelCollapsed ? "album-panel collapsed" : "album-panel",
+        selectedAlbumArtworkSrc ? "has-artwork-bg" : "",
+        hasAlbumSaveSuccess ? "save-success" : "",
+      ]
+        .filter(Boolean)
+        .join(" ")}
       data-state={isAlbumPanelCollapsed ? "collapsed" : "expanded"}
       onPointerCancel={onAlbumPanelPointerCancel}
       onPointerDown={onAlbumPanelPointerDown}
@@ -96,6 +107,7 @@ export function SelectedAlbumPanel({
       onTouchStart={onAlbumPanelTouchStart}
       onWheel={(event) => onAlbumPanelWheel(event.deltaY)}
       ref={albumPanelRef}
+      style={albumPanelStyle}
     >
       {selectedAlbum ? (
         <>
@@ -190,8 +202,8 @@ export function SelectedAlbumPanel({
                 </div>
                 <p className="tag-edit-note">{t("tags.albumWide", { count: selectedAlbum.tracks.length })}</p>
                 <div className="album-tag-actions">
-                  <Button disabled={!hasAlbumTagChanges || isSavingAlbumTags} type="submit">
-                    <Save />
+                  <Button className={hasAlbumSaveSuccess ? "save-button saved" : "save-button"} disabled={!hasAlbumTagChanges || isSavingAlbumTags} type="submit">
+                    {hasAlbumSaveSuccess ? <Check /> : <Save />}
                     {isSavingAlbumTags ? t("tags.saving") : t("tags.save")}
                   </Button>
                   <Button disabled={isSavingAlbumTags} onClick={onCancelAlbumTagEditing} type="button" variant="outline">
@@ -243,7 +255,7 @@ export function SelectedAlbumPanel({
                       </span>
                       <button
                         aria-label={`${t("player.play")} ${localizeLibraryText(track.title, t)}`}
-                        className="track-play-button"
+                        className="track-play-button musical-ripple-button"
                         onClick={() => onPlayTrack(track, selectedAlbum.id)}
                         title={`${t("player.play")} ${localizeLibraryText(track.title, t)}`}
                         type="button"
@@ -277,7 +289,7 @@ export function SelectedAlbumPanel({
                     {track.hasLyrics || track.lyrics?.trim() ? (
                       <button
                         aria-label={t("trackDetail.showLyrics", { track: localizeLibraryText(track.title, t) })}
-                        className="track-lyrics-button"
+                        className="track-lyrics-button has-lyrics-icon"
                         onClick={() => onOpenTrackDetail(track, "lyrics")}
                         title={t("trackDetail.lyricsTab")}
                         type="button"

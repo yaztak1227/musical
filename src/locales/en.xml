@@ -140,6 +140,13 @@
   <message key="player.queue">Queue</message>
   <message key="player.queueCount">{count} tracks</message>
   <message key="player.queueToggle">Show or hide queue</message>
+  <message key="player.openVisualizer">Player mode</message>
+  <message key="player.closeVisualizer">Close player mode</message>
+  <message key="player.visualizerLabel">Player visualizer</message>
+  <message key="player.visualizerMode">Visualizer mode</message>
+  <message key="player.visualizerWave">Wave</message>
+  <message key="player.visualizerSpectrum">Spectrum</message>
+  <message key="player.visualizerCircle">Circle</message>
   <message key="player.playbackError">Could not play this track: {message}</message>
   <message key="status.noLibraryScanned">No library scanned yet.</message>
   <message key="status.webMockMode">Web mode is using mock albums.</message>

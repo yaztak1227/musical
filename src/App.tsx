@@ -1,6 +1,8 @@
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import {
   type PointerEvent,
+  lazy,
+  Suspense,
   type TouchEvent,
   useCallback,
   useEffect,
@@ -57,6 +59,7 @@ import {
 import { getHeapUsageMb, logRenderDiagnostic, releaseAudioSource } from "./lib/renderDiagnostics";
 import { isTrackTagDraftChanged, makeTrackTagDraft } from "./lib/trackTagDraftUtils";
 import { useRemoteAccess } from "./lib/useRemoteAccess";
+import { getAudioVisualizerNode, sampleAudioAnalysis } from "./lib/audioAnalysis";
 import { AlbumBrowser } from "./components/AlbumBrowser";
 import { LibrarySidebar } from "./components/LibrarySidebar";
 import { LibrarySettingsDialog } from "./components/LibrarySettingsDialog";
@@ -66,8 +69,15 @@ import { TrackDetailDialog } from "./components/TrackDetailDialog";
 
 const albumPanelSwipeThreshold = 36;
 const albumPanelDragTolerance = 8;
+const audioAnalysisBucketCount = 256;
+const audioAnalysisFrameCount = 20;
+const audioAnalysisPacketIntervalMs = 500;
+const audioAnalysisSampleIntervalMs = 50;
+const audioAnalysisRetainedBufferMs = 3000;
+const remotePlayerStateSyncIntervalMs = 500;
 const trackLongPressDelayMs = 520;
 const trackLongPressMoveTolerance = 10;
+const PlayerVisualizerOverlay = lazy(() => import("./components/PlayerVisualizerOverlay"));
 
 type AlbumPanelDragStart = {
   hasDragged: boolean;
@@ -87,6 +97,84 @@ type SuppressedTrackClick = {
   timerId: number;
   trackId: number;
 };
+
+export type RemoteAudioAnalysisPacket = {
+  currentTimeAtReceived: number;
+  duration: number;
+  frameTimecodes: number[];
+  frames: number[][];
+  receivedAt: number;
+  startTime: number;
+};
+
+function areNumberArraysEqual(first: number[] | null, second: number[] | null) {
+  if (first === second) return true;
+  if (!first || !second || first.length !== second.length) return false;
+
+  for (let index = 0; index < first.length; index += 1) {
+    if (first[index] !== second[index]) return false;
+  }
+
+  return true;
+}
+
+function getAudioAnalysisTick(timecode: number) {
+  return Math.round((timecode * 1000) / audioAnalysisSampleIntervalMs);
+}
+
+function getRoundedAudioAnalysisTimecode(timecode: number) {
+  return (getAudioAnalysisTick(timecode) * audioAnalysisSampleIntervalMs) / 1000;
+}
+
+function getAudioAnalysisTimecodes(frameCount: number, startTime: number) {
+  return Array.from({ length: frameCount }, (_, index) =>
+    getRoundedAudioAnalysisTimecode(startTime + (index * audioAnalysisSampleIntervalMs) / 1000),
+  );
+}
+
+function mergeAudioAnalysisPacket(
+  currentPacket: RemoteAudioAnalysisPacket | null,
+  nextPacket: RemoteAudioAnalysisPacket,
+) {
+  const framesByTick = new Map<number, { timecode: number; values: number[] }>();
+  const addFrames = (packet: RemoteAudioAnalysisPacket) => {
+    for (let index = 0; index < packet.frames.length; index += 1) {
+      const timecode = packet.frameTimecodes[index] ?? packet.startTime + (index * audioAnalysisSampleIntervalMs) / 1000;
+      framesByTick.set(getAudioAnalysisTick(timecode), {
+        timecode: getRoundedAudioAnalysisTimecode(timecode),
+        values: packet.frames[index] ?? [],
+      });
+    }
+  };
+
+  if (currentPacket) addFrames(currentPacket);
+  addFrames(nextPacket);
+
+  const latestTimecode = Math.max(...Array.from(framesByTick.values()).map((frame) => frame.timecode), nextPacket.startTime);
+  const minimumTimecode = latestTimecode - audioAnalysisRetainedBufferMs / 1000;
+  const mergedFrames = Array.from(framesByTick.values())
+    .filter((frame) => frame.timecode >= minimumTimecode)
+    .sort((first, second) => first.timecode - second.timecode);
+  const currentEstimatedTime = currentPacket
+    ? currentPacket.currentTimeAtReceived + Math.max(0, nextPacket.receivedAt - currentPacket.receivedAt) / 1000
+    : null;
+  const shouldUseNextPlaybackClock =
+    currentEstimatedTime === null ||
+    Math.abs(nextPacket.currentTimeAtReceived - currentEstimatedTime) > 0.35 ||
+    nextPacket.currentTimeAtReceived > currentEstimatedTime + 0.08;
+
+  return {
+    ...nextPacket,
+    currentTimeAtReceived: shouldUseNextPlaybackClock
+      ? nextPacket.currentTimeAtReceived
+      : currentPacket?.currentTimeAtReceived ?? nextPacket.currentTimeAtReceived,
+    duration: Math.max(audioAnalysisSampleIntervalMs, mergedFrames.length * audioAnalysisSampleIntervalMs),
+    frameTimecodes: mergedFrames.map((frame) => frame.timecode),
+    frames: mergedFrames.map((frame) => frame.values.slice()),
+    receivedAt: shouldUseNextPlaybackClock ? nextPacket.receivedAt : currentPacket?.receivedAt ?? nextPacket.receivedAt,
+    startTime: mergedFrames[0]?.timecode ?? nextPacket.startTime,
+  };
+}
 
 function App() {
   const audioRef = useRef<HTMLAudioElement | null>(null);
@@ -134,6 +222,7 @@ function App() {
   });
   const [isPlaying, setIsPlaying] = useState(false);
   const [audioSourceKey, setAudioSourceKey] = useState<string | null>(null);
+  const audioAnalysisPacketRef = useRef<RemoteAudioAnalysisPacket | null>(null);
   const [isScanning, setIsScanning] = useState(false);
   const [isShuffle, setIsShuffle] = useState(storedPlaybackPreferences.isShuffle);
   const [repeatMode, setRepeatMode] = useState<RepeatMode>(storedPlaybackPreferences.repeatMode);
@@ -146,6 +235,7 @@ function App() {
   const [isAlbumPanelCollapsed, setIsAlbumPanelCollapsed] = useState(false);
   const [isLibraryMenuOpen, setIsLibraryMenuOpen] = useState(false);
   const [isLibrarySettingsOpen, setIsLibrarySettingsOpen] = useState(false);
+  const [isPlayerVisualizerOpen, setIsPlayerVisualizerOpen] = useState(false);
   const [playbackError, setPlaybackError] = useState<string | null>(null);
   const [isAlbumTagEditing, setIsAlbumTagEditing] = useState(false);
   const [albumTagDraft, setAlbumTagDraft] = useState<AlbumTagDraft>(() => makeAlbumTagDraft(mockAlbums[0] ?? null));
@@ -238,14 +328,18 @@ function App() {
     if (!audio) return;
 
     releaseAudioSource(audio);
+    audioAnalysisPacketRef.current = null;
 
     if (isTauriRuntime && currentTrack?.filePath) {
-      audio.src = getBackendMediaSrc(currentTrack.filePath);
+      const mediaSrc = getBackendMediaSrc(currentTrack.filePath);
+      audio.src = mediaSrc;
       audio.load();
       setAudioSourceKey(currentTrack.filePath);
     }
 
-    return () => releaseAudioSource(audio);
+    return () => {
+      releaseAudioSource(audio);
+    };
   }, [currentTrack]);
 
   useEffect(() => {
@@ -266,6 +360,75 @@ function App() {
       audio.pause();
     }
   }, [audioSourceKey, isPlaying]);
+
+  useEffect(() => {
+    if (!isTauriRuntime || !isPlaying || !audioSourceKey) {
+      if (!isBrowserBackendRuntime) {
+        audioAnalysisPacketRef.current = null;
+      }
+      return;
+    }
+
+    const audio = audioRef.current;
+    if (!audio) {
+      audioAnalysisPacketRef.current = null;
+      return;
+    }
+
+    try {
+      const playbackNode = getAudioVisualizerNode(audio);
+      if (!playbackNode) {
+        audioAnalysisPacketRef.current = null;
+        return;
+      }
+
+      if (playbackNode.context.state === "suspended") {
+        void playbackNode.context.resume();
+      }
+
+      let samplesSincePacket = 0;
+      const sampledFrame: number[] = [];
+      const frameBuffer: Array<{ timecode: number; values: number[] }> = [];
+      const sample = () => {
+        sampleAudioAnalysis(playbackNode.analyser, audioAnalysisBucketCount, sampledFrame);
+        frameBuffer.push({
+          timecode: getRoundedAudioAnalysisTimecode(audio.currentTime),
+          values: sampledFrame.slice(),
+        });
+        if (frameBuffer.length > audioAnalysisFrameCount) {
+          frameBuffer.splice(0, frameBuffer.length - audioAnalysisFrameCount);
+        }
+        samplesSincePacket += 1;
+
+        if (
+          frameBuffer.length >= audioAnalysisFrameCount &&
+          samplesSincePacket * audioAnalysisSampleIntervalMs >= audioAnalysisPacketIntervalMs
+        ) {
+          const firstFrame = frameBuffer[0];
+          audioAnalysisPacketRef.current = {
+            duration: audioAnalysisFrameCount * audioAnalysisSampleIntervalMs,
+            frameTimecodes: frameBuffer.map((entry) => entry.timecode),
+            frames: frameBuffer.map((entry) => entry.values.slice()),
+            currentTimeAtReceived: audio.currentTime,
+            receivedAt: performance.now(),
+            startTime: firstFrame?.timecode ?? getRoundedAudioAnalysisTimecode(audio.currentTime),
+          };
+          samplesSincePacket = 0;
+        }
+      };
+
+      sample();
+      const timer = window.setInterval(sample, audioAnalysisSampleIntervalMs);
+      return () => window.clearInterval(timer);
+    } catch {
+      audioAnalysisPacketRef.current = null;
+      return;
+    }
+  }, [audioSourceKey, isPlaying, isTauriRuntime]);
+
+  function clearAudioAnalysisPacket() {
+    audioAnalysisPacketRef.current = null;
+  }
 
   const filteredAlbums = useMemo(
     () => filterAndSortAlbums(albums, query, albumSortMode, albumSortDirection, t, lyricsOnly),
@@ -424,10 +587,29 @@ function App() {
     setPlaybackAlbumId(state.playbackAlbumId);
     const syncedTrack = findTrackById(state.currentTrackId);
     setCurrentTrack(syncedTrack);
-    setPlaybackQueueTrackIds(state.queueTrackIds);
+    setPlaybackQueueTrackIds((currentTrackIds) =>
+      areNumberArraysEqual(currentTrackIds, state.queueTrackIds) ? currentTrackIds : state.queueTrackIds,
+    );
     setIsPlaying(state.isPlaying);
     setIsShuffle(state.isShuffle);
     setRepeatMode(isRepeatMode(state.repeatMode) ? state.repeatMode : "off");
+    if (state.audioAnalysisFrames?.length) {
+      const duration = state.audioAnalysisDuration ?? audioAnalysisFrameCount * audioAnalysisSampleIntervalMs;
+      const startTime = state.audioAnalysisStartTime ?? Math.max(0, state.currentTime - duration / 1000);
+      const frameTimecodes = state.audioAnalysisFrameTimecodes?.length === state.audioAnalysisFrames.length
+        ? state.audioAnalysisFrameTimecodes
+        : getAudioAnalysisTimecodes(state.audioAnalysisFrames.length, startTime);
+      audioAnalysisPacketRef.current = mergeAudioAnalysisPacket(audioAnalysisPacketRef.current, {
+        duration,
+        frameTimecodes,
+        frames: state.audioAnalysisFrames,
+        currentTimeAtReceived: state.currentTime,
+        receivedAt: performance.now(),
+        startTime: frameTimecodes[0] ?? startTime,
+      });
+    } else {
+      audioAnalysisPacketRef.current = null;
+    }
     playerBarRef.current?.seekTo(state.currentTime, "remote-sync");
     setVolume(state.volume, "remote-sync");
   }
@@ -812,6 +994,7 @@ function App() {
     if (source !== "remote-sync" && sendRemoteCommand("seek", { time: nextTime })) return;
 
     playerBarRef.current?.seekTo(nextTime, source);
+    clearAudioAnalysisPacket();
   }
 
   function setVolume(nextVolume: number, source = "programmatic") {
@@ -1240,6 +1423,10 @@ function App() {
       repeatMode,
       selectedAlbumId,
       volume: playerBarRef.current?.getVolume() ?? 0.85,
+      audioAnalysisDuration: audioAnalysisPacketRef.current?.duration ?? null,
+      audioAnalysisFrameTimecodes: audioAnalysisPacketRef.current?.frameTimecodes ?? null,
+      audioAnalysisFrames: audioAnalysisPacketRef.current?.frames ?? null,
+      audioAnalysisStartTime: audioAnalysisPacketRef.current?.startTime ?? null,
     };
     void publishRemotePlayerState(state).catch(() => {
       // State publication is best-effort; playback should not be interrupted.
@@ -1263,7 +1450,7 @@ function App() {
     if (!isTauriRuntime) return;
 
     publishCurrentRemotePlayerState();
-    const timer = window.setInterval(() => publishCurrentRemotePlayerState(), 500);
+    const timer = window.setInterval(() => publishCurrentRemotePlayerState(), remotePlayerStateSyncIntervalMs);
     return () => window.clearInterval(timer);
   }, []);
 
@@ -1290,7 +1477,7 @@ function App() {
     if (!isBrowserBackendRuntime) return;
 
     syncRemotePlayerState();
-    const timer = window.setInterval(() => syncRemotePlayerState(), 500);
+    const timer = window.setInterval(() => syncRemotePlayerState(), remotePlayerStateSyncIntervalMs);
     return () => window.clearInterval(timer);
   }, []);
 
@@ -1322,6 +1509,7 @@ function App() {
       onTogglePlayback: togglePlayback,
       onPreviousTrack: playPreviousTrack,
       onNextTrack: () => playNextTrack(),
+      onSeekPlayback: seekTo,
       onVolumeStep: stepVolume,
       onToggleMute: toggleMute,
       onToggleShuffle: toggleShuffle,
@@ -1447,6 +1635,7 @@ function App() {
         }}
         onShuffleChange={changeShuffle}
         onTogglePlayback={togglePlayback}
+        onOpenVisualizer={() => setIsPlayerVisualizerOpen(true)}
         onVolumeChange={setVolume}
         playbackError={playbackError}
         queueLength={queue.length}
@@ -1455,6 +1644,24 @@ function App() {
         repeatMode={repeatMode}
         t={t}
       />
+      {isPlayerVisualizerOpen ? (
+        <Suspense fallback={null}>
+          <PlayerVisualizerOverlay
+            audioRef={audioRef}
+            audioAnalysisPacketRef={audioAnalysisPacketRef}
+            currentAlbum={playbackAlbum}
+            currentTrack={currentTrack}
+            isPlaying={isPlaying}
+            queueTracks={queue}
+            onClose={() => setIsPlayerVisualizerOpen(false)}
+            onNextTrack={() => playNextTrack()}
+            onPreviousTrack={playPreviousTrack}
+            onTogglePlayback={togglePlayback}
+            preferRemoteAudioAnalysis={isBrowserBackendRuntime}
+            t={t}
+          />
+        </Suspense>
+      ) : null}
       {isLibrarySettingsOpen ? (
         <LibrarySettingsDialog
           isScanning={isScanning}

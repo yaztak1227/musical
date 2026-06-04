@@ -6,6 +6,7 @@ import type { Album } from "@/types/audio";
 import type { AlbumViewMode } from "@/types/app";
 import { getArtworkSrc, localizeLibraryText } from "@/lib/libraryUtils";
 import { prepareMarquee } from "@/lib/marqueeUtils";
+import { isRenderDiagnosticsEnabled, logRenderDiagnostic } from "@/lib/renderDiagnostics";
 
 type TFunction = (key: TranslationKey, values?: Record<string, string | number>) => string;
 
@@ -15,15 +16,9 @@ const albumCardRenderBatch = {
   timeoutId: 0,
 };
 
-function logRenderDiagnostic(label: string, payload: Record<string, unknown>) {
-  const message = `[render-diagnostics] ${label} ${JSON.stringify(payload)}`;
-  const windowWithDiagnostics = window as Window & { __renderDiagnostics?: string[] };
-  windowWithDiagnostics.__renderDiagnostics = [...(windowWithDiagnostics.__renderDiagnostics ?? []), message].slice(-300);
-  document.documentElement.dataset.renderDiagnostics = JSON.stringify(windowWithDiagnostics.__renderDiagnostics);
-  console.debug(message);
-}
-
 function logAlbumCardCommit(album: Album, isActive: boolean) {
+  if (!isRenderDiagnosticsEnabled()) return;
+
   albumCardRenderBatch.count += 1;
 
   if (albumCardRenderBatch.examples.length < 8) {
@@ -83,7 +78,7 @@ function AlbumCardComponent({ album, isActive, isPlaying, isTauriRuntime, varian
 
   return (
     <Button
-      className={isActive ? "album-card active" : "album-card"}
+      className={[isActive ? "album-card active" : "album-card", isPlaying ? "playing-album" : ""].filter(Boolean).join(" ")}
       data-album-id={album.id}
       onFocus={prepareMarquee}
       onMouseEnter={prepareMarquee}
@@ -102,7 +97,7 @@ function AlbumCardComponent({ album, isActive, isPlaying, isTauriRuntime, varian
           )}
           <span
             aria-label={hoverActionLabel}
-            className="album-hover-play"
+            className="album-hover-play musical-ripple-button"
             onClick={(event) => {
               event.stopPropagation();
               if (isPlaying) {

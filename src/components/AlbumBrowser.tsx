@@ -13,16 +13,9 @@ import { AlbumCard, AlbumCardFactory } from "@/components/AlbumCard";
 import { formatTrackDuration } from "@/lib/formatUtils";
 import { localizeLibraryText } from "@/lib/libraryUtils";
 import { prepareMarquee } from "@/lib/marqueeUtils";
+import { logRenderDiagnostic } from "@/lib/renderDiagnostics";
 
 type TFunction = (key: TranslationKey, values?: Record<string, string | number>) => string;
-
-function logRenderDiagnostic(label: string, payload: Record<string, unknown>) {
-  const message = `[render-diagnostics] ${label} ${JSON.stringify(payload)}`;
-  const windowWithDiagnostics = window as Window & { __renderDiagnostics?: string[] };
-  windowWithDiagnostics.__renderDiagnostics = [...(windowWithDiagnostics.__renderDiagnostics ?? []), message].slice(-300);
-  document.documentElement.dataset.renderDiagnostics = JSON.stringify(windowWithDiagnostics.__renderDiagnostics);
-  console.debug(message);
-}
 
 type AlbumBrowserProps = {
   albums: Album[];
@@ -219,7 +212,13 @@ function AlbumBrowserComponent({
 
                 return (
                   <div
-                    className={album.id === selectedAlbumId ? "album-table-row active" : "album-table-row"}
+                    className={[
+                      "album-table-row",
+                      album.id === selectedAlbumId ? "active" : "",
+                      isPlaybackAlbumPlaying ? "playing-album-row" : "",
+                    ]
+                      .filter(Boolean)
+                      .join(" ")}
                     data-album-id={album.id}
                     key={album.id}
                     onClick={() => onSelectAlbum(album)}
@@ -243,7 +242,7 @@ function AlbumBrowserComponent({
                     <span role="cell">{t("player.queueCount", { count: album.tracks.length })}</span>
                     <button
                       aria-label={playbackActionLabel}
-                      className="album-table-play-button"
+                      className="album-table-play-button musical-ripple-button"
                       onClick={(event) => {
                         event.stopPropagation();
                         if (isPlaybackAlbumPlaying) {
@@ -273,7 +272,13 @@ function AlbumBrowserComponent({
               </div>
               {trackRows.map(({ album, track }) => (
                 <div
-                  className={album.id === selectedAlbumId ? "album-table-row active" : "album-table-row"}
+                  className={[
+                    "album-table-row",
+                    album.id === selectedAlbumId ? "active" : "",
+                    isPlaying && album.id === playbackAlbumId ? "playing-album-row" : "",
+                  ]
+                    .filter(Boolean)
+                    .join(" ")}
                   data-album-id={album.id}
                   key={track.id}
                   onFocus={prepareMarquee}
@@ -292,7 +297,7 @@ function AlbumBrowserComponent({
                     {track.hasLyrics || track.lyrics?.trim() ? (
                       <Button
                         aria-label={t("trackDetail.showLyrics", { track: localizeLibraryText(track.title, t) })}
-                        className="track-lyrics-table-button"
+                        className="track-lyrics-table-button has-lyrics-icon"
                         onClick={(event) => {
                           event.stopPropagation();
                           onOpenTrackLyrics(track);
@@ -317,7 +322,7 @@ function AlbumBrowserComponent({
                   <span role="cell">{formatTrackDuration(track)}</span>
                   <Button
                     aria-label={t("player.play")}
-                    className="album-table-play-button"
+                    className="album-table-play-button musical-ripple-button"
                     onClick={(event) => {
                       event.stopPropagation();
                       onPlayTrack(track, album.id);

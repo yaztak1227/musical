@@ -6,6 +6,7 @@ type MediaKeyHandlers = {
   onTogglePlayback: () => void;
   onPreviousTrack: () => void;
   onNextTrack: () => void;
+  onSeekPlayback: (time: number) => void;
   onVolumeStep: (delta: number) => void;
   onToggleMute: () => void;
   onToggleShuffle: () => void;
@@ -80,6 +81,11 @@ export function useGlobalMediaKeys(handlers: MediaKeyHandlers) {
     setMediaSessionActionHandler("stop", handlers.onPausePlayback);
     setMediaSessionActionHandler("previoustrack", handlers.onPreviousTrack);
     setMediaSessionActionHandler("nexttrack", handlers.onNextTrack);
+    setMediaSessionActionHandler("seekto", (details) => {
+      if (typeof details.seekTime === "number" && Number.isFinite(details.seekTime)) {
+        handlers.onSeekPlayback(details.seekTime);
+      }
+    });
 
     return () => {
       setMediaSessionActionHandler("play", null);
@@ -87,6 +93,7 @@ export function useGlobalMediaKeys(handlers: MediaKeyHandlers) {
       setMediaSessionActionHandler("stop", null);
       setMediaSessionActionHandler("previoustrack", null);
       setMediaSessionActionHandler("nexttrack", null);
+      setMediaSessionActionHandler("seekto", null);
     };
   }, [handlers]);
 }

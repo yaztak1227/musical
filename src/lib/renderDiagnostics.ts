@@ -1,3 +1,11 @@
+export function isRenderDiagnosticsEnabled() {
+  try {
+    return window.localStorage.getItem("musical.renderDiagnostics") === "true";
+  } catch {
+    return false;
+  }
+}
+
 export function getHeapUsageMb() {
   const performanceWithMemory = performance as Performance & {
     memory?: { usedJSHeapSize: number };
@@ -9,6 +17,8 @@ export function getHeapUsageMb() {
 }
 
 export function logRenderDiagnostic(label: string, payload: Record<string, unknown>) {
+  if (!isRenderDiagnosticsEnabled()) return;
+
   const message = `[render-diagnostics] ${label} ${JSON.stringify(payload)}`;
   const windowWithDiagnostics = window as Window & { __renderDiagnostics?: string[] };
   windowWithDiagnostics.__renderDiagnostics = [...(windowWithDiagnostics.__renderDiagnostics ?? []), message].slice(-300);

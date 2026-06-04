@@ -140,6 +140,13 @@
   <message key="player.queue">キュー</message>
   <message key="player.queueCount">{count} 曲</message>
   <message key="player.queueToggle">キューの表示を切り替え</message>
+  <message key="player.openVisualizer">プレイヤーモード</message>
+  <message key="player.closeVisualizer">プレイヤーモードを閉じる</message>
+  <message key="player.visualizerLabel">プレイヤービジュアライザ</message>
+  <message key="player.visualizerMode">ビジュアライザーモード</message>
+  <message key="player.visualizerWave">波</message>
+  <message key="player.visualizerSpectrum">スペクトラム</message>
+  <message key="player.visualizerCircle">サークル</message>
   <message key="player.playbackError">この曲を再生できませんでした: {message}</message>
   <message key="status.noLibraryScanned">ライブラリはまだスキャンされていません。</message>
   <message key="status.webMockMode">Web モードではモックアルバムを使用しています。</message>

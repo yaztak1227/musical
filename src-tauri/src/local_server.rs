@@ -76,6 +76,10 @@ struct RemotePlayerState {
     repeat_mode: String,
     current_time: f64,
     volume: f64,
+    audio_analysis_duration: Option<f64>,
+    audio_analysis_frame_timecodes: Option<Vec<f64>>,
+    audio_analysis_frames: Option<Vec<Vec<u8>>>,
+    audio_analysis_start_time: Option<f64>,
 }
 
 #[derive(Debug, Deserialize)]

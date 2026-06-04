@@ -1,4 +1,4 @@
-import { FolderOpen, Save, X } from "lucide-react";
+import { Check, FolderOpen, Save, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -62,6 +62,9 @@ export function TrackDetailDialog({
   trackTagDraft,
   trackTagMessage,
 }: TrackDetailDialogProps) {
+  const hasTrackSaveSuccess = trackTagMessage?.key === "tags.trackSaved" || trackTagMessage?.key === "tags.mockSaved";
+  const hasArtworkSaveSuccess = trackTagMessage?.key === "tags.artworkSaved";
+
   return (
     <div className="track-detail-backdrop" onMouseDown={onClose} role="presentation">
       <section
@@ -132,9 +135,14 @@ export function TrackDetailDialog({
               </p>
             ) : null}
             <div className="album-tag-actions">
-              <Button disabled={!hasTrackTagChanges || isSavingTrackTags} onClick={onSaveTrackTags} type="button">
-                <Save />
-                {isSavingTrackTags ? t("tags.saving") : t("tags.save")}
+              <Button
+                className={hasTrackSaveSuccess ? "save-button saved" : "save-button"}
+                disabled={!hasTrackTagChanges || isSavingTrackTags}
+                onClick={onSaveTrackTags}
+                type="button"
+              >
+                {hasTrackSaveSuccess ? <Check /> : <Save />}
+                {hasTrackSaveSuccess && trackTagMessage ? t(trackTagMessage.key, trackTagMessage.values) : isSavingTrackTags ? t("tags.saving") : t("tags.save")}
               </Button>
               <Button
                 disabled={!hasTrackTagChanges || isSavingTrackTags}
@@ -176,9 +184,18 @@ export function TrackDetailDialog({
                   <FolderOpen />
                   {t("trackDetail.chooseArtwork")}
                 </Button>
-                <Button disabled={!artworkDraftPath || isSavingArtwork || !hasRealBackend} onClick={onSaveArtwork} type="button">
-                  <Save />
-                  {isSavingArtwork ? t("tags.saving") : t("trackDetail.saveArtwork")}
+                <Button
+                  className={hasArtworkSaveSuccess ? "save-button saved" : "save-button"}
+                  disabled={!artworkDraftPath || isSavingArtwork || !hasRealBackend}
+                  onClick={onSaveArtwork}
+                  type="button"
+                >
+                  {hasArtworkSaveSuccess ? <Check /> : <Save />}
+                  {hasArtworkSaveSuccess && trackTagMessage
+                    ? t(trackTagMessage.key, trackTagMessage.values)
+                    : isSavingArtwork
+                      ? t("tags.saving")
+                      : t("trackDetail.saveArtwork")}
                 </Button>
               </div>
               {!isTauriRuntime ? <p className="tag-edit-message">{t("trackDetail.artworkDesktopOnly")}</p> : null}
