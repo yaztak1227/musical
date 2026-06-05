@@ -213,7 +213,7 @@ select:focus-visible {
   display: flex;
   flex: 1 1 auto;
   flex-direction: column;
-  gap: 16px;
+  gap: 10px;
   min-width: 0;
   min-height: 0;
 }
@@ -470,6 +470,79 @@ select:focus-visible {
   justify-content: space-between;
   gap: 16px;
   min-width: 0;
+}
+
+.sidebar-section {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+  padding-bottom: 10px;
+  border-bottom: 1px solid color-mix(in oklch, var(--border), transparent 42%);
+}
+
+.sidebar-section:last-child {
+  padding-bottom: 0;
+  border-bottom: 0;
+}
+
+.sidebar-section-toggle {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 36px;
+  border: 0;
+  border-radius: 8px;
+  padding: 6px 8px;
+  color: var(--foreground);
+  background: transparent;
+  cursor: pointer;
+}
+
+.sidebar-section-toggle:hover {
+  background: color-mix(in oklch, var(--muted), transparent 40%);
+}
+
+.sidebar-section-label {
+  display: inline-grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  font-size: 0.82rem;
+  font-weight: 850;
+}
+
+.sidebar-section-label svg {
+  width: 16px;
+  height: 16px;
+  color: var(--primary);
+}
+
+.sidebar-section-label span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sidebar-section-toggle > svg {
+  width: 16px;
+  height: 16px;
+  color: var(--app-muted);
+  transition: transform 160ms ease;
+}
+
+.sidebar-section[data-open="true"] .sidebar-section-toggle > svg {
+  transform: rotate(180deg);
+}
+
+.sidebar-section-content {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+  padding-inline: 2px;
 }
 
 .language-field {
@@ -788,18 +861,58 @@ h2 {
   align-items: start;
 }
 
-.update-actions {
+.settings-action-row {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  align-items: center;
-  gap: 12px;
+  grid-template-columns: minmax(0, 1fr);
+  align-items: start;
+  gap: 8px;
   min-width: 0;
   padding-top: 4px;
   border-top: 1px solid color-mix(in oklch, var(--border), transparent 34%);
 }
 
-.update-actions .info-text {
+.settings-action-row .info-text {
   margin-top: 4px;
+  font-size: 0.82rem;
+  line-height: 1.35;
+}
+
+.settings-action-row [data-slot="button"] {
+  justify-self: start;
+}
+
+.mcp-setting {
+  display: inline-grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: start;
+  gap: 10px;
+  min-width: 0;
+  color: var(--foreground);
+}
+
+.mcp-setting input {
+  width: 16px;
+  height: 16px;
+  margin-top: 2px;
+  accent-color: var(--primary);
+}
+
+.mcp-setting span {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.mcp-setting span span {
+  color: var(--app-muted);
+  font-size: 0.9rem;
+  font-weight: 500;
+  line-height: 1.35;
+}
+
+.mcp-status {
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .scan-loading-rail {
@@ -1622,8 +1735,9 @@ button.album-card {
 
 .track-title {
   display: flex;
-  align-items: center;
-  gap: 7px;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
   width: 100%;
   min-width: 0;
   overflow: hidden;
@@ -1632,8 +1746,22 @@ button.album-card {
 
 .track-name {
   display: block;
+  max-width: 100%;
   min-width: 0;
   overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.track-album-meta {
+  display: block;
+  max-width: 100%;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--app-muted);
+  font-size: 0.72rem;
+  font-weight: 700;
+  line-height: 1.2;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -1721,6 +1849,13 @@ button.album-card {
 .track-list .track-select-button:focus-visible .track-title-wrap[data-marquee="true"] .track-name,
 .track-list .track-select-button:focus-within .track-title-wrap[data-marquee="true"] .track-name {
   width: max-content;
+  overflow: visible;
+  text-overflow: clip;
+}
+
+.track-list .track-select-button:hover .track-title-wrap[data-marquee="true"] .track-album-meta,
+.track-list .track-select-button:focus-visible .track-title-wrap[data-marquee="true"] .track-album-meta,
+.track-list .track-select-button:focus-within .track-title-wrap[data-marquee="true"] .track-album-meta {
   overflow: visible;
   text-overflow: clip;
 }
@@ -2999,12 +3134,46 @@ button.album-card {
 }
 
 .visualizer-controls-dock {
+  position: relative;
   display: grid;
   justify-self: center;
   justify-items: center;
   gap: 14px;
   width: min(100%, 520px);
   min-width: 0;
+}
+
+.visualizer-chibi-toggle.icon-button {
+  position: absolute;
+  top: -8px;
+  right: -42px;
+  width: 30px;
+  min-width: 30px;
+  height: 30px;
+  min-height: 30px;
+  border-color: rgba(255, 255, 255, 0.16);
+  color: rgba(255, 255, 255, 0.42);
+  background: rgba(255, 255, 255, 0.045);
+  opacity: 0.5;
+  backdrop-filter: blur(12px);
+}
+
+.visualizer-chibi-toggle.icon-button svg {
+  width: 14px;
+  height: 14px;
+}
+
+.visualizer-chibi-toggle.icon-button:hover,
+.visualizer-chibi-toggle.icon-button:focus-visible,
+.visualizer-chibi-toggle.icon-button.active {
+  border-color: rgba(255, 255, 255, 0.34);
+  color: rgba(255, 255, 255, 0.82);
+  background: rgba(255, 255, 255, 0.11);
+  opacity: 0.92;
+}
+
+.visualizer-chibi-toggle.icon-button.active {
+  box-shadow: 0 0 18px rgba(99, 230, 255, 0.16);
 }
 
 .visualizer-transport-controls {
@@ -3799,6 +3968,11 @@ button.album-card {
   .visualizer-mode-switch {
     width: 100%;
     padding-inline: 0;
+  }
+
+  .visualizer-chibi-toggle.icon-button {
+    top: -38px;
+    right: 0;
   }
 
   .visualizer-mode-button {

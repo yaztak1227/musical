@@ -1,4 +1,5 @@
 mod app_config;
+mod app_settings;
 mod audio_analysis;
 mod library;
 mod local_server;

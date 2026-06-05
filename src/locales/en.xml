@@ -27,6 +27,11 @@
   <message key="updates.installed">Installed version {version}. Restart Musical to finish.</message>
   <message key="updates.none">Musical is up to date.</message>
   <message key="updates.desktopOnly">Updates are available in the desktop app.</message>
+  <message key="mcp.label">Start MCP server</message>
+  <message key="mcp.description">Expose local AI tools for playback, library search, scanning, and tag edits.</message>
+  <message key="mcp.running">MCP endpoint: {url}</message>
+  <message key="mcp.stopped">MCP server is stopped.</message>
+  <message key="mcp.error">Could not update MCP server: {message}</message>
   <message key="search.label">Search albums</message>
   <message key="search.placeholder">Album, artist, year</message>
   <message key="search.lyricsFilter">Show albums with lyrics</message>
@@ -55,6 +60,9 @@
   <message key="albums.jumpToIndex">Jump to {letter}</message>
   <message key="sidebar.collapse">Collapse library panel</message>
   <message key="sidebar.expand">Expand library panel</message>
+  <message key="sidebar.section.appearance">Appearance</message>
+  <message key="sidebar.section.settings">Settings</message>
+  <message key="sidebar.section.remote">Connection</message>
   <message key="remoteAccess.label">Remote access</message>
   <message key="remoteAccess.modeLabel">Connection mode</message>
   <message key="remoteAccess.mode.off">Private</message>
@@ -157,6 +165,7 @@
   <message key="player.visualizerWave">Wave</message>
   <message key="player.visualizerSpectrum">Spectrum</message>
   <message key="player.visualizerCircle">Circle</message>
+  <message key="player.chibiMode">Chibi character mode</message>
   <message key="player.playbackError">Could not play this track: {message}</message>
   <message key="status.noLibraryScanned">No library scanned yet.</message>
   <message key="status.webMockMode">Web mode is using mock albums.</message>

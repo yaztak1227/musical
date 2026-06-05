@@ -12,6 +12,12 @@ import type { Album, Track } from "@/types/audio";
 
 type TrackDetailTab = "info" | "lyrics" | "artwork";
 
+export type LibraryTrackEntry = {
+  album: Album;
+  track: Track;
+  trackIndex: number;
+};
+
 type SelectedAlbumPanelProps = {
   albumPanelRef: RefObject<HTMLElement | null>;
   albumTagDraft: AlbumTagDraft;
@@ -44,6 +50,7 @@ type SelectedAlbumPanelProps = {
   selectedAlbum: Album | null;
   selectedTrackId: number | null;
   t: TFunction;
+  trackEntries: LibraryTrackEntry[];
 };
 
 export function SelectedAlbumPanel({
@@ -78,6 +85,7 @@ export function SelectedAlbumPanel({
   selectedAlbum,
   selectedTrackId,
   t,
+  trackEntries,
 }: SelectedAlbumPanelProps) {
   const selectedAlbumArtworkSrc = selectedAlbum ? getArtworkSrc(selectedAlbum) : "";
   const hasAlbumSaveSuccess =
@@ -237,7 +245,7 @@ export function SelectedAlbumPanel({
 
           <Separator />
           <ol className="track-list">
-            {selectedAlbum.tracks.map((track, trackIndex) => {
+            {trackEntries.map(({ album, track }, displayIndex) => {
               const trackRowClassName = [
                 "track-list-row",
                 track.id === currentTrack?.id ? "active-track-row" : "",
@@ -251,12 +259,12 @@ export function SelectedAlbumPanel({
                   <span className="track-title-cell">
                     <span className="track-action-slot">
                       <span className="track-number" aria-hidden="true">
-                        {track.trackNumber ?? trackIndex + 1}
+                        {displayIndex + 1}
                       </span>
                       <button
                         aria-label={`${t("player.play")} ${localizeLibraryText(track.title, t)}`}
                         className="track-play-button musical-ripple-button"
-                        onClick={() => onPlayTrack(track, selectedAlbum.id)}
+                        onClick={() => onPlayTrack(track, album.id)}
                         title={`${t("player.play")} ${localizeLibraryText(track.title, t)}`}
                         type="button"
                       >
@@ -283,6 +291,9 @@ export function SelectedAlbumPanel({
                       <span className="track-title-wrap marquee-wrap">
                         <span className="track-title marquee-text">
                           <span className="track-name">{localizeLibraryText(track.title, t)}</span>
+                          <span className="track-album-meta">
+                            {localizeLibraryText(album.title, t)} / {localizeLibraryText(track.artist || album.artist, t)}
+                          </span>
                         </span>
                       </span>
                     </Button>

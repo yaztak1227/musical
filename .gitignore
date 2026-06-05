@@ -15,6 +15,7 @@ playwright-report
 test-results
 src-tauri/target
 tasklist/*
+unused_assets/
 *.local
 .codex/config.toml
 

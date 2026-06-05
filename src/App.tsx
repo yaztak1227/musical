@@ -63,8 +63,9 @@ import {
 import { getHeapUsageMb, logRenderDiagnostic, releaseAudioSource } from "./lib/renderDiagnostics";
 import { isTrackTagDraftChanged, makeTrackTagDraft } from "./lib/trackTagDraftUtils";
 import { useRemoteAccess } from "./lib/useRemoteAccess";
+import { getMcpSettings, setMcpEnabled } from "./lib/mcpSettings";
 import { AlbumBrowser } from "./components/AlbumBrowser";
-import { LibrarySidebar } from "./components/LibrarySidebar";
+import { LibrarySidebar, type LibrarySidebarSection, type LibrarySidebarSectionState } from "./components/LibrarySidebar";
 import { LibrarySettingsDialog } from "./components/LibrarySettingsDialog";
 import { PlayerBar, type PlayerBarHandle } from "./components/PlayerBar";
 import { SelectedAlbumPanel } from "./components/SelectedAlbumPanel";
@@ -83,6 +84,7 @@ const {
   trackLongPressMoveTolerance,
 } = appInteractionConfig;
 const audioAnalysisSampleIntervalMs: number = audioAnalysisConfig.sampleIntervalMs;
+
 const {
   chunkDurationSeconds: remoteAudioAnalysisChunkDurationSeconds,
   durationPaddingSeconds: remoteAudioAnalysisDurationPaddingSeconds,
@@ -97,6 +99,34 @@ const {
   stalePlayerStateToleranceSeconds: staleRemotePlayerStateToleranceSeconds,
 } = remotePlaybackConfig;
 const PlayerVisualizerOverlay = lazy(() => import("./components/PlayerVisualizerOverlay"));
+
+const defaultLibrarySidebarSectionState = {
+  appearance: true,
+  settings: true,
+  remote: false,
+} satisfies LibrarySidebarSectionState;
+
+function getStoredLibrarySidebarSectionState(): LibrarySidebarSectionState {
+  const storedValue = window.localStorage.getItem("musical.librarySidebarSections");
+  if (!storedValue) return defaultLibrarySidebarSectionState;
+
+  try {
+    const parsedValue = JSON.parse(storedValue) as Partial<Record<LibrarySidebarSection, unknown>>;
+    const legacyLibraryValue = (parsedValue as { library?: unknown }).library;
+    return {
+      appearance: typeof parsedValue.appearance === "boolean" ? parsedValue.appearance : defaultLibrarySidebarSectionState.appearance,
+      settings:
+        typeof parsedValue.settings === "boolean"
+          ? parsedValue.settings
+          : typeof legacyLibraryValue === "boolean"
+            ? legacyLibraryValue
+            : defaultLibrarySidebarSectionState.settings,
+      remote: typeof parsedValue.remote === "boolean" ? parsedValue.remote : defaultLibrarySidebarSectionState.remote,
+    };
+  } catch {
+    return defaultLibrarySidebarSectionState;
+  }
+}
 
 type AlbumPanelDragStart = {
   hasDragged: boolean;
@@ -262,6 +292,9 @@ function App() {
   );
   const [updateInfo, setUpdateInfo] = useState<I18nMessage | null>(null);
   const [isCheckingForUpdate, setIsCheckingForUpdate] = useState(false);
+  const [isMcpEnabled, setIsMcpEnabled] = useState(false);
+  const [mcpUrl, setMcpUrl] = useState<string | null>(null);
+  const [mcpError, setMcpError] = useState<string | null>(null);
   const [albums, setAlbums] = useState<Album[]>(hasRealBackend ? [] : mockAlbums);
   const [selectedAlbumId, setSelectedAlbumId] = useState<number | null>(() =>
     hasRealBackend ? null : getInitialAlbumId(mockAlbums, storedPlaybackPreferences.selectedAlbumId),
@@ -289,9 +322,12 @@ function App() {
   const [albumSortMode, setAlbumSortMode] = useState<AlbumSortMode>("title");
   const [albumSortDirection, setAlbumSortDirection] = useState<AlbumSortDirection>("asc");
   const [lyricsOnly, setLyricsOnly] = useState(false);
-  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(() => window.localStorage.getItem("musical.sidebarCollapsed") === "true");
   const [isAlbumPanelCollapsed, setIsAlbumPanelCollapsed] = useState(false);
-  const [isLibraryMenuOpen, setIsLibraryMenuOpen] = useState(false);
+  const [isLibraryMenuOpen, setIsLibraryMenuOpen] = useState(() => window.localStorage.getItem("musical.libraryMenuOpen") === "true");
+  const [librarySidebarSectionState, setLibrarySidebarSectionState] = useState<LibrarySidebarSectionState>(() =>
+    getStoredLibrarySidebarSectionState(),
+  );
   const [isLibrarySettingsOpen, setIsLibrarySettingsOpen] = useState(false);
   const [isPlayerVisualizerOpen, setIsPlayerVisualizerOpen] = useState(false);
   const [playbackError, setPlaybackError] = useState<string | null>(null);
@@ -323,6 +359,18 @@ function App() {
   }, [themeName]);
 
   useEffect(() => {
+    window.localStorage.setItem("musical.sidebarCollapsed", String(isSidebarCollapsed));
+  }, [isSidebarCollapsed]);
+
+  useEffect(() => {
+    window.localStorage.setItem("musical.libraryMenuOpen", String(isLibraryMenuOpen));
+  }, [isLibraryMenuOpen]);
+
+  useEffect(() => {
+    window.localStorage.setItem("musical.librarySidebarSections", JSON.stringify(librarySidebarSectionState));
+  }, [librarySidebarSectionState]);
+
+  useEffect(() => {
     const playbackPreferences: PlaybackPreferences = {
       isShuffle,
       playbackAlbumId,
@@ -335,6 +383,22 @@ function App() {
   useEffect(() => {
     if (!hasRealBackend) return;
     void refreshLibrary();
+  }, []);
+
+  useEffect(() => {
+    if (!isTauriRuntime) return;
+
+    void getMcpSettings()
+      .then((settings) => {
+        setIsMcpEnabled(settings?.enabled ?? false);
+        setMcpUrl(settings?.url ?? null);
+        setMcpError(null);
+      })
+      .catch((error: unknown) => {
+        setIsMcpEnabled(false);
+        setMcpUrl(null);
+        setMcpError(String(error));
+      });
   }, []);
 
   useEffect(() => {
@@ -427,9 +491,12 @@ function App() {
     () => filterAndSortAlbums(albums, query, albumSortMode, albumSortDirection, t, lyricsOnly),
     [albumSortDirection, albumSortMode, albums, lyricsOnly, query, t],
   );
-
   const selectedAlbum =
     albums.find((album) => album.id === selectedAlbumId) ?? filteredAlbums[0] ?? albums[0] ?? null;
+  const selectedAlbumTrackEntries = useMemo(
+    () => selectedAlbum?.tracks.map((track, trackIndex) => ({ album: selectedAlbum, track, trackIndex })) ?? [],
+    [selectedAlbum],
+  );
   const playbackAlbum =
     albums.find((album) => album.id === playbackAlbumId) ??
     albums.find((album) => album.tracks.some((track) => track.id === currentTrack?.id)) ??
@@ -517,6 +584,27 @@ function App() {
     } catch (error) {
       setLibraryInfo(toI18nError(error));
     }
+  }
+
+  async function changeMcpEnabled(enabled: boolean) {
+    setIsMcpEnabled(enabled);
+    setMcpError(null);
+
+    try {
+      const settings = await setMcpEnabled(enabled);
+      setIsMcpEnabled(settings.enabled);
+      setMcpUrl(settings.url);
+    } catch (error) {
+      setIsMcpEnabled(!enabled);
+      setMcpError(String(error));
+    }
+  }
+
+  function changeLibrarySidebarSectionOpen(section: LibrarySidebarSection, isOpen: boolean) {
+    setLibrarySidebarSectionState((state) => ({
+      ...state,
+      [section]: isOpen,
+    }));
   }
 
   function applyLibrarySnapshot(snapshot: LibrarySnapshot, options: { resetPlayback: boolean }) {
@@ -1710,16 +1798,25 @@ function App() {
       <audio ref={audioRef} preload="metadata" />
       <LibrarySidebar
         displayedLibraryPath={displayedLibraryPath}
+        isCheckingForUpdate={isCheckingForUpdate}
         isLibraryMenuOpen={isLibraryMenuOpen}
+        isMcpEnabled={isMcpEnabled}
         isSidebarCollapsed={isSidebarCollapsed}
         isTauriRuntime={hasRealBackend}
         locale={locale}
+        mcpError={mcpError}
+        mcpUrl={mcpUrl}
+        updateInfo={updateInfo}
+        onCheckForUpdate={() => void handleCheckForUpdate()}
         onLibraryMenuOpenChange={setIsLibraryMenuOpen}
         onLocaleChange={setLocale}
+        onMcpEnabledChange={(enabled) => void changeMcpEnabled(enabled)}
         onOpenLibrarySettings={() => setIsLibrarySettingsOpen(true)}
+        onSectionOpenChange={changeLibrarySidebarSectionOpen}
         onSidebarCollapsedChange={setIsSidebarCollapsed}
         onThemeNameChange={setThemeName}
         remoteAccess={remoteAccess}
+        sectionOpenState={librarySidebarSectionState}
         t={t}
         themeName={themeName}
       />
@@ -1788,6 +1885,7 @@ function App() {
         selectedAlbum={selectedAlbum}
         selectedTrackId={selectedTrackId}
         t={t}
+        trackEntries={selectedAlbumTrackEntries}
       />
 
       <PlayerBar
@@ -1842,18 +1940,15 @@ function App() {
       ) : null}
       {isLibrarySettingsOpen ? (
         <LibrarySettingsDialog
-          isCheckingForUpdate={isCheckingForUpdate}
           isScanning={isScanning}
           isTauriRuntime={isTauriRuntime}
           libraryInfo={libraryInfo}
           libraryPath={libraryPath}
           onChooseFolder={() => void handleChooseFolder()}
-          onCheckForUpdate={() => void handleCheckForUpdate()}
           onClose={() => setIsLibrarySettingsOpen(false)}
           onLibraryPathChange={setLibraryPath}
           onScan={() => void handleScan()}
           t={t}
-          updateInfo={updateInfo}
         />
       ) : null}
       {detailTrack && detailAlbum ? (
