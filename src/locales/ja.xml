@@ -27,6 +27,11 @@
   <message key="updates.installed">バージョン {version} をインストールしました。Musical を再起動すると完了します。</message>
   <message key="updates.none">Musical は最新です。</message>
   <message key="updates.desktopOnly">アップデートはデスクトップアプリで利用できます。</message>
+  <message key="mcp.label">MCPサーバーを起動</message>
+  <message key="mcp.description">再生、ライブラリ検索、スキャン、タグ編集をローカルAIツールとして公開します。</message>
+  <message key="mcp.running">MCPエンドポイント: {url}</message>
+  <message key="mcp.stopped">MCPサーバーは停止中です。</message>
+  <message key="mcp.error">MCPサーバーを更新できませんでした: {message}</message>
   <message key="search.label">アルバム検索</message>
   <message key="search.placeholder">アルバム、アーティスト、年</message>
   <message key="search.lyricsFilter">歌詞があるアルバムだけ表示</message>
@@ -55,6 +60,9 @@
   <message key="albums.jumpToIndex">{letter} へ移動</message>
   <message key="sidebar.collapse">左パネルを閉じる</message>
   <message key="sidebar.expand">左パネルを開く</message>
+  <message key="sidebar.section.appearance">表示</message>
+  <message key="sidebar.section.settings">設定</message>
+  <message key="sidebar.section.remote">接続</message>
   <message key="remoteAccess.label">外部接続</message>
   <message key="remoteAccess.modeLabel">接続モード</message>
   <message key="remoteAccess.mode.off">非公開</message>
@@ -157,6 +165,7 @@
   <message key="player.visualizerWave">波</message>
   <message key="player.visualizerSpectrum">スペクトラム</message>
   <message key="player.visualizerCircle">サークル</message>
+  <message key="player.chibiMode">ちびキャラモード</message>
   <message key="player.playbackError">この曲を再生できませんでした: {message}</message>
   <message key="status.noLibraryScanned">ライブラリはまだスキャンされていません。</message>
   <message key="status.webMockMode">Web モードではモックアルバムを使用しています。</message>
