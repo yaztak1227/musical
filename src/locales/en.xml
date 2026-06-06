@@ -22,7 +22,14 @@
   <message key="scan.buttonScanning">Scanning...</message>
   <message key="updates.label">Updates</message>
   <message key="updates.check">Check for updates</message>
+  <message key="updates.start">Start update</message>
   <message key="updates.checking">Checking...</message>
+  <message key="updates.available">Version {version} is available.</message>
+  <message key="updates.confirmTitle">Install update?</message>
+  <message key="updates.confirmMessage">Version {version} is available. Install it now?</message>
+  <message key="updates.confirmInstall">Install now</message>
+  <message key="updates.confirmLater">Later</message>
+  <message key="updates.postponed">Version {version} is available. You can install it later.</message>
   <message key="updates.installing">Installing update...</message>
   <message key="updates.installed">Installed version {version}. Restart Musical to finish.</message>
   <message key="updates.none">Musical is up to date.</message>

@@ -1,4 +1,4 @@
-import { open as openDialog } from "@tauri-apps/plugin-dialog";
+import { confirm as confirmDialog, open as openDialog } from "@tauri-apps/plugin-dialog";
 import {
   type PointerEvent,
   lazy,
@@ -25,7 +25,7 @@ import {
   isThemeName,
 } from "./types/app";
 import { updateAlbumTags, updateTrackArtwork, updateTrackTags, type AlbumTagDraft, type TrackTagDraft } from "./lib/tagEditing";
-import { checkAndInstallAppUpdate } from "./lib/appUpdates";
+import { checkAppUpdate, installAppUpdate, type AvailableAppUpdate } from "./lib/appUpdates";
 import {
   backendInvoke,
   getBackendMediaSrc,
@@ -234,6 +234,17 @@ function makeAudioAnalysisPacketFromFrames(
   } satisfies RemoteAudioAnalysisPacket;
 }
 
+function rebaseAudioAnalysisPacketPlaybackTime(
+  packet: RemoteAudioAnalysisPacket,
+  currentTimeAtReceived: number,
+) {
+  return {
+    ...packet,
+    currentTimeAtReceived,
+    receivedAt: performance.now(),
+  } satisfies RemoteAudioAnalysisPacket;
+}
+
 function mergeRemoteAudioAnalysisFrames(
   currentFrames: RemoteAudioAnalysisFrameEntry[],
   nextFrames: RemoteAudioAnalysisFrameEntry[],
@@ -292,6 +303,7 @@ function App() {
   );
   const [updateInfo, setUpdateInfo] = useState<I18nMessage | null>(null);
   const [isCheckingForUpdate, setIsCheckingForUpdate] = useState(false);
+  const [availableAppUpdate, setAvailableAppUpdate] = useState<AvailableAppUpdate | null>(null);
   const [isMcpEnabled, setIsMcpEnabled] = useState(false);
   const [mcpUrl, setMcpUrl] = useState<string | null>(null);
   const [mcpError, setMcpError] = useState<string | null>(null);
@@ -765,18 +777,54 @@ function App() {
   }
 
   async function handleCheckForUpdate() {
+    if (availableAppUpdate) {
+      await confirmAndInstallAppUpdate(availableAppUpdate);
+      return;
+    }
+
     setIsCheckingForUpdate(true);
     setUpdateInfo({ key: "updates.checking" });
 
     try {
-      const result = await checkAndInstallAppUpdate();
-      if (result.status === "installed") {
-        setUpdateInfo({ key: "updates.installed", values: { version: result.version } });
-      } else if (result.status === "unsupported") {
+      const result = await checkAppUpdate();
+      if (result.status === "unsupported") {
+        setAvailableAppUpdate(null);
         setUpdateInfo({ key: "updates.desktopOnly" });
-      } else {
+      } else if (result.status === "none") {
+        setAvailableAppUpdate(null);
         setUpdateInfo({ key: "updates.none" });
+      } else {
+        setAvailableAppUpdate(result);
+        setUpdateInfo({ key: "updates.available", values: { version: result.version } });
+        setIsCheckingForUpdate(false);
+        await confirmAndInstallAppUpdate(result);
       }
+    } catch (error) {
+      setUpdateInfo(toI18nError(error));
+    } finally {
+      setIsCheckingForUpdate(false);
+    }
+  }
+
+  async function confirmAndInstallAppUpdate(appUpdate: AvailableAppUpdate) {
+    const shouldInstall = await confirmDialog(t("updates.confirmMessage", { version: appUpdate.version }), {
+      cancelLabel: t("updates.confirmLater"),
+      kind: "info",
+      okLabel: t("updates.confirmInstall"),
+      title: t("updates.confirmTitle"),
+    });
+
+    if (!shouldInstall) {
+      setUpdateInfo({ key: "updates.postponed", values: { version: appUpdate.version } });
+      return;
+    }
+
+    setIsCheckingForUpdate(true);
+    setUpdateInfo({ key: "updates.installing" });
+    try {
+      const installResult = await installAppUpdate(appUpdate.update);
+      setAvailableAppUpdate(null);
+      setUpdateInfo({ key: "updates.installed", values: { version: installResult.version } });
     } catch (error) {
       setUpdateInfo(toI18nError(error));
     } finally {
@@ -1593,13 +1641,18 @@ function App() {
       });
   });
 
-  const loadRemoteTrackAnalysis = useEffectEvent((track: Track) => {
+  const loadTrackAnalysis = useEffectEvent((track: Track) => {
     const clock = remotePlaybackClockRef.current;
-    if (clock?.trackId !== track.id) return;
+    if (isBrowserBackendRuntime && clock?.trackId !== track.id) return;
 
     const cachedPacket = remoteAudioAnalysisPacketsByTrackRef.current.get(track.id);
     if (cachedPacket) {
-      audioAnalysisPacketRef.current = cachedPacket;
+      audioAnalysisPacketRef.current = rebaseAudioAnalysisPacketPlaybackTime(
+        cachedPacket,
+        isTauriRuntime
+          ? playerBarRef.current?.getCurrentTime() ?? 0
+          : estimateRemotePlaybackTime(remotePlaybackClockRef.current),
+      );
       loadedRemoteAudioAnalysisTrackIdRef.current = track.id;
       return;
     }
@@ -1622,7 +1675,7 @@ function App() {
       for (let chunkIndex = 0; chunkIndex < chunkCount; chunkIndex += 1) {
         if (
           remoteAudioAnalysisLoadStateRef.current?.requestId !== requestId ||
-          remotePlaybackClockRef.current?.trackId !== track.id
+          (isBrowserBackendRuntime && remotePlaybackClockRef.current?.trackId !== track.id)
         ) {
           return;
         }
@@ -1633,7 +1686,7 @@ function App() {
         if (
           segment.trackId !== track.id ||
           remoteAudioAnalysisLoadStateRef.current?.requestId !== requestId ||
-          remotePlaybackClockRef.current?.trackId !== track.id
+          (isBrowserBackendRuntime && remotePlaybackClockRef.current?.trackId !== track.id)
         ) {
           return;
         }
@@ -1644,7 +1697,9 @@ function App() {
           track.id,
           frames,
           frameIntervalMs,
-          estimateRemotePlaybackTime(remotePlaybackClockRef.current),
+          isTauriRuntime
+            ? playerBarRef.current?.getCurrentTime() ?? 0
+            : estimateRemotePlaybackTime(remotePlaybackClockRef.current),
         );
         if (partialPacket) audioAnalysisPacketRef.current = partialPacket;
 
@@ -1653,7 +1708,7 @@ function App() {
 
       if (
         remoteAudioAnalysisLoadStateRef.current?.requestId !== requestId ||
-        remotePlaybackClockRef.current?.trackId !== track.id
+        (isBrowserBackendRuntime && remotePlaybackClockRef.current?.trackId !== track.id)
       ) {
         return;
       }
@@ -1662,7 +1717,9 @@ function App() {
         track.id,
         frames,
         frameIntervalMs,
-        estimateRemotePlaybackTime(remotePlaybackClockRef.current),
+        isTauriRuntime
+          ? playerBarRef.current?.getCurrentTime() ?? 0
+          : estimateRemotePlaybackTime(remotePlaybackClockRef.current),
       );
       if (completePacket) {
         remoteAudioAnalysisPacketsByTrackRef.current.set(track.id, completePacket);
@@ -1674,7 +1731,7 @@ function App() {
       if (remoteAudioAnalysisLoadStateRef.current?.requestId === requestId) {
         remoteAudioAnalysisLoadStateRef.current = null;
       }
-      // Partial browser analysis is intentionally not cached unless every chunk completes.
+      // Partial analysis is intentionally not cached unless every chunk completes.
     });
   });
 
@@ -1714,7 +1771,7 @@ function App() {
   }, []);
 
   useEffect(() => {
-    if (!isBrowserBackendRuntime) return;
+    if (!isBrowserBackendRuntime && !isTauriRuntime) return;
     if (!currentTrack || !isPlaying) {
       audioAnalysisPacketRef.current = null;
       remoteAudioAnalysisLoadStateRef.current = null;
@@ -1722,7 +1779,7 @@ function App() {
       return;
     }
 
-    loadRemoteTrackAnalysis(currentTrack);
+    loadTrackAnalysis(currentTrack);
   }, [currentTrack?.id, isPlaying]);
 
   useEffect(() => {
@@ -1794,6 +1851,7 @@ function App() {
       <audio ref={audioRef} preload="metadata" />
       <LibrarySidebar
         displayedLibraryPath={displayedLibraryPath}
+        hasAvailableAppUpdate={availableAppUpdate !== null}
         isCheckingForUpdate={isCheckingForUpdate}
         isLibraryMenuOpen={isLibraryMenuOpen}
         isMcpEnabled={isMcpEnabled}
@@ -1928,7 +1986,7 @@ function App() {
             onPreviousTrack={playPreviousTrack}
             onQueueTrackPlay={playQueuedTrack}
             onTogglePlayback={togglePlayback}
-            preferRemoteAudioAnalysis={isBrowserBackendRuntime || isMockDataRuntime}
+            preferRemoteAudioAnalysis={isTauriRuntime || isBrowserBackendRuntime || isMockDataRuntime}
             remotePlaybackClockRef={remotePlaybackClockRef}
             t={t}
           />

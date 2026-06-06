@@ -357,6 +357,7 @@ function proxyLocalBackendRequest(request: IncomingMessage, response: ServerResp
   );
 
   proxyRequest.on("error", (error) => {
+    if (response.headersSent || response.writableEnded) return;
     sendJson(response, 502, { error: `Local backend is unavailable: ${error.message}` });
   });
 
@@ -417,6 +418,7 @@ function readJsonBody<T>(request: IncomingMessage) {
 }
 
 function sendJson(response: ServerResponse, statusCode: number, body: unknown) {
+  if (response.headersSent || response.writableEnded) return;
   response.statusCode = statusCode;
   response.setHeader("Content-Type", "application/json");
   response.end(JSON.stringify(body));
