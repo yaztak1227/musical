@@ -14,6 +14,7 @@ export type LibrarySidebarSectionState = Record<LibrarySidebarSection, boolean>;
 
 type LibrarySidebarProps = {
   displayedLibraryPath: string;
+  hasAvailableAppUpdate: boolean;
   isCheckingForUpdate: boolean;
   isLibraryMenuOpen: boolean;
   isMcpEnabled: boolean;
@@ -39,6 +40,7 @@ type LibrarySidebarProps = {
 
 export function LibrarySidebar({
   displayedLibraryPath,
+  hasAvailableAppUpdate,
   isCheckingForUpdate,
   isLibraryMenuOpen,
   isMcpEnabled,
@@ -173,7 +175,7 @@ export function LibrarySidebar({
               type="button"
               variant="outline"
             >
-              {isCheckingForUpdate ? t("updates.checking") : t("updates.check")}
+              {isCheckingForUpdate ? t("updates.checking") : hasAvailableAppUpdate ? t("updates.start") : t("updates.check")}
             </Button>
           </div>
 

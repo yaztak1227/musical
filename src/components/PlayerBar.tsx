@@ -1,4 +1,4 @@
-import { type CSSProperties, forwardRef, type RefObject, useEffect, useEffectEvent, useId, useImperativeHandle, useRef, useState } from "react";
+import { type CSSProperties, forwardRef, type KeyboardEvent, type RefObject, useEffect, useEffectEvent, useId, useImperativeHandle, useRef, useState } from "react";
 import { ChevronLeft, ChevronRight, Maximize2, Pause, Play, Repeat, Repeat1, Shuffle, Volume2, VolumeX } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Slider } from "@/components/ui/slider";
@@ -174,6 +174,23 @@ export const PlayerBar = forwardRef<PlayerBarHandle, PlayerBarProps>(function Pl
     const nextTime = value[0] ?? 0;
     seekTo(nextTime, "seek-slider");
     onSeek(nextTime);
+  }
+
+  function handleSeekSliderKeyDownCapture(event: KeyboardEvent) {
+    if (event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return;
+
+    if (event.key === "ArrowLeft") {
+      event.preventDefault();
+      event.stopPropagation();
+      onPreviousTrack();
+      return;
+    }
+
+    if (event.key === "ArrowRight") {
+      event.preventDefault();
+      event.stopPropagation();
+      onNextTrack();
+    }
   }
 
   function handleVolumeSliderChange(value: number[]) {
@@ -388,6 +405,7 @@ export const PlayerBar = forwardRef<PlayerBarHandle, PlayerBarProps>(function Pl
             disabled={!currentTrack}
             max={Math.max(1, Math.floor(effectiveDuration))}
             min={0}
+            onKeyDownCapture={handleSeekSliderKeyDownCapture}
             onValueChange={handleSeekSliderChange}
             step={1}
             style={{ "--seek-progress": `${seekProgress}%` } as CSSProperties}

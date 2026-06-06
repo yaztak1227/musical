@@ -18,11 +18,12 @@ type MediaKeyHandlers = {
 export function useGlobalMediaKeys(handlers: MediaKeyHandlers) {
   useEffect(() => {
     function handleKeyDown(event: KeyboardEvent) {
-      if (event.defaultPrevented || shouldIgnoreShortcut(event)) return;
+      if (event.defaultPrevented || shouldIgnoreTextShortcut(event)) return;
 
       const key = event.key.toLowerCase();
       const action = getMediaKeyAction(key, event);
       if (!action) return;
+      if (shouldLetFocusedControlHandleShortcut(event, action)) return;
 
       event.preventDefault();
 
@@ -154,11 +155,39 @@ function setMediaSessionActionHandler(action: MediaSessionAction, handler: Media
   }
 }
 
-function shouldIgnoreShortcut(event: KeyboardEvent) {
+function shouldIgnoreTextShortcut(event: KeyboardEvent) {
   const target = event.target;
   if (!(target instanceof HTMLElement)) return false;
   if (target.isContentEditable) return true;
 
   const editableSelector = "input, textarea, select, [role='textbox'], [data-keyboard-scope='text']";
   return Boolean(target.closest(editableSelector));
+}
+
+function shouldLetFocusedControlHandleShortcut(event: KeyboardEvent, action: string) {
+  if (action.startsWith("jump-album:")) return false;
+  if (event.altKey) return false;
+
+  const target = event.target;
+  if (!(target instanceof HTMLElement)) return false;
+
+  const interactiveSelector = [
+    "a[href]",
+    "button",
+    "summary",
+    "[role='button']",
+    "[role='checkbox']",
+    "[role='combobox']",
+    "[role='link']",
+    "[role='menuitem']",
+    "[role='option']",
+    "[role='radio']",
+    "[role='row']",
+    "[role='slider']",
+    "[role='switch']",
+    "[role='tab']",
+    "[tabindex]:not([tabindex='-1'])",
+  ].join(", ");
+
+  return Boolean(target.closest(interactiveSelector));
 }
