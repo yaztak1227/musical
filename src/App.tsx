@@ -234,6 +234,17 @@ function makeAudioAnalysisPacketFromFrames(
   } satisfies RemoteAudioAnalysisPacket;
 }
 
+function rebaseAudioAnalysisPacketPlaybackTime(
+  packet: RemoteAudioAnalysisPacket,
+  currentTimeAtReceived: number,
+) {
+  return {
+    ...packet,
+    currentTimeAtReceived,
+    receivedAt: performance.now(),
+  } satisfies RemoteAudioAnalysisPacket;
+}
+
 function mergeRemoteAudioAnalysisFrames(
   currentFrames: RemoteAudioAnalysisFrameEntry[],
   nextFrames: RemoteAudioAnalysisFrameEntry[],
@@ -1636,7 +1647,12 @@ function App() {
 
     const cachedPacket = remoteAudioAnalysisPacketsByTrackRef.current.get(track.id);
     if (cachedPacket) {
-      audioAnalysisPacketRef.current = cachedPacket;
+      audioAnalysisPacketRef.current = rebaseAudioAnalysisPacketPlaybackTime(
+        cachedPacket,
+        isTauriRuntime
+          ? playerBarRef.current?.getCurrentTime() ?? 0
+          : estimateRemotePlaybackTime(remotePlaybackClockRef.current),
+      );
       loadedRemoteAudioAnalysisTrackIdRef.current = track.id;
       return;
     }
