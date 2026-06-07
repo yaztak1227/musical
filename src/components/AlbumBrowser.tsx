@@ -17,7 +17,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Toggle } from "@/components/ui/toggle";
 import type { TranslationKey } from "@/i18n";
-import type { Album, Track } from "@/types/audio";
+import type { Album, EntityId, Track } from "@/types/audio";
 import type { AlbumListMode, AlbumSortDirection, AlbumSortMode, AlbumViewMode } from "@/types/app";
 import { AlbumCard, AlbumCardFactory } from "@/components/AlbumCard";
 import { formatTrackDuration } from "@/lib/formatUtils";
@@ -37,9 +37,9 @@ type AlbumBrowserProps = {
   isPlaying: boolean;
   panelRef: RefObject<HTMLElement | null>;
   lyricsOnly: boolean;
-  playbackAlbumId: number | null;
+  playbackAlbumId: EntityId | null;
   query: string;
-  selectedAlbumId: number | null;
+  selectedAlbumId: EntityId | null;
   t: TFunction;
   onPausePlayback: () => void;
   onPlayAlbum: (album: Album, options?: { selectAlbum?: boolean }) => void;
@@ -48,7 +48,7 @@ type AlbumBrowserProps = {
   onListModeChange: (listMode: AlbumListMode) => void;
   onOpenTrackLyrics: (track: Track) => void;
   onSelectAlbum: (album: Album) => void;
-  onPlayTrack: (track: Track, albumId: number) => void;
+  onPlayTrack: (track: Track, albumId: EntityId) => void;
   onSortDirectionChange: (sortDirection: AlbumSortDirection) => void;
   onSortModeChange: (sortMode: AlbumSortMode) => void;
   onViewModeChange: (viewMode: AlbumViewMode) => void;

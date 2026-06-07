@@ -23,6 +23,7 @@ include_dir = "0.7"
 lofty = "0.24.0"
 jwalk = "0.8.1"
 log = "0.4"
+md5 = "0.7"
 rustfft = "6.4.1"
 rusqlite = { version = "0.39.0", features = ["bundled"] }
 tauri = { version = "2", features = ["protocol-asset"] }
@@ -33,3 +34,4 @@ symphonia = { version = "0.5.5", features = ["aac", "alac", "flac", "isomp4", "m
 tauri-plugin-dialog = "2"
 tauri-plugin-log = "2"
 tauri-plugin-updater = "2.10.1"
+unicode-normalization = "0.1"

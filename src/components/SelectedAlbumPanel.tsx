@@ -1,5 +1,5 @@
 import type { CSSProperties, PointerEvent, RefObject, TouchEvent } from "react";
-import { Check, Pencil, Play, Save, ScrollText, X } from "lucide-react";
+import { Check, Heart, Pencil, Play, Save, ScrollText, Star, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Separator } from "@/components/ui/separator";
@@ -8,7 +8,7 @@ import { getArtworkSrc, localizeLibraryText } from "@/lib/libraryUtils";
 import { prepareMarquee } from "@/lib/marqueeUtils";
 import type { AlbumTagDraft } from "@/lib/tagEditing";
 import type { I18nMessage, TFunction } from "@/types/app";
-import type { Album, Track } from "@/types/audio";
+import type { Album, EntityId, Track } from "@/types/audio";
 
 type TrackDetailTab = "info" | "lyrics" | "artwork";
 
@@ -42,13 +42,13 @@ type SelectedAlbumPanelProps = {
   onMoveTrackLongPress: (event: PointerEvent<HTMLButtonElement>, track: Track) => void;
   onOpenSelectedAlbumArtworkEditor: () => void;
   onOpenTrackDetail: (track: Track, tab?: TrackDetailTab) => void;
-  onPlayTrack: (track: Track, albumId: number) => void;
+  onPlayTrack: (track: Track, albumId: EntityId) => void;
   onSaveAlbumTags: () => void;
   onSelectTrack: (track: Track) => void;
   onStartAlbumTagEditing: () => void;
   onStartTrackLongPress: (event: PointerEvent<HTMLButtonElement>, track: Track) => void;
   selectedAlbum: Album | null;
-  selectedTrackId: number | null;
+  selectedTrackId: EntityId | null;
   t: TFunction;
   trackEntries: LibraryTrackEntry[];
 };
@@ -308,6 +308,27 @@ export function SelectedAlbumPanel({
                         <ScrollText aria-hidden="true" />
                         <span className="sr-only">{t("trackDetail.lyricsTab")}</span>
                       </button>
+                    ) : null}
+                    {track.isFavorite || track.rating ? (
+                      <span
+                        aria-label={t("trackDetail.userStateSummary", {
+                          favorite: track.isFavorite ? t("trackDetail.favorite") : t("trackDetail.notFavorite"),
+                          rating: track.rating ?? 0,
+                        })}
+                        className="track-user-state-badges"
+                        title={t("trackDetail.userStateSummary", {
+                          favorite: track.isFavorite ? t("trackDetail.favorite") : t("trackDetail.notFavorite"),
+                          rating: track.rating ?? 0,
+                        })}
+                      >
+                        {track.isFavorite ? <Heart aria-hidden="true" /> : null}
+                        {track.rating ? (
+                          <span className="track-rating-badge">
+                            <Star aria-hidden="true" />
+                            {track.rating}
+                          </span>
+                        ) : null}
+                      </span>
                     ) : null}
                   </span>
                   <small>{formatTrackDuration(track)}</small>

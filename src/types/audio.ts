@@ -1,5 +1,8 @@
+export type EntityId = string | number;
+
 export type Track = {
-  id: number;
+  id: EntityId;
+  uuid?: string;
   title: string;
   artist: string;
   durationSeconds?: number;
@@ -8,11 +11,14 @@ export type Track = {
   discNumber?: number | null;
   filePath?: string;
   hasLyrics?: boolean;
+  isFavorite?: boolean;
   lyrics?: string | null;
+  rating?: number | null;
 };
 
 export type Album = {
-  id: number;
+  id: EntityId;
+  groupKey?: string;
   title: string;
   artist: string;
   year: number | null;

@@ -144,5 +144,9 @@ export function toI18nError(error: unknown): I18nMessage {
     return { key: "status.unsupportedArtwork" };
   }
 
+  if (key === "library.error.invalidRating") {
+    return { key: "status.invalidRating" };
+  }
+
   return { key: "status.error", values: { message } };
 }

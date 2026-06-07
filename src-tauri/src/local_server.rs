@@ -4,7 +4,10 @@ use crate::{
     },
     app_settings::{self, AppSettings},
     audio_analysis,
-    library::{self, AlbumTagUpdateRequest, TrackArtworkUpdateRequest, TrackTagUpdateRequest},
+    library::{
+        self, AlbumTagUpdateRequest, TrackArtworkUpdateRequest, TrackTagUpdateRequest,
+        TrackUserStateUpdateRequest,
+    },
 };
 use include_dir::{include_dir, Dir};
 use log::{error, info};
@@ -32,7 +35,7 @@ struct ScanMusicFolderRequest {
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct TrackLyricsRequest {
-    track_id: i64,
+    track_id: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -48,6 +51,11 @@ struct TrackTagRequestBody {
 #[derive(Debug, Deserialize)]
 struct TrackArtworkRequestBody {
     request: TrackArtworkUpdateRequest,
+}
+
+#[derive(Debug, Deserialize)]
+struct TrackUserStateRequestBody {
+    request: TrackUserStateUpdateRequest,
 }
 
 #[derive(Debug, Deserialize)]
@@ -81,10 +89,10 @@ struct LocalDevAccessInfo {
 #[derive(Debug, Deserialize, Serialize, Clone)]
 #[serde(rename_all = "camelCase")]
 struct RemotePlayerState {
-    selected_album_id: Option<i64>,
-    playback_album_id: Option<i64>,
-    current_track_id: Option<i64>,
-    queue_track_ids: Vec<i64>,
+    selected_album_id: Option<String>,
+    playback_album_id: Option<String>,
+    current_track_id: Option<String>,
+    queue_track_ids: Vec<String>,
     is_playing: bool,
     is_shuffle: bool,
     repeat_mode: String,
@@ -103,7 +111,7 @@ struct RemoteAudioAnalysisSegment {
     frame_interval_ms: f64,
     frames: Vec<audio_analysis::AudioAnalysisFrame>,
     is_complete: bool,
-    track_id: i64,
+    track_id: String,
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
@@ -135,8 +143,8 @@ struct RemoteServerState {
     player_state: Option<RemotePlayerState>,
     player_state_sent_at_ms: Option<f64>,
     commands: VecDeque<QueuedRemotePlayerCommand>,
-    active_track_analysis_loads: HashSet<i64>,
-    active_track_analysis_prefetches: HashSet<i64>,
+    active_track_analysis_loads: HashSet<String>,
+    active_track_analysis_prefetches: HashSet<String>,
 }
 
 fn apply_remote_command_to_player_state(
@@ -165,7 +173,11 @@ fn apply_remote_command_to_player_state(
                 state.is_shuffle = is_shuffle;
             }
             if let Some(queue_track_ids) = payload.get("queueTrackIds").and_then(Value::as_array) {
-                state.queue_track_ids = queue_track_ids.iter().filter_map(Value::as_i64).collect();
+                state.queue_track_ids = queue_track_ids
+                    .iter()
+                    .filter_map(Value::as_str)
+                    .map(str::to_owned)
+                    .collect();
             }
         }
         _ => {}
@@ -353,6 +365,7 @@ fn route_request(
                 app_settings::save(
                     &app,
                     &AppSettings {
+                        last_library_path: app_settings::load(&app)?.last_library_path,
                         mcp_enabled: body.enabled,
                     },
                 )?;
@@ -382,25 +395,25 @@ fn route_request(
             result_response(result)
         }
         ("GET", "/api/app_status") => json_response(200, &"Musical desktop bridge is ready"),
-        ("GET", "/api/library_snapshot") => result_response(library::load_snapshot(&app)),
+        ("GET", "/api/library_snapshot") => result_response(load_library_snapshot(&app)),
         ("GET", "/api/track_lyrics") => {
             let track_id = query_param(&request.query, "trackId")
-                .and_then(|value| value.parse::<i64>().ok())
+                .filter(|value| !value.trim().is_empty())
                 .ok_or_else(|| "library.error.trackNotFound\t".to_owned());
             result_response(
-                track_id.and_then(|track_id| library::load_track_lyrics(&app, track_id)),
+                track_id.and_then(|track_id| library::load_track_lyrics(&app, &track_id)),
             )
         }
         ("POST", "/api/track_lyrics") => {
             let request_body = parse_json::<TrackLyricsRequest>(&request.body);
             result_response(
-                request_body.and_then(|body| library::load_track_lyrics(&app, body.track_id)),
+                request_body.and_then(|body| library::load_track_lyrics(&app, &body.track_id)),
             )
         }
         ("POST", "/api/scan_music_folder") => {
             let request_body = parse_json::<ScanMusicFolderRequest>(&request.body);
             result_response(
-                request_body.and_then(|body| library::scan_folder(&app, &body.folder_path)),
+                request_body.and_then(|body| scan_music_folder(&app, &body.folder_path)),
             )
         }
         ("POST", "/api/update_album_tags") => {
@@ -419,6 +432,12 @@ fn route_request(
             let request_body = parse_json::<TrackArtworkRequestBody>(&request.body);
             result_response(
                 request_body.and_then(|body| library::update_track_artwork(&app, body.request)),
+            )
+        }
+        ("POST", "/api/update_track_user_state") => {
+            let request_body = parse_json::<TrackUserStateRequestBody>(&request.body);
+            result_response(
+                request_body.and_then(|body| library::update_track_user_state(&app, body.request)),
             )
         }
         ("GET", "/api/player_state") => {
@@ -681,7 +700,7 @@ fn mcp_tools() -> Value {
             "description": "Read lyrics saved in a track tag.",
             "inputSchema": {
                 "type": "object",
-                "properties": { "trackId": { "type": "integer" } },
+                "properties": { "trackId": { "type": "string" } },
                 "required": ["trackId"]
             }
         },
@@ -761,7 +780,7 @@ fn mcp_tools() -> Value {
             "description": "Play an album by ID.",
             "inputSchema": {
                 "type": "object",
-                "properties": { "albumId": { "type": "integer" } },
+                "properties": { "albumId": { "type": "string" } },
                 "required": ["albumId"]
             }
         },
@@ -772,8 +791,8 @@ fn mcp_tools() -> Value {
             "inputSchema": {
                 "type": "object",
                 "properties": {
-                    "trackId": { "type": "integer" },
-                    "albumId": { "type": "integer" }
+                    "trackId": { "type": "string" },
+                    "albumId": { "type": "string" }
                 },
                 "required": ["trackId"]
             }
@@ -784,7 +803,7 @@ fn mcp_tools() -> Value {
             "description": "Select an album in the Musical UI.",
             "inputSchema": {
                 "type": "object",
-                "properties": { "albumId": { "type": "integer" } },
+                "properties": { "albumId": { "type": "string" } },
                 "required": ["albumId"]
             }
         },
@@ -794,7 +813,7 @@ fn mcp_tools() -> Value {
             "description": "Select a track in the Musical UI.",
             "inputSchema": {
                 "type": "object",
-                "properties": { "trackId": { "type": "integer" } },
+                "properties": { "trackId": { "type": "string" } },
                 "required": ["trackId"]
             }
         },
@@ -821,7 +840,7 @@ fn mcp_tools() -> Value {
             "inputSchema": {
                 "type": "object",
                 "properties": {
-                    "albumId": { "type": "integer" },
+                    "albumId": { "type": "string" },
                     "albumTitle": { "type": "string" },
                     "albumArtist": { "type": "string" },
                     "artist": { "type": "string" },
@@ -838,7 +857,7 @@ fn mcp_tools() -> Value {
             "inputSchema": {
                 "type": "object",
                 "properties": {
-                    "trackId": { "type": "integer" },
+                    "trackId": { "type": "string" },
                     "title": { "type": "string" },
                     "artist": { "type": "string" },
                     "albumTitle": { "type": "string" },
@@ -857,10 +876,24 @@ fn mcp_tools() -> Value {
             "inputSchema": {
                 "type": "object",
                 "properties": {
-                    "trackId": { "type": "integer" },
+                    "trackId": { "type": "string" },
                     "artworkPath": { "type": "string" }
                 },
                 "required": ["trackId", "artworkPath"]
+            }
+        },
+        {
+            "name": "update_track_user_state",
+            "title": "Update Track User State",
+            "description": "Set Musical-only favorite and rating for a track.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "trackId": { "type": "string" },
+                    "isFavorite": { "type": "boolean" },
+                    "rating": { "type": ["integer", "null"], "minimum": 1, "maximum": 5 }
+                },
+                "required": ["trackId", "isFavorite", "rating"]
             }
         }
     ])
@@ -890,12 +923,12 @@ fn call_mcp_tool(
             json!({ "state": state })
         }
         "get_library" => {
-            serde_json::to_value(library::load_snapshot(app)?).map_err(|error| error.to_string())?
+            serde_json::to_value(load_library_snapshot(app)?).map_err(|error| error.to_string())?
         }
         "search_library" => search_library(app, &arguments)?,
         "get_track_lyrics" => {
-            let track_id = required_i64(&arguments, "trackId")?;
-            json!({ "trackId": track_id, "lyrics": library::load_track_lyrics(app, track_id)? })
+            let track_id = required_string(&arguments, "trackId")?;
+            json!({ "trackId": track_id, "lyrics": library::load_track_lyrics(app, &track_id)? })
         }
         "play" => serde_json::to_value(enqueue_remote_command(remote_state, "play", None)?)
             .map_err(|error| error.to_string())?,
@@ -953,7 +986,7 @@ fn call_mcp_tool(
             .map_err(|error| error.to_string())?
         }
         "play_album" => {
-            let album_id = required_i64(&arguments, "albumId")?;
+            let album_id = required_string(&arguments, "albumId")?;
             serde_json::to_value(enqueue_remote_command(
                 remote_state,
                 "play-album",
@@ -962,9 +995,9 @@ fn call_mcp_tool(
             .map_err(|error| error.to_string())?
         }
         "play_track" => {
-            let track_id = required_i64(&arguments, "trackId")?;
+            let track_id = required_string(&arguments, "trackId")?;
             let mut payload = json!({ "trackId": track_id });
-            if let Some(album_id) = optional_i64(&arguments, "albumId") {
+            if let Some(album_id) = optional_string(&arguments, "albumId") {
                 payload["albumId"] = json!(album_id);
             }
             serde_json::to_value(enqueue_remote_command(
@@ -975,7 +1008,7 @@ fn call_mcp_tool(
             .map_err(|error| error.to_string())?
         }
         "select_album" => {
-            let album_id = required_i64(&arguments, "albumId")?;
+            let album_id = required_string(&arguments, "albumId")?;
             serde_json::to_value(enqueue_remote_command(
                 remote_state,
                 "select-album",
@@ -984,7 +1017,7 @@ fn call_mcp_tool(
             .map_err(|error| error.to_string())?
         }
         "select_track" => {
-            let track_id = required_i64(&arguments, "trackId")?;
+            let track_id = required_string(&arguments, "trackId")?;
             serde_json::to_value(enqueue_remote_command(
                 remote_state,
                 "select-track",
@@ -1000,7 +1033,7 @@ fn call_mcp_tool(
         .map_err(|error| error.to_string())?,
         "scan_music_folder" => {
             let folder_path = required_string(&arguments, "folderPath")?;
-            let result = library::scan_folder(app, &folder_path)?;
+            let result = scan_music_folder(app, &folder_path)?;
             let refresh_command = enqueue_remote_command(remote_state, "refresh-library", None)?;
             json!({ "scan": result, "refreshCommand": refresh_command })
         }
@@ -1025,10 +1058,25 @@ fn call_mcp_tool(
             let refresh_command = enqueue_remote_command(remote_state, "refresh-library", None)?;
             json!({ "update": result, "refreshCommand": refresh_command })
         }
+        "update_track_user_state" => {
+            let request = serde_json::from_value::<TrackUserStateUpdateRequest>(arguments)
+                .map_err(|error| error.to_string())?;
+            let result = library::update_track_user_state(app, request)?;
+            let refresh_command = enqueue_remote_command(remote_state, "refresh-library", None)?;
+            json!({ "update": result, "refreshCommand": refresh_command })
+        }
         _ => return Err(format!("unknown tool: {name}")),
     };
 
     Ok(mcp_success_tool_result(output))
+}
+
+fn load_library_snapshot(app: &AppHandle) -> Result<library::LibrarySnapshot, String> {
+    library::load_snapshot(app)
+}
+
+fn scan_music_folder(app: &AppHandle, folder_path: &str) -> Result<library::ScanSummary, String> {
+    library::scan_folder(app, folder_path)
 }
 
 fn enqueue_remote_command(
@@ -1097,15 +1145,16 @@ fn search_library(app: &AppHandle, arguments: &Value) -> Result<Value, String> {
     Ok(json!({ "query": query, "results": results }))
 }
 
-fn required_i64(arguments: &Value, key: &str) -> Result<i64, String> {
-    arguments
-        .get(key)
-        .and_then(Value::as_i64)
-        .ok_or_else(|| format!("missing or invalid {key}"))
-}
-
 fn optional_i64(arguments: &Value, key: &str) -> Option<i64> {
     arguments.get(key).and_then(Value::as_i64)
+}
+
+fn optional_string(arguments: &Value, key: &str) -> Option<String> {
+    arguments
+        .get(key)
+        .and_then(Value::as_str)
+        .filter(|value| !value.trim().is_empty())
+        .map(str::to_owned)
 }
 
 fn required_f64(arguments: &Value, key: &str) -> Result<f64, String> {
@@ -1138,7 +1187,7 @@ fn get_track_analysis_segment(
     remote_state: &SharedRemoteServerState,
 ) -> Result<RemoteAudioAnalysisSegment, String> {
     let track_id = query_param(&request.query, "trackId")
-        .and_then(|value| value.parse::<i64>().ok())
+        .filter(|value| !value.trim().is_empty())
         .ok_or_else(|| "missing trackId".to_owned())?;
     let from = query_param(&request.query, "from")
         .and_then(|value| value.parse::<f64>().ok())
@@ -1157,9 +1206,9 @@ fn get_track_analysis_segment(
         .clamp(duration, 60.0 * 60.0 * 4.0);
     let to = from + duration;
 
-    let file_path = library::load_track_file_path(app, track_id)?;
+    let file_path = library::load_track_file_path(app, &track_id)?;
     let loaded_analysis =
-        get_or_analyze_track_once(app, remote_state, track_id, &file_path, total_duration)?;
+        get_or_analyze_track_once(app, remote_state, &track_id, &file_path, total_duration)?;
     let frames = if loaded_analysis.is_complete {
         loaded_analysis.analysis.frames.clone()
     } else {
@@ -1171,20 +1220,20 @@ fn get_track_analysis_segment(
             .cloned()
             .collect::<Vec<_>>()
     };
-    prefetch_next_track_analysis(app.clone(), remote_state.clone(), track_id);
+    prefetch_next_track_analysis(app.clone(), remote_state.clone(), track_id.clone());
 
     Ok(RemoteAudioAnalysisSegment {
         frame_interval_ms: loaded_analysis.analysis.frame_interval_ms,
         frames,
         is_complete: loaded_analysis.is_complete,
-        track_id,
+        track_id: track_id.clone(),
     })
 }
 
 fn get_or_analyze_track_once(
     app: &AppHandle,
     remote_state: &SharedRemoteServerState,
-    track_id: i64,
+    track_id: &str,
     file_path: &str,
     total_duration: f64,
 ) -> Result<audio_analysis::TrackAnalysisLoad, String> {
@@ -1197,7 +1246,10 @@ fn get_or_analyze_track_once(
 
     loop {
         let mut state = remote_state.lock().map_err(|error| error.to_string())?;
-        if state.active_track_analysis_loads.insert(track_id) {
+        if state
+            .active_track_analysis_loads
+            .insert(track_id.to_owned())
+        {
             break;
         }
         drop(
@@ -1217,7 +1269,7 @@ fn get_or_analyze_track_once(
 
     let result = analyze_and_cache_track(app, track_id, file_path, total_duration);
     if let Ok(mut state) = remote_state.lock() {
-        state.active_track_analysis_loads.remove(&track_id);
+        state.active_track_analysis_loads.remove(track_id);
         remote_state.track_analysis_finished.notify_all();
     }
     result
@@ -1225,7 +1277,7 @@ fn get_or_analyze_track_once(
 
 fn analyze_and_cache_track(
     app: &AppHandle,
-    track_id: i64,
+    track_id: &str,
     file_path: &str,
     total_duration: f64,
 ) -> Result<audio_analysis::TrackAnalysisLoad, String> {
@@ -1260,7 +1312,7 @@ fn analyze_and_cache_track(
 fn prefetch_next_track_analysis(
     app: AppHandle,
     remote_state: SharedRemoteServerState,
-    completed_track_id: i64,
+    completed_track_id: String,
 ) {
     let Ok(Some(next_track_id)) =
         reserve_next_track_analysis_prefetch(&remote_state, completed_track_id)
@@ -1269,7 +1321,7 @@ fn prefetch_next_track_analysis(
     };
 
     thread::spawn(move || {
-        let result = prefetch_track_analysis(&app, &remote_state, next_track_id);
+        let result = prefetch_track_analysis(&app, &remote_state, &next_track_id);
         if let Err(error) = result {
             info!("next track analysis prefetch skipped for {next_track_id}: {error}");
         }
@@ -1283,34 +1335,37 @@ fn prefetch_next_track_analysis(
 
 fn reserve_next_track_analysis_prefetch(
     remote_state: &SharedRemoteServerState,
-    completed_track_id: i64,
-) -> Result<Option<i64>, String> {
+    completed_track_id: String,
+) -> Result<Option<String>, String> {
     let mut state = remote_state.lock().map_err(|error| error.to_string())?;
     let Some(player_state) = state.player_state.as_ref() else {
         return Ok(None);
     };
     let Some(next_track_id) =
-        next_queue_track_id(&player_state.queue_track_ids, completed_track_id)
+        next_queue_track_id(&player_state.queue_track_ids, &completed_track_id)
     else {
         return Ok(None);
     };
-    if !state.active_track_analysis_prefetches.insert(next_track_id) {
+    if !state
+        .active_track_analysis_prefetches
+        .insert(next_track_id.clone())
+    {
         return Ok(None);
     }
     Ok(Some(next_track_id))
 }
 
-fn next_queue_track_id(queue_track_ids: &[i64], completed_track_id: i64) -> Option<i64> {
+fn next_queue_track_id(queue_track_ids: &[String], completed_track_id: &str) -> Option<String> {
     let current_index = queue_track_ids
         .iter()
-        .position(|track_id| *track_id == completed_track_id)?;
-    queue_track_ids.get(current_index + 1).copied()
+        .position(|track_id| track_id == completed_track_id)?;
+    queue_track_ids.get(current_index + 1).cloned()
 }
 
 fn prefetch_track_analysis(
     app: &AppHandle,
     remote_state: &SharedRemoteServerState,
-    track_id: i64,
+    track_id: &str,
 ) -> Result<(), String> {
     let (file_path, duration_seconds) = library::load_track_file_path_and_duration(app, track_id)?;
     let duration = (duration_seconds.max(1) as f64) + 2.0;

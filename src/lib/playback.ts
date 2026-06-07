@@ -1,22 +1,22 @@
 import type { RepeatMode } from "@/types/app";
-import type { Album, Track } from "@/types/audio";
+import type { Album, EntityId, Track } from "@/types/audio";
 
 const playbackPreferencesKey = "musical.playbackPreferences";
 
 export type PlaybackPreferences = {
   isShuffle: boolean;
-  playbackAlbumId: number | null;
+  playbackAlbumId: EntityId | null;
   repeatMode: RepeatMode;
-  selectedAlbumId: number | null;
+  selectedAlbumId: EntityId | null;
 };
 
 export type PlaybackResolutionState = {
   currentTrackIndex: number;
   isShuffle: boolean;
-  playbackAlbumId: number | null;
+  playbackAlbumId: EntityId | null;
   queue: Track[];
   repeatMode: RepeatMode;
-  selectedAlbumId: number | null;
+  selectedAlbumId: EntityId | null;
 };
 
 export function isRepeatMode(value: unknown): value is RepeatMode {
@@ -51,11 +51,11 @@ export function storePlaybackPreferences(playbackPreferences: PlaybackPreference
   window.localStorage.setItem(playbackPreferencesKey, JSON.stringify(playbackPreferences));
 }
 
-export function getInitialAlbumId(albums: Album[], storedAlbumId: number | null) {
+export function getInitialAlbumId(albums: Album[], storedAlbumId: EntityId | null) {
   return albums.some((album) => album.id === storedAlbumId) ? storedAlbumId : albums[0]?.id ?? null;
 }
 
-export function getInitialTrack(albums: Album[], albumId: number | null) {
+export function getInitialTrack(albums: Album[], albumId: EntityId | null) {
   return albums.find((album) => album.id === albumId)?.tracks[0] ?? albums[0]?.tracks[0] ?? null;
 }
 
@@ -89,5 +89,5 @@ export function getNextRepeatMode(repeatMode: RepeatMode): RepeatMode {
 }
 
 function parseStoredAlbumId(value: unknown) {
-  return typeof value === "number" && Number.isInteger(value) ? value : null;
+  return typeof value === "string" && value.trim() ? value : null;
 }

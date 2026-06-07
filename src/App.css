@@ -145,7 +145,7 @@ select:focus-visible {
     minmax(var(--library-panel-min), 280px)
     minmax(var(--albums-panel-min), 1fr)
     minmax(var(--album-panel-min), 360px);
-  grid-template-rows: minmax(0, 1fr) auto;
+  grid-template-rows: minmax(0, 1fr) auto auto;
   width: 100vw;
   height: 100dvh;
   overflow: hidden;
@@ -1814,6 +1814,30 @@ button.album-card {
   background: var(--primary);
 }
 
+.track-user-state-badges {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  color: var(--primary);
+  font-size: 0.75rem;
+  font-weight: 900;
+}
+
+.track-user-state-badges svg {
+  width: 14px;
+  height: 14px;
+  fill: currentColor;
+}
+
+.track-rating-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  min-width: 0;
+}
+
 .track-play-button svg {
   width: 15px;
   height: 15px;
@@ -1908,6 +1932,41 @@ button.album-card {
   box-shadow: 0 24px 80px color-mix(in oklch, black, transparent 58%);
 }
 
+.library-status-bar {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 14px;
+  min-width: 0;
+  min-height: 38px;
+  padding: 8px 28px;
+  border-top: 1px solid color-mix(in oklch, var(--border), transparent 30%);
+  color: var(--foreground);
+  background: color-mix(in oklch, var(--card), var(--background) 24%);
+}
+
+.library-status-message,
+.library-worker-message {
+  min-width: 0;
+  overflow: hidden;
+  font-size: 0.82rem;
+  line-height: 1.25;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.library-status-message {
+  font-weight: 800;
+}
+
+.library-worker-message,
+.worker-info-text {
+  color: var(--app-muted);
+  font-size: 0.78rem;
+  font-weight: 800;
+}
+
 .track-detail-header {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
@@ -1942,6 +2001,81 @@ button.album-card {
   min-height: 0;
   overflow-x: hidden;
   overflow-y: auto;
+}
+
+.track-user-state-panel {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  margin-bottom: 14px;
+}
+
+.track-favorite-button {
+  min-width: 0;
+}
+
+.track-favorite-button svg {
+  width: 17px;
+  height: 17px;
+}
+
+.track-favorite-button.active {
+  border-color: color-mix(in oklch, var(--primary), transparent 20%);
+  color: var(--primary);
+  background: color-mix(in oklch, var(--primary), transparent 88%);
+}
+
+.track-favorite-button.active svg {
+  fill: currentColor;
+}
+
+.track-rating-control {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  min-width: 0;
+  min-height: 36px;
+  border: 1px solid var(--app-line);
+  border-radius: 8px;
+  padding: 3px;
+  background: var(--background);
+}
+
+.track-rating-star,
+.track-rating-clear {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  min-width: 30px;
+  height: 30px;
+  min-height: 30px;
+  border: 0;
+  border-radius: 6px;
+  padding: 0;
+  color: var(--app-muted);
+  background: transparent;
+}
+
+.track-rating-star svg,
+.track-rating-clear svg {
+  width: 17px;
+  height: 17px;
+}
+
+.track-rating-star.active {
+  color: var(--primary);
+}
+
+.track-rating-star.active svg {
+  fill: currentColor;
+}
+
+.track-rating-star:hover:not(:disabled),
+.track-rating-clear:hover:not(:disabled) {
+  background: var(--app-accent-soft);
 }
 
 .track-tag-grid {

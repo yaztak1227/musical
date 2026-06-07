@@ -1,4 +1,4 @@
-import { Check, FolderOpen, Save, X } from "lucide-react";
+import { Check, FolderOpen, Heart, Save, Star, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -23,12 +23,15 @@ type TrackDetailDialogProps = {
   hasTrackTagChanges: boolean;
   isSavingArtwork: boolean;
   isSavingTrackTags: boolean;
+  isSavingTrackUserState: boolean;
   isTauriRuntime: boolean;
   onChangeTab: (tab: TrackDetailTab) => void;
   onChooseArtwork: () => void;
   onClose: () => void;
   onSaveArtwork: () => void;
   onSaveTrackTags: () => void;
+  onTrackFavoriteChange: (isFavorite: boolean) => void;
+  onTrackRatingChange: (rating: number | null) => void;
   onTrackTagDraftChange: (draft: TrackTagDraft | ((draft: TrackTagDraft) => TrackTagDraft)) => void;
   onTrackTagEditChange: (field: keyof TrackTagDraft | null) => void;
   t: TFunction;
@@ -49,12 +52,15 @@ export function TrackDetailDialog({
   hasTrackTagChanges,
   isSavingArtwork,
   isSavingTrackTags,
+  isSavingTrackUserState,
   isTauriRuntime,
   onChangeTab,
   onChooseArtwork,
   onClose,
   onSaveArtwork,
   onSaveTrackTags,
+  onTrackFavoriteChange,
+  onTrackRatingChange,
   onTrackTagDraftChange,
   onTrackTagEditChange,
   t,
@@ -91,6 +97,50 @@ export function TrackDetailDialog({
             <TabsTrigger value="artwork">{t("trackDetail.artworkTab")}</TabsTrigger>
           </TabsList>
           <TabsContent className="track-detail-tab-panel" value="info">
+            <div className="track-user-state-panel">
+              <Button
+                aria-pressed={Boolean(detailTrack.isFavorite)}
+                className={detailTrack.isFavorite ? "track-favorite-button active" : "track-favorite-button"}
+                disabled={isSavingTrackUserState}
+                onClick={() => onTrackFavoriteChange(!detailTrack.isFavorite)}
+                title={detailTrack.isFavorite ? t("trackDetail.removeFavorite") : t("trackDetail.addFavorite")}
+                type="button"
+                variant="outline"
+              >
+                <Heart />
+                {detailTrack.isFavorite ? t("trackDetail.favorite") : t("trackDetail.notFavorite")}
+              </Button>
+              <div aria-label={t("trackDetail.rating")} className="track-rating-control" role="group">
+                {[1, 2, 3, 4, 5].map((rating) => {
+                  const isActive = (detailTrack.rating ?? 0) >= rating;
+                  const isExactRating = detailTrack.rating === rating;
+                  return (
+                    <button
+                      aria-label={t("trackDetail.setRating", { rating })}
+                      aria-pressed={isExactRating}
+                      className={isActive ? "track-rating-star active" : "track-rating-star"}
+                      disabled={isSavingTrackUserState}
+                      key={rating}
+                      onClick={() => onTrackRatingChange(isExactRating ? null : rating)}
+                      title={t("trackDetail.setRating", { rating })}
+                      type="button"
+                    >
+                      <Star aria-hidden="true" />
+                    </button>
+                  );
+                })}
+                <button
+                  className="track-rating-clear"
+                  disabled={isSavingTrackUserState || detailTrack.rating === null || detailTrack.rating === undefined}
+                  onClick={() => onTrackRatingChange(null)}
+                  title={t("trackDetail.clearRating")}
+                  type="button"
+                >
+                  <X aria-hidden="true" />
+                  <span className="sr-only">{t("trackDetail.clearRating")}</span>
+                </button>
+              </div>
+            </div>
             <div className="track-tag-grid">
               {trackTagFields.map((field) => (
                 <label className="track-tag-field" key={field.key}>

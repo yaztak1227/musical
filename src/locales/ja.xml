@@ -138,6 +138,15 @@
   <message key="trackDetail.filePath">ファイルパス</message>
   <message key="trackDetail.noFilePath">ファイルパスなし</message>
   <message key="trackDetail.noLyrics">この曲に保存された歌詞はありません。</message>
+  <message key="trackDetail.favorite">お気に入り</message>
+  <message key="trackDetail.notFavorite">お気に入りなし</message>
+  <message key="trackDetail.addFavorite">お気に入りに追加</message>
+  <message key="trackDetail.removeFavorite">お気に入りから削除</message>
+  <message key="trackDetail.rating">レーティング</message>
+  <message key="trackDetail.setRating">{rating} 星に設定</message>
+  <message key="trackDetail.clearRating">レーティングをクリア</message>
+  <message key="trackDetail.userStateSaved">保存しました</message>
+  <message key="trackDetail.userStateSummary">{favorite}、レーティング {rating}</message>
   <message key="data.unknownTrack">不明な曲</message>
   <message key="data.unknownAlbum">不明なアルバム</message>
   <message key="data.unknownArtist">不明なアーティスト</message>
@@ -180,7 +189,18 @@
   <message key="status.noAlbumsIndexed">インデックス済みのアルバムはまだありません。データベース: {databasePath}</message>
   <message key="status.desktopOnly">フォルダスキャンは Tauri デスクトップアプリで実行します。</message>
   <message key="status.enterFolder">先にローカル音楽フォルダのパスを入力してください。</message>
+  <message key="status.scanDiscovering">{libraryPath} から音声ファイルを探しています...</message>
+  <message key="status.scanReading">ライブラリ読み込み中: {processed}/{total} ファイル、取り込み {imported} 曲、スキップ {skipped} 件</message>
+  <message key="status.scanWriting">ライブラリを保存中: 取り込み {imported} 曲、スキップ {skipped} 件</message>
   <message key="status.scanComplete">{albums} 件のアルバム / {tracks} 曲を {libraryPath} から取り込みました</message>
+  <message key="status.libraryLoadOpening">ライブラリDBを開いています...</message>
+  <message key="status.libraryLoadAlbums">ライブラリを読み込み中: {albums}/{total} アルバム、{tracks} 曲</message>
+  <message key="status.libraryLoadAssets">アートワークのアクセスを準備中: {albums} アルバム、{tracks} 曲</message>
+  <message key="status.libraryLoadApplying">画面を更新中: {albums} アルバム、{tracks} 曲</message>
+  <message key="status.workerIdle">Worker: 自動解析Workerは停止中</message>
+  <message key="status.workerLibraryScan">Worker: ライブラリスキャン処理中</message>
+  <message key="status.analysisStarted">{tracks} 曲の音声解析キャッシュを作成しています...</message>
+  <message key="status.analysisComplete">音声解析キャッシュを作成しました: {completed}/{total} 曲、失敗 {failed} 件</message>
   <message key="status.folderOpenError">フォルダ {folderPath} を開けませんでした: {reason}</message>
   <message key="status.notFolderError">{folderPath} はフォルダではありません。</message>
   <message key="status.albumNotFound">アルバム {albumId} が見つかりません。</message>
@@ -190,5 +210,6 @@
   <message key="status.emptyAlbumTitle">アルバム名は必須です。</message>
   <message key="status.emptyArtworkPath">保存する前に画像を選択してください。</message>
   <message key="status.unsupportedArtwork">PNG、JPEG、GIF、BMP、TIFF の画像を選択してください。</message>
+  <message key="status.invalidRating">レーティングは 1 から 5 の間で指定してください。</message>
   <message key="status.error">エラー: {message}</message>
 </resources>

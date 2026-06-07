@@ -1,4 +1,5 @@
 import { backendInvoke } from "./backend";
+import type { EntityId } from "../types/audio";
 
 export type AlbumTagDraft = {
   album: string;
@@ -24,23 +25,29 @@ export type FailedTagWrite = {
 };
 
 export type AlbumTagUpdateResult = {
-  albumId: number;
+  albumId: EntityId;
   updatedFiles: number;
   failedFiles: FailedTagWrite[];
 };
 
 export type TrackTagUpdateResult = {
-  trackId: number;
-  albumId: number;
+  trackId: EntityId;
+  albumId: EntityId;
 };
 
 export type TrackArtworkUpdateResult = {
-  trackId: number;
-  albumId: number;
+  trackId: EntityId;
+  albumId: EntityId;
   artworkPath: string;
 };
 
-export async function updateAlbumTags(albumId: number, draft: AlbumTagDraft) {
+export type TrackUserStateUpdateResult = {
+  trackId: EntityId;
+  isFavorite: boolean;
+  rating: number | null;
+};
+
+export async function updateAlbumTags(albumId: EntityId, draft: AlbumTagDraft) {
   return backendInvoke<AlbumTagUpdateResult>("update_album_tags", {
     request: {
       albumId,
@@ -53,7 +60,7 @@ export async function updateAlbumTags(albumId: number, draft: AlbumTagDraft) {
   });
 }
 
-export async function updateTrackTags(trackId: number, draft: TrackTagDraft) {
+export async function updateTrackTags(trackId: EntityId, draft: TrackTagDraft) {
   return backendInvoke<TrackTagUpdateResult>("update_track_tags", {
     request: {
       trackId,
@@ -68,11 +75,21 @@ export async function updateTrackTags(trackId: number, draft: TrackTagDraft) {
   });
 }
 
-export async function updateTrackArtwork(trackId: number, artworkPath: string) {
+export async function updateTrackArtwork(trackId: EntityId, artworkPath: string) {
   return backendInvoke<TrackArtworkUpdateResult>("update_track_artwork", {
     request: {
       trackId,
       artworkPath: artworkPath.trim(),
+    },
+  });
+}
+
+export async function updateTrackUserState(trackId: EntityId, isFavorite: boolean, rating: number | null) {
+  return backendInvoke<TrackUserStateUpdateResult>("update_track_user_state", {
+    request: {
+      trackId,
+      isFavorite,
+      rating,
     },
   });
 }

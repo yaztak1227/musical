@@ -1,4 +1,4 @@
-import { type Album } from "../types/audio";
+import { type Album, type EntityId } from "../types/audio";
 import { audioAnalysisConfig } from "../config/appConfig";
 
 const mockAudioAnalysisBucketCount = audioAnalysisConfig.bucketCount;
@@ -205,14 +205,15 @@ export const mockAlbums: Album[] = [
 export type MockAudioAnalysisSegment = {
   frameIntervalMs: number;
   frames: Array<{ timecode: number; values: number[] }>;
-  trackId: number;
+  trackId: EntityId;
 };
 
-export function getMockAudioAnalysisSegment(trackId: number, from: number, duration: number): MockAudioAnalysisSegment {
+export function getMockAudioAnalysisSegment(trackId: EntityId, from: number, duration: number): MockAudioAnalysisSegment {
   const startTime = Math.max(0, from);
   const frameIntervalSeconds = mockAudioAnalysisFrameIntervalMs / 1000;
   const frameCount = Math.max(1, Math.ceil(Math.max(0.25, duration) / frameIntervalSeconds));
-  const trackSeed = (trackId % 997) / 997;
+  const numericTrackId = typeof trackId === "number" ? trackId : hashMockTrackId(trackId);
+  const trackSeed = (numericTrackId % 997) / 997;
 
   return {
     frameIntervalMs: mockAudioAnalysisFrameIntervalMs,
@@ -225,6 +226,14 @@ export function getMockAudioAnalysisSegment(trackId: number, from: number, durat
     }),
     trackId,
   };
+}
+
+function hashMockTrackId(trackId: string) {
+  let hash = 0;
+  for (const character of trackId) {
+    hash = (hash * 31 + character.charCodeAt(0)) >>> 0;
+  }
+  return hash;
 }
 
 function makeMockAudioAnalysisValues(trackSeed: number, timecode: number) {

@@ -7,7 +7,7 @@ mod local_server;
 use library::{
     AlbumTagUpdateRequest, AlbumTagUpdateResult, LibrarySnapshot, ScanSummary,
     TrackArtworkUpdateRequest, TrackArtworkUpdateResult, TrackTagUpdateRequest,
-    TrackTagUpdateResult,
+    TrackTagUpdateResult, TrackUserStateUpdateRequest, TrackUserStateUpdateResult,
 };
 use log::{error, info, LevelFilter};
 
@@ -22,8 +22,8 @@ fn library_snapshot(app: tauri::AppHandle) -> Result<LibrarySnapshot, String> {
 }
 
 #[tauri::command]
-fn track_lyrics(app: tauri::AppHandle, track_id: i64) -> Result<Option<String>, String> {
-    library::load_track_lyrics(&app, track_id)
+fn track_lyrics(app: tauri::AppHandle, track_id: String) -> Result<Option<String>, String> {
+    library::load_track_lyrics(&app, &track_id)
 }
 
 #[tauri::command]
@@ -55,6 +55,14 @@ fn update_track_artwork(
     library::update_track_artwork(&app, request)
 }
 
+#[tauri::command]
+fn update_track_user_state(
+    app: tauri::AppHandle,
+    request: TrackUserStateUpdateRequest,
+) -> Result<TrackUserStateUpdateResult, String> {
+    library::update_track_user_state(&app, request)
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let builder = tauri::Builder::default()
@@ -62,6 +70,7 @@ pub fn run() {
         .plugin(
             tauri_plugin_log::Builder::new()
                 .level(LevelFilter::Info)
+                .level_for("lofty::mpeg::properties", LevelFilter::Error)
                 .build(),
         )
         .plugin(tauri_plugin_opener::init());
@@ -102,7 +111,8 @@ pub fn run() {
             track_lyrics,
             update_album_tags,
             update_track_artwork,
-            update_track_tags
+            update_track_tags,
+            update_track_user_state
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

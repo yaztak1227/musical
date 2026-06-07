@@ -1,4 +1,5 @@
 import { confirm as confirmDialog, open as openDialog } from "@tauri-apps/plugin-dialog";
+import { listen } from "@tauri-apps/api/event";
 import {
   type PointerEvent,
   lazy,
@@ -13,7 +14,7 @@ import {
 } from "react";
 import "./App.css";
 import { getInitialLocale, translate, type Locale, type TranslationKey } from "./i18n";
-import type { Album, Track, LibrarySnapshot, ScanSummary } from "./types/audio";
+import type { Album, EntityId, Track, LibrarySnapshot, ScanSummary } from "./types/audio";
 import {
   type AlbumListMode,
   type AlbumSortDirection,
@@ -24,7 +25,14 @@ import {
   type ThemeName,
   isThemeName,
 } from "./types/app";
-import { updateAlbumTags, updateTrackArtwork, updateTrackTags, type AlbumTagDraft, type TrackTagDraft } from "./lib/tagEditing";
+import {
+  updateAlbumTags,
+  updateTrackArtwork,
+  updateTrackTags,
+  updateTrackUserState,
+  type AlbumTagDraft,
+  type TrackTagDraft,
+} from "./lib/tagEditing";
 import { checkAppUpdate, installAppUpdate, type AvailableAppUpdate } from "./lib/appUpdates";
 import {
   backendInvoke,
@@ -139,12 +147,12 @@ type TrackLongPressState = {
   pointerX: number;
   pointerY: number;
   timerId: number;
-  trackId: number;
+  trackId: EntityId;
 };
 
 type SuppressedTrackClick = {
   timerId: number;
-  trackId: number;
+  trackId: EntityId;
 };
 
 export type RemoteAudioAnalysisPacket = {
@@ -160,18 +168,41 @@ type RemotePlaybackClock = {
   currentTime: number;
   isPlaying: boolean;
   receivedAt: number;
-  trackId: number | null;
+  trackId: EntityId | null;
 };
 
 type RemotePlayerStateSnapshot = {
   currentTime: number;
   isPlaying: boolean;
-  trackId: number | null;
+  trackId: EntityId | null;
 };
 
 type RemoteAudioAnalysisLoadState = {
   requestId: number;
-  trackId: number;
+  trackId: EntityId;
+};
+
+type BackgroundAnalysisStatusPayload = {
+  status: "started" | "completed";
+  total: number;
+  completed: number;
+  failed: number;
+};
+
+type LibraryScanProgressPayload = {
+  status: "discovering" | "reading" | "writing" | "completed";
+  libraryPath: string;
+  processed: number;
+  total: number;
+  imported: number;
+  skipped: number;
+};
+
+type LibraryLoadProgressPayload = {
+  status: "opening" | "albums" | "assets" | "completed";
+  processed: number;
+  total: number;
+  tracks: number;
 };
 
 type RemoteAudioAnalysisFrameEntry = {
@@ -179,7 +210,7 @@ type RemoteAudioAnalysisFrameEntry = {
   values: number[];
 };
 
-function areNumberArraysEqual(first: number[] | null, second: number[] | null) {
+function areEntityIdArraysEqual(first: EntityId[] | null, second: EntityId[] | null) {
   if (first === second) return true;
   if (!first || !second || first.length !== second.length) return false;
 
@@ -217,7 +248,7 @@ function makeAudioAnalysisPacketFromSegment(
 }
 
 function makeAudioAnalysisPacketFromFrames(
-  _trackId: number,
+  _trackId: EntityId,
   frames: RemoteAudioAnalysisFrameEntry[],
   frameIntervalMs: number,
   currentTimeAtReceived: number,
@@ -243,6 +274,14 @@ function rebaseAudioAnalysisPacketPlaybackTime(
     currentTimeAtReceived,
     receivedAt: performance.now(),
   } satisfies RemoteAudioAnalysisPacket;
+}
+
+function waitForNextPaint() {
+  return new Promise<void>((resolve) => {
+    window.requestAnimationFrame(() => {
+      window.requestAnimationFrame(() => resolve());
+    });
+  });
 }
 
 function mergeRemoteAudioAnalysisFrames(
@@ -279,8 +318,8 @@ function App() {
   const lastLibraryCommandIdRef = useRef(0);
   const lastRemoteCommandIdRef = useRef(0);
   const remoteAudioAnalysisLoadStateRef = useRef<RemoteAudioAnalysisLoadState | null>(null);
-  const remoteAudioAnalysisPacketsByTrackRef = useRef(new Map<number, RemoteAudioAnalysisPacket>());
-  const loadedRemoteAudioAnalysisTrackIdRef = useRef<number | null>(null);
+  const remoteAudioAnalysisPacketsByTrackRef = useRef(new Map<EntityId, RemoteAudioAnalysisPacket>());
+  const loadedRemoteAudioAnalysisTrackIdRef = useRef<EntityId | null>(null);
   const lastRemotePlayerStateRef = useRef<RemotePlayerStateSnapshot | null>(null);
   const remoteSyncRequestIdRef = useRef(0);
   const remotePlaybackClockRef = useRef<RemotePlaybackClock | null>(null);
@@ -308,17 +347,17 @@ function App() {
   const [mcpUrl, setMcpUrl] = useState<string | null>(null);
   const [mcpError, setMcpError] = useState<string | null>(null);
   const [albums, setAlbums] = useState<Album[]>(hasRealBackend ? [] : mockAlbums);
-  const [selectedAlbumId, setSelectedAlbumId] = useState<number | null>(() =>
+  const [selectedAlbumId, setSelectedAlbumId] = useState<EntityId | null>(() =>
     hasRealBackend ? null : getInitialAlbumId(mockAlbums, storedPlaybackPreferences.selectedAlbumId),
   );
-  const [selectedTrackId, setSelectedTrackId] = useState<number | null>(null);
-  const [playbackAlbumId, setPlaybackAlbumId] = useState<number | null>(() =>
+  const [selectedTrackId, setSelectedTrackId] = useState<EntityId | null>(null);
+  const [playbackAlbumId, setPlaybackAlbumId] = useState<EntityId | null>(() =>
     hasRealBackend ? null : getInitialAlbumId(mockAlbums, storedPlaybackPreferences.playbackAlbumId),
   );
   const [currentTrack, setCurrentTrack] = useState<Track | null>(() =>
     hasRealBackend ? null : getInitialTrack(mockAlbums, getInitialAlbumId(mockAlbums, storedPlaybackPreferences.playbackAlbumId)),
   );
-  const [playbackQueueTrackIds, setPlaybackQueueTrackIds] = useState<number[]>(() => {
+  const [playbackQueueTrackIds, setPlaybackQueueTrackIds] = useState<EntityId[]>(() => {
     if (hasRealBackend) return [];
     const initialAlbumId = getInitialAlbumId(mockAlbums, storedPlaybackPreferences.playbackAlbumId);
     return mockAlbums.find((album) => album.id === initialAlbumId)?.tracks.map((track) => track.id) ?? [];
@@ -347,12 +386,13 @@ function App() {
   const [albumTagDraft, setAlbumTagDraft] = useState<AlbumTagDraft>(() => makeAlbumTagDraft(mockAlbums[0] ?? null));
   const [isSavingAlbumTags, setIsSavingAlbumTags] = useState(false);
   const [albumTagMessage, setAlbumTagMessage] = useState<I18nMessage | null>(null);
-  const [detailTrackId, setDetailTrackId] = useState<number | null>(null);
+  const [detailTrackId, setDetailTrackId] = useState<EntityId | null>(null);
   const [trackDetailTab, setTrackDetailTab] = useState<"info" | "lyrics" | "artwork">("info");
-  const [trackLyricsById, setTrackLyricsById] = useState<Record<number, string | null>>({});
+  const [trackLyricsById, setTrackLyricsById] = useState<Record<string, string | null>>({});
   const [trackTagDraft, setTrackTagDraft] = useState<TrackTagDraft>(() => makeTrackTagDraft(null, mockAlbums[0] ?? null));
   const [editingTrackTag, setEditingTrackTag] = useState<keyof TrackTagDraft | null>(null);
   const [isSavingTrackTags, setIsSavingTrackTags] = useState(false);
+  const [isSavingTrackUserState, setIsSavingTrackUserState] = useState(false);
   const [trackTagMessage, setTrackTagMessage] = useState<I18nMessage | null>(null);
   const [artworkDraftPath, setArtworkDraftPath] = useState("");
   const [artworkPreviewSrc, setArtworkPreviewSrc] = useState("");
@@ -395,6 +435,80 @@ function App() {
   useEffect(() => {
     if (!hasRealBackend) return;
     void refreshLibrary();
+  }, []);
+
+  useEffect(() => {
+    if (!isTauriRuntime) return;
+
+    const unlistenLoad = listen<LibraryLoadProgressPayload>("musical-library-load-progress", (event) => {
+      const payload = event.payload;
+      if (payload.status === "completed") return;
+
+      if (payload.status === "opening") {
+        setLibraryInfo({ key: "status.libraryLoadOpening" });
+        return;
+      }
+
+      if (payload.status === "assets") {
+        setLibraryInfo({ key: "status.libraryLoadAssets", values: { albums: payload.total, tracks: payload.tracks } });
+        return;
+      }
+
+      setLibraryInfo({
+        key: "status.libraryLoadAlbums",
+        values: {
+          albums: payload.processed,
+          total: payload.total,
+          tracks: payload.tracks,
+        },
+      });
+    });
+
+    const unlistenScan = listen<LibraryScanProgressPayload>("musical-library-scan-progress", (event) => {
+      const payload = event.payload;
+      if (payload.status === "completed") return;
+
+      if (payload.status === "discovering") {
+        setLibraryInfo({ key: "status.scanDiscovering", values: { libraryPath: payload.libraryPath } });
+        return;
+      }
+
+      if (payload.status === "writing") {
+        setLibraryInfo({
+          key: "status.scanWriting",
+          values: { imported: payload.imported, skipped: payload.skipped },
+        });
+        return;
+      }
+
+      setLibraryInfo({
+        key: "status.scanReading",
+        values: {
+          imported: payload.imported,
+          processed: payload.processed,
+          skipped: payload.skipped,
+          total: payload.total,
+        },
+      });
+    });
+
+    const unlisten = listen<BackgroundAnalysisStatusPayload>("musical-analysis-status", (event) => {
+      const payload = event.payload;
+      if (payload.status === "started") {
+        setLibraryInfo({ key: "status.analysisStarted", values: { tracks: payload.total } });
+      } else {
+        setLibraryInfo({
+          key: "status.analysisComplete",
+          values: { completed: payload.completed, failed: payload.failed, total: payload.total },
+        });
+      }
+    });
+
+    return () => {
+      void unlistenLoad.then((dispose) => dispose());
+      void unlistenScan.then((dispose) => dispose());
+      void unlisten.then((dispose) => dispose());
+    };
   }, []);
 
   useEffect(() => {
@@ -536,8 +650,8 @@ function App() {
     () => (detailAlbum ? getArtworkSrc(detailAlbum) : ""),
     [detailAlbum?.artworkPath, detailAlbum?.coverUrl],
   );
-  const detailLyrics = detailTrack ? trackLyricsById[detailTrack.id] : null;
-  const currentLyrics = currentTrack ? trackLyricsById[currentTrack.id] : null;
+  const detailLyrics = detailTrack ? trackLyricsById[String(detailTrack.id)] : null;
+  const currentLyrics = currentTrack ? trackLyricsById[String(currentTrack.id)] : null;
   const hasTrackTagChanges = detailTrack
     ? isTrackTagDraftChanged(trackTagDraft, detailTrack, detailAlbum)
     : false;
@@ -580,7 +694,7 @@ function App() {
     setTrackTagMessage(null);
     setArtworkDraftPath("");
     setArtworkPreviewSrc("");
-  }, [detailAlbum, detailTrack]);
+  }, [detailAlbum?.id, detailTrack?.id]);
 
   useEffect(() => {
     return () => {
@@ -591,7 +705,16 @@ function App() {
 
   async function refreshLibrary() {
     try {
+      setLibraryInfo({ key: "status.libraryLoadOpening" });
       const snapshot = await backendInvoke<LibrarySnapshot>("library_snapshot");
+      setLibraryInfo({
+        key: "status.libraryLoadApplying",
+        values: {
+          albums: snapshot.albums.length,
+          tracks: snapshot.albums.reduce((total, album) => total + album.tracks.length, 0),
+        },
+      });
+      await waitForNextPaint();
       applyLibrarySnapshot(snapshot, { resetPlayback: true });
     } catch (error) {
       setLibraryInfo(toI18nError(error));
@@ -650,7 +773,7 @@ function App() {
     return true;
   }
 
-  function findTrackById(trackId: number | null) {
+  function findTrackById(trackId: EntityId | null) {
     if (trackId === null) return null;
     for (const album of albums) {
       const track = album.tracks.find((track) => track.id === trackId);
@@ -659,22 +782,43 @@ function App() {
     return null;
   }
 
-  function findAlbumByTrackId(trackId: number | null) {
+  function findAlbumByTrackId(trackId: EntityId | null) {
     if (trackId === null) return null;
     return albums.find((album) => album.tracks.some((track) => track.id === trackId)) ?? null;
   }
 
-  function findTracksByIds(trackIds: number[]) {
+  function findTracksByIds(trackIds: EntityId[]) {
     const tracksById = new Map(albums.flatMap((album) => album.tracks).map((track) => [track.id, track]));
     return trackIds.map((trackId) => tracksById.get(trackId)).filter((track): track is Track => Boolean(track));
   }
 
-  function getCommandNumberArray(command: QueuedRemotePlayerCommand, key: string) {
+  function applyTrackUserState(trackId: EntityId, isFavorite: boolean, rating: number | null) {
+    setAlbums((currentAlbums) =>
+      currentAlbums.map((album) => ({
+        ...album,
+        tracks: album.tracks.map((track) =>
+          track.id === trackId
+            ? {
+                ...track,
+                isFavorite,
+                rating,
+              }
+            : track,
+        ),
+      })),
+    );
+    setCurrentTrack((track) => (track?.id === trackId ? { ...track, isFavorite, rating } : track));
+  }
+
+  function getCommandEntityIdArray(command: QueuedRemotePlayerCommand, key: string) {
     const value = command.payload?.[key];
     if (!Array.isArray(value)) return null;
 
-    const numbers = value.filter((item): item is number => typeof item === "number" && Number.isFinite(item));
-    return numbers.length === value.length ? numbers : null;
+    const ids = value.filter(
+      (item): item is EntityId =>
+        (typeof item === "number" && Number.isFinite(item)) || (typeof item === "string" && item.trim().length > 0),
+    );
+    return ids.length === value.length ? ids : null;
   }
 
   function applyRemotePlayerState(
@@ -720,8 +864,8 @@ function App() {
     setPlaybackAlbumId(state.playbackAlbumId);
     const syncedTrack = findTrackById(state.currentTrackId);
     setCurrentTrack(syncedTrack);
-    setPlaybackQueueTrackIds((currentTrackIds) =>
-      areNumberArraysEqual(currentTrackIds, state.queueTrackIds) ? currentTrackIds : state.queueTrackIds,
+      setPlaybackQueueTrackIds((currentTrackIds) =>
+      areEntityIdArraysEqual(currentTrackIds, state.queueTrackIds) ? currentTrackIds : state.queueTrackIds,
     );
     setIsPlaying(state.isPlaying);
     setIsShuffle(state.isShuffle);
@@ -939,7 +1083,7 @@ function App() {
     suppressedTrackClickRef.current = null;
   }
 
-  function suppressTrackClick(trackId: number) {
+  function suppressTrackClick(trackId: EntityId) {
     clearSuppressedTrackClick();
     suppressedTrackClickRef.current = {
       timerId: window.setTimeout(clearSuppressedTrackClick, 1000),
@@ -983,23 +1127,23 @@ function App() {
 
   async function loadTrackLyrics(track: Track) {
     if (!track.hasLyrics && !track.lyrics?.trim()) {
-      setTrackLyricsById((current) => ({ ...current, [track.id]: null }));
+      setTrackLyricsById((current) => ({ ...current, [String(track.id)]: null }));
       return;
     }
 
     if (track.id in trackLyricsById) return;
 
     if (!hasRealBackend) {
-      setTrackLyricsById((current) => ({ ...current, [track.id]: track.lyrics ?? null }));
+      setTrackLyricsById((current) => ({ ...current, [String(track.id)]: track.lyrics ?? null }));
       return;
     }
 
     try {
       const lyrics = await backendInvoke<string | null>("track_lyrics", { trackId: track.id });
-      setTrackLyricsById((current) => ({ ...current, [track.id]: lyrics }));
+      setTrackLyricsById((current) => ({ ...current, [String(track.id)]: lyrics }));
     } catch (error) {
       setTrackTagMessage(toI18nError(error));
-      setTrackLyricsById((current) => ({ ...current, [track.id]: null }));
+      setTrackLyricsById((current) => ({ ...current, [String(track.id)]: null }));
     }
   }
 
@@ -1439,6 +1583,30 @@ function App() {
     }
   }
 
+  async function saveTrackUserState(nextIsFavorite: boolean, nextRating: number | null) {
+    if (!detailTrack || isSavingTrackUserState) return;
+
+    try {
+      setIsSavingTrackUserState(true);
+      setTrackTagMessage(null);
+
+      if (!hasRealBackend) {
+        applyTrackUserState(detailTrack.id, nextIsFavorite, nextRating);
+        setTrackTagMessage({ key: "trackDetail.userStateSaved" });
+        return;
+      }
+
+      const result = await updateTrackUserState(detailTrack.id, nextIsFavorite, nextRating);
+      applyTrackUserState(result.trackId, result.isFavorite, result.rating);
+      notifyLibraryChanged();
+      setTrackTagMessage({ key: "trackDetail.userStateSaved" });
+    } catch (error) {
+      setTrackTagMessage(toI18nError(error));
+    } finally {
+      setIsSavingTrackUserState(false);
+    }
+  }
+
   async function chooseArtwork() {
     setTrackTagMessage(null);
 
@@ -1500,6 +1668,13 @@ function App() {
     return typeof value === "number" && Number.isFinite(value) ? value : null;
   }
 
+  function getCommandEntityId(command: QueuedRemotePlayerCommand, key: string) {
+    const value = command.payload?.[key];
+    if (typeof value === "number" && Number.isFinite(value)) return value;
+    if (typeof value === "string" && value.trim()) return value;
+    return null;
+  }
+
   function getCommandBoolean(command: QueuedRemotePlayerCommand, key: string) {
     const value = command.payload?.[key];
     return typeof value === "boolean" ? value : null;
@@ -1511,7 +1686,7 @@ function App() {
   }
 
   function playRemoteAlbum(album: Album, command: QueuedRemotePlayerCommand) {
-    const commandQueueTrackIds = getCommandNumberArray(command, "queueTrackIds");
+    const commandQueueTrackIds = getCommandEntityIdArray(command, "queueTrackIds");
     const commandQueue = commandQueueTrackIds ? findTracksByIds(commandQueueTrackIds) : [];
     const shouldShuffle = getCommandBoolean(command, "isShuffle") ?? isShuffle;
     const nextQueue = commandQueue.length > 0 ? commandQueue : getAlbumQueueTracks(album, shouldShuffle);
@@ -1525,9 +1700,9 @@ function App() {
     setIsPlaying(Boolean(firstTrack));
   }
 
-  function playRemoteTrack(track: Track, albumId: number | null, command: QueuedRemotePlayerCommand) {
+  function playRemoteTrack(track: Track, albumId: EntityId | null, command: QueuedRemotePlayerCommand) {
     const album = albums.find((album) => album.id === albumId) ?? findAlbumByTrackId(track.id);
-    const commandQueueTrackIds = getCommandNumberArray(command, "queueTrackIds");
+    const commandQueueTrackIds = getCommandEntityIdArray(command, "queueTrackIds");
     const commandQueue = commandQueueTrackIds ? findTracksByIds(commandQueueTrackIds) : [];
     const shouldShuffle = getCommandBoolean(command, "isShuffle") ?? isShuffle;
     const nextQueue = commandQueue.length > 0 ? commandQueue : album ? getAlbumQueueTracks(album, shouldShuffle, track) : [track];
@@ -1554,14 +1729,14 @@ function App() {
         playPlayback();
         break;
       case "play-album": {
-        const albumId = getCommandNumber(command, "albumId");
+        const albumId = getCommandEntityId(command, "albumId");
         const album = albums.find((album) => album.id === albumId);
         if (album) playRemoteAlbum(album, command);
         break;
       }
       case "play-track": {
-        const trackId = getCommandNumber(command, "trackId");
-        const albumId = getCommandNumber(command, "albumId") ?? findAlbumByTrackId(trackId)?.id ?? null;
+        const trackId = getCommandEntityId(command, "trackId");
+        const albumId = getCommandEntityId(command, "albumId") ?? findAlbumByTrackId(trackId)?.id ?? null;
         const track = findTrackById(trackId);
         if (track) playRemoteTrack(track, albumId, command);
         break;
@@ -1578,13 +1753,13 @@ function App() {
         break;
       }
       case "select-album": {
-        const albumId = getCommandNumber(command, "albumId");
+        const albumId = getCommandEntityId(command, "albumId");
         const album = albums.find((album) => album.id === albumId);
         if (album) selectAlbum(album);
         break;
       }
       case "select-track": {
-        const trackId = getCommandNumber(command, "trackId");
+        const trackId = getCommandEntityId(command, "trackId");
         const track = findTrackById(trackId);
         if (track) selectTrack(track);
         break;
@@ -1838,6 +2013,14 @@ function App() {
 
   useGlobalMediaKeys(mediaKeyHandlers);
 
+  const libraryWorkerInfo: I18nMessage = isScanning
+    ? { key: "status.workerLibraryScan" }
+    : { key: "status.workerIdle" };
+  const shouldShowLibraryStatus =
+    libraryInfo !== null &&
+    hasRealBackend &&
+    (libraryInfo.key !== "status.loadedAlbums" || libraryWorkerInfo.key !== "status.workerIdle");
+
   return (
     <main
       className={[
@@ -1942,6 +2125,13 @@ function App() {
         trackEntries={selectedAlbumTrackEntries}
       />
 
+      {shouldShowLibraryStatus ? (
+        <section className="library-status-bar" aria-live="polite">
+          <span className="library-status-message">{t(libraryInfo.key, libraryInfo.values)}</span>
+          <span className="library-worker-message">{t(libraryWorkerInfo.key, libraryWorkerInfo.values)}</span>
+        </section>
+      ) : null}
+
       <PlayerBar
         audioRef={audioRef}
         currentAlbum={playbackAlbum}
@@ -1998,6 +2188,7 @@ function App() {
           isTauriRuntime={isTauriRuntime}
           libraryInfo={libraryInfo}
           libraryPath={libraryPath}
+          workerInfo={libraryWorkerInfo}
           onChooseFolder={() => void handleChooseFolder()}
           onClose={() => setIsLibrarySettingsOpen(false)}
           onLibraryPathChange={setLibraryPath}
@@ -2018,12 +2209,15 @@ function App() {
           hasTrackTagChanges={hasTrackTagChanges}
           isSavingArtwork={isSavingArtwork}
           isSavingTrackTags={isSavingTrackTags}
+          isSavingTrackUserState={isSavingTrackUserState}
           isTauriRuntime={isTauriRuntime}
           onChangeTab={changeTrackDetailTab}
           onChooseArtwork={() => void chooseArtwork()}
           onClose={closeTrackDetail}
           onSaveArtwork={() => void saveTrackArtwork()}
           onSaveTrackTags={() => void saveTrackTags()}
+          onTrackFavoriteChange={(isFavorite) => void saveTrackUserState(isFavorite, detailTrack.rating ?? null)}
+          onTrackRatingChange={(rating) => void saveTrackUserState(Boolean(detailTrack.isFavorite), rating)}
           onTrackTagDraftChange={setTrackTagDraft}
           onTrackTagEditChange={setEditingTrackTag}
           t={t}

@@ -8,6 +8,7 @@ type LibrarySettingsDialogProps = {
   isTauriRuntime: boolean;
   libraryInfo: I18nMessage | null;
   libraryPath: string;
+  workerInfo?: I18nMessage;
   onChooseFolder: () => void;
   onClose: () => void;
   onLibraryPathChange: (path: string) => void;
@@ -20,6 +21,7 @@ export function LibrarySettingsDialog({
   isTauriRuntime,
   libraryInfo,
   libraryPath,
+  workerInfo,
   onChooseFolder,
   onClose,
   onLibraryPathChange,
@@ -89,6 +91,7 @@ export function LibrarySettingsDialog({
                 {t(libraryInfo.key, libraryInfo.values)}
               </p>
             ) : null}
+            {workerInfo ? <p className="worker-info-text">{t(workerInfo.key, workerInfo.values)}</p> : null}
           </div>
         </div>
       </section>

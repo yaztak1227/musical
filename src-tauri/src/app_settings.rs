@@ -7,6 +7,7 @@ const SETTINGS_FILE_NAME: &str = "settings.json";
 #[derive(Debug, Default, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AppSettings {
+    pub last_library_path: Option<String>,
     pub mcp_enabled: bool,
 }
 

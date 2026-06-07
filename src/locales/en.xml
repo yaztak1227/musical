@@ -138,6 +138,15 @@
   <message key="trackDetail.filePath">File path</message>
   <message key="trackDetail.noFilePath">No file path</message>
   <message key="trackDetail.noLyrics">No lyrics are saved in this track.</message>
+  <message key="trackDetail.favorite">Favorite</message>
+  <message key="trackDetail.notFavorite">Not favorite</message>
+  <message key="trackDetail.addFavorite">Add to favorites</message>
+  <message key="trackDetail.removeFavorite">Remove from favorites</message>
+  <message key="trackDetail.rating">Rating</message>
+  <message key="trackDetail.setRating">Set {rating} star rating</message>
+  <message key="trackDetail.clearRating">Clear rating</message>
+  <message key="trackDetail.userStateSaved">Saved</message>
+  <message key="trackDetail.userStateSummary">{favorite}, rating {rating}</message>
   <message key="data.unknownTrack">Unknown Track</message>
   <message key="data.unknownAlbum">Unknown Album</message>
   <message key="data.unknownArtist">Unknown Artist</message>
@@ -180,7 +189,18 @@
   <message key="status.noAlbumsIndexed">No albums indexed yet. Database: {databasePath}</message>
   <message key="status.desktopOnly">Folder scanning runs in the Tauri desktop app.</message>
   <message key="status.enterFolder">Enter a local music folder path first.</message>
+  <message key="status.scanDiscovering">Looking for audio files in {libraryPath}...</message>
+  <message key="status.scanReading">Reading library: {processed}/{total} files, {imported} tracks imported, {skipped} skipped</message>
+  <message key="status.scanWriting">Saving library: {imported} tracks, {skipped} skipped</message>
   <message key="status.scanComplete">{albums} albums / {tracks} tracks imported from {libraryPath}</message>
+  <message key="status.libraryLoadOpening">Opening library database...</message>
+  <message key="status.libraryLoadAlbums">Loading library: {albums}/{total} albums, {tracks} tracks</message>
+  <message key="status.libraryLoadAssets">Preparing artwork access: {albums} albums, {tracks} tracks</message>
+  <message key="status.libraryLoadApplying">Updating screen: {albums} albums, {tracks} tracks</message>
+  <message key="status.workerIdle">Worker: automatic analysis worker idle</message>
+  <message key="status.workerLibraryScan">Worker: library scan running</message>
+  <message key="status.analysisStarted">Analyzing audio cache for {tracks} tracks...</message>
+  <message key="status.analysisComplete">Audio analysis cache ready: {completed}/{total} tracks, {failed} failed</message>
   <message key="status.folderOpenError">Could not open folder {folderPath}: {reason}</message>
   <message key="status.notFolderError">{folderPath} is not a folder.</message>
   <message key="status.albumNotFound">Album {albumId} was not found.</message>
@@ -190,5 +210,6 @@
   <message key="status.emptyAlbumTitle">Album name is required.</message>
   <message key="status.emptyArtworkPath">Choose an image before saving.</message>
   <message key="status.unsupportedArtwork">Choose a PNG, JPEG, GIF, BMP, or TIFF image.</message>
+  <message key="status.invalidRating">Rating must be between 1 and 5.</message>
   <message key="status.error">Error: {message}</message>
 </resources>

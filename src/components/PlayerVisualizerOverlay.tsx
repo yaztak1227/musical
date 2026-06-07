@@ -53,7 +53,7 @@ import surfPuchiBoyPaddlingSrc from "@/assets/surf-puchi-boy-paddling.png";
 import surfPuchiBoyStandingSrc from "@/assets/surf-puchi-boy-standing.png";
 import surfPuchiGirlPaddlingSrc from "@/assets/surf-puchi-girl-paddling.png";
 import surfPuchiGirlStandingSrc from "@/assets/surf-puchi-girl-standing.png";
-import type { Album, Track } from "@/types/audio";
+import type { Album, EntityId, Track } from "@/types/audio";
 import type { TFunction } from "@/types/app";
 import { chibiSpectrumConfig } from "@/config/appConfig";
 import { getAudioVisualizerNode } from "@/lib/audioAnalysis";
@@ -106,7 +106,7 @@ type RemotePlaybackClock = {
   currentTime: number;
   isPlaying: boolean;
   receivedAt: number;
-  trackId: number | null;
+  trackId: EntityId | null;
 };
 
 type PlayerVisualizerOverlayProps = {

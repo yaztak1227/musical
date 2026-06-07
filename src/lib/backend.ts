@@ -1,5 +1,6 @@
 import { convertFileSrc, invoke } from "@tauri-apps/api/core";
 import { localServerConfig } from "../config/appConfig";
+import type { EntityId } from "../types/audio";
 
 export const isTauriRuntime = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 export const isMockDataRuntime = import.meta.env.VITE_MOCK_DATA === "true";
@@ -14,10 +15,10 @@ export const isBrowserBackendRuntime = typeof window !== "undefined" && !isTauri
 export const hasRealBackend = !isMockDataRuntime;
 
 export type RemotePlayerState = {
-  selectedAlbumId: number | null;
-  playbackAlbumId: number | null;
-  currentTrackId: number | null;
-  queueTrackIds: number[];
+  selectedAlbumId: EntityId | null;
+  playbackAlbumId: EntityId | null;
+  currentTrackId: EntityId | null;
+  queueTrackIds: EntityId[];
   isPlaying: boolean;
   isShuffle: boolean;
   repeatMode: string;
@@ -27,6 +28,7 @@ export type RemotePlayerState = {
 
 export type RemoteAudioAnalysisSegmentFrame = {
   timecode: number;
+  trackId?: EntityId;
   values: number[];
 };
 
@@ -34,7 +36,7 @@ export type RemoteAudioAnalysisSegment = {
   frameIntervalMs: number;
   frames: RemoteAudioAnalysisSegmentFrame[];
   isComplete?: boolean;
-  trackId: number;
+  trackId: EntityId;
 };
 
 export type RemotePlayerCommandType =
@@ -131,7 +133,7 @@ export async function getRemotePlayerCommands(afterId: number) {
 }
 
 export async function getRemoteTrackAnalysisSegment(
-  trackId: number,
+  trackId: EntityId,
   from: number,
   duration: number,
   totalDuration?: number,
@@ -145,7 +147,7 @@ export async function getRemoteTrackAnalysisSegment(
   return localApiRequest<RemoteAudioAnalysisSegment>(`/api/track_analysis?${query.toString()}`);
 }
 
-export async function getRemoteAudioAnalysisSegment(trackId: number, from: number, duration: number) {
+export async function getRemoteAudioAnalysisSegment(trackId: EntityId, from: number, duration: number) {
   return getRemoteTrackAnalysisSegment(trackId, from, duration);
 }
 
