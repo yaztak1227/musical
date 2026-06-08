@@ -64,9 +64,11 @@ export type QueuedRemotePlayerCommand = {
 };
 
 export type RemotePlayerStateResponse = {
-  receivedAtMs: number;
-  sentAtMs: number | null;
+  clientReceivedAtMs: number;
+  clientRequestedAtMs: number;
+  responseSentAtMs: number | null;
   state: RemotePlayerState | null;
+  stateCapturedAtMs: number | null;
 };
 
 export async function backendInvoke<T>(command: string, payload?: Record<string, unknown>) {
@@ -88,30 +90,35 @@ export async function backendInvoke<T>(command: string, payload?: Record<string,
 }
 
 export async function publishRemotePlayerState(state: RemotePlayerState) {
-  const sentAtMs = Date.now();
+  const stateCapturedAtMs = Date.now();
   return localApiRequest<boolean>("/api/player_state", {
     body: JSON.stringify({ state }),
     headers: {
       "Content-Type": "application/json",
-      "X-Musical-Client-Sent-At-Ms": String(sentAtMs),
+      "X-Musical-State-Captured-At-Ms": String(stateCapturedAtMs),
     },
     method: "POST",
   });
 }
 
 export async function getRemotePlayerState() {
+  const clientRequestedAtMs = performance.now();
   const response = await fetch(`${isTauriRuntime ? localApiBaseUrl : ""}/api/player_state`);
-  const receivedAtMs = Date.now();
+  const clientReceivedAtMs = performance.now();
   if (!response.ok) {
     throw await response.text();
   }
 
-  const sentAtHeader = response.headers.get("X-Musical-State-Sent-At-Ms");
-  const sentAtMs = sentAtHeader === null ? null : Number(sentAtHeader);
+  const responseSentHeader = response.headers.get("X-Musical-Response-Sent-At-Ms");
+  const stateCapturedHeader = response.headers.get("X-Musical-State-Captured-At-Ms");
+  const responseSentAtMs = responseSentHeader === null ? null : Number(responseSentHeader);
+  const stateCapturedAtMs = stateCapturedHeader === null ? null : Number(stateCapturedHeader);
   return {
-    receivedAtMs,
-    sentAtMs: Number.isFinite(sentAtMs) ? sentAtMs : null,
+    clientReceivedAtMs,
+    clientRequestedAtMs,
+    responseSentAtMs: Number.isFinite(responseSentAtMs) ? responseSentAtMs : null,
     state: await response.json() as RemotePlayerState | null,
+    stateCapturedAtMs: Number.isFinite(stateCapturedAtMs) ? stateCapturedAtMs : null,
   } satisfies RemotePlayerStateResponse;
 }
 

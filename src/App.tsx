@@ -821,24 +821,34 @@ function App() {
     return ids.length === value.length ? ids : null;
   }
 
+  function getRemotePlayerStateAgeSeconds(timing: {
+    clientReceivedAtMs: number;
+    clientRequestedAtMs: number;
+    responseSentAtMs: number | null;
+    stateCapturedAtMs: number | null;
+  }) {
+    if (timing.responseSentAtMs === null || timing.stateCapturedAtMs === null) return 0;
+
+    const serverStateAgeMs = timing.responseSentAtMs - timing.stateCapturedAtMs;
+    const responseTransitMs = (timing.clientReceivedAtMs - timing.clientRequestedAtMs) / 2;
+    const stateAgeSeconds = (serverStateAgeMs + responseTransitMs) / 1000;
+    return Math.max(0, Math.min(remotePlayerStateTransitDelayMaxSeconds, stateAgeSeconds));
+  }
+
   function applyRemotePlayerState(
     state: RemotePlayerState,
-    timing: { receivedAtMs: number; sentAtMs: number | null } = { receivedAtMs: Date.now(), sentAtMs: null },
+    timing: {
+      clientReceivedAtMs: number;
+      clientRequestedAtMs: number;
+      responseSentAtMs: number | null;
+      stateCapturedAtMs: number | null;
+    } | null = null,
   ) {
     const now = performance.now();
     const previousClock = remotePlaybackClockRef.current;
     const previousRemoteState = lastRemotePlayerStateRef.current;
-    const transitDelaySeconds =
-      state.isPlaying && timing.sentAtMs !== null
-        ? Math.max(
-          0,
-          Math.min(
-            remotePlayerStateTransitDelayMaxSeconds,
-            (timing.receivedAtMs - timing.sentAtMs) / 1000,
-          ),
-        )
-        : 0;
-    const correctedStateTime = state.currentTime + transitDelaySeconds;
+    const stateAgeSeconds = state.isPlaying && timing ? getRemotePlayerStateAgeSeconds(timing) : 0;
+    const correctedStateTime = state.currentTime + stateAgeSeconds;
     const isSameTrack = previousClock?.trackId === state.currentTrackId;
     const isRepeatedRemoteTime =
       previousRemoteState?.trackId === state.currentTrackId &&
@@ -861,15 +871,30 @@ function App() {
       isPlaying: state.isPlaying,
       trackId: state.currentTrackId,
     };
-    setPlaybackAlbumId(state.playbackAlbumId);
+    if (playbackAlbumId !== state.playbackAlbumId) {
+      setPlaybackAlbumId(state.playbackAlbumId);
+    }
+
     const syncedTrack = findTrackById(state.currentTrackId);
-    setCurrentTrack(syncedTrack);
-      setPlaybackQueueTrackIds((currentTrackIds) =>
-      areEntityIdArraysEqual(currentTrackIds, state.queueTrackIds) ? currentTrackIds : state.queueTrackIds,
-    );
-    setIsPlaying(state.isPlaying);
-    setIsShuffle(state.isShuffle);
-    setRepeatMode(isRepeatMode(state.repeatMode) ? state.repeatMode : "off");
+    if (currentTrack?.id !== syncedTrack?.id) {
+      setCurrentTrack(syncedTrack);
+    }
+    if (!areEntityIdArraysEqual(playbackQueueTrackIds, state.queueTrackIds)) {
+      setPlaybackQueueTrackIds(state.queueTrackIds);
+    }
+
+    if (isPlaying !== state.isPlaying) {
+      setIsPlaying(state.isPlaying);
+    }
+    if (isShuffle !== state.isShuffle) {
+      setIsShuffle(state.isShuffle);
+    }
+
+    const syncedRepeatMode = isRepeatMode(state.repeatMode) ? state.repeatMode : "off";
+    if (repeatMode !== syncedRepeatMode) {
+      setRepeatMode(syncedRepeatMode);
+    }
+
     remotePlaybackClockRef.current = {
       currentTime: syncedCurrentTime,
       isPlaying: state.isPlaying,
@@ -880,7 +905,9 @@ function App() {
       audioAnalysisPacketRef.current = null;
     }
     playerBarRef.current?.seekTo(syncedCurrentTime, "remote-sync");
-    setVolume(state.volume, "remote-sync");
+    if (Math.abs((playerBarRef.current?.getVolume() ?? 0.85) - state.volume) > 0.001) {
+      setVolume(state.volume, "remote-sync");
+    }
   }
 
   function notifyLibraryChanged() {
@@ -1807,9 +1834,16 @@ function App() {
     const requestId = remoteSyncRequestIdRef.current + 1;
     remoteSyncRequestIdRef.current = requestId;
     void getRemotePlayerState()
-      .then(({ receivedAtMs, sentAtMs, state }) => {
+      .then(({ clientReceivedAtMs, clientRequestedAtMs, responseSentAtMs, state, stateCapturedAtMs }) => {
         if (requestId !== remoteSyncRequestIdRef.current) return;
-        if (state) applyRemotePlayerState(state, { receivedAtMs, sentAtMs });
+        if (state) {
+          applyRemotePlayerState(state, {
+            clientReceivedAtMs,
+            clientRequestedAtMs,
+            responseSentAtMs,
+            stateCapturedAtMs,
+          });
+        }
       })
       .catch((error: unknown) => {
         if (requestId === remoteSyncRequestIdRef.current) setPlaybackError(String(error));

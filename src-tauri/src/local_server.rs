@@ -21,6 +21,7 @@ use std::{
     path::Path,
     sync::{Arc, Condvar, LockResult, Mutex, MutexGuard},
     thread,
+    time::{SystemTime, UNIX_EPOCH},
 };
 use tauri::AppHandle;
 
@@ -141,7 +142,7 @@ struct RemoteServerState {
     mcp_enabled: bool,
     next_command_id: u64,
     player_state: Option<RemotePlayerState>,
-    player_state_sent_at_ms: Option<f64>,
+    player_state_captured_at_ms: Option<f64>,
     commands: VecDeque<QueuedRemotePlayerCommand>,
     active_track_analysis_loads: HashSet<String>,
     active_track_analysis_prefetches: HashSet<String>,
@@ -441,17 +442,26 @@ fn route_request(
             )
         }
         ("GET", "/api/player_state") => {
+            let response_sent_at_ms = current_unix_time_ms();
             let state_result = remote_state
                 .lock()
-                .map(|state| (state.player_state.clone(), state.player_state_sent_at_ms))
+                .map(|state| {
+                    (
+                        state.player_state.clone(),
+                        state.player_state_captured_at_ms,
+                    )
+                })
                 .map_err(|error| error.to_string());
             match state_result {
-                Ok((state, sent_at_ms)) => {
-                    let mut headers = Vec::new();
-                    if let Some(sent_at_ms) = sent_at_ms {
+                Ok((state, captured_at_ms)) => {
+                    let mut headers = vec![(
+                        "X-Musical-Response-Sent-At-Ms".to_owned(),
+                        response_sent_at_ms.to_string(),
+                    )];
+                    if let Some(captured_at_ms) = captured_at_ms {
                         headers.push((
-                            "X-Musical-State-Sent-At-Ms".to_owned(),
-                            sent_at_ms.to_string(),
+                            "X-Musical-State-Captured-At-Ms".to_owned(),
+                            captured_at_ms.to_string(),
                         ));
                     }
                     json_response_with_headers(200, &state, &headers)
@@ -463,10 +473,11 @@ fn route_request(
             let request_body = parse_json::<RemotePlayerStateBody>(&request.body);
             let result = request_body.and_then(|body| {
                 let mut state = remote_state.lock().map_err(|error| error.to_string())?;
-                state.player_state_sent_at_ms = request
+                state.player_state_captured_at_ms = request
                     .headers
-                    .get("x-musical-client-sent-at-ms")
-                    .and_then(|value| value.parse::<f64>().ok());
+                    .get("x-musical-state-captured-at-ms")
+                    .and_then(|value| value.parse::<f64>().ok())
+                    .or_else(|| Some(current_unix_time_ms()));
                 state.player_state = Some(body.state);
                 Ok(true)
             });
@@ -1385,6 +1396,13 @@ fn parse_json<T: for<'de> Deserialize<'de>>(body: &[u8]) -> Result<T, String> {
     serde_json::from_slice(body).map_err(|error| error.to_string())
 }
 
+fn current_unix_time_ms() -> f64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_secs_f64() * 1000.0)
+        .unwrap_or(0.0)
+}
+
 fn result_response<T: serde::Serialize>(result: Result<T, String>) -> Vec<u8> {
     match result {
         Ok(value) => json_response(200, &value),
@@ -1482,8 +1500,8 @@ fn response_with_headers(
          Content-Type: {content_type}\r\n\
          Access-Control-Allow-Origin: *\r\n\
          Access-Control-Allow-Methods: GET, POST, OPTIONS\r\n\
-         Access-Control-Allow-Headers: Content-Type, X-Musical-Client-Sent-At-Ms\r\n\
-         Access-Control-Expose-Headers: X-Musical-State-Sent-At-Ms\r\n",
+         Access-Control-Allow-Headers: Content-Type, X-Musical-State-Captured-At-Ms\r\n\
+         Access-Control-Expose-Headers: X-Musical-Response-Sent-At-Ms, X-Musical-State-Captured-At-Ms\r\n",
         body.len()
     );
     for (key, value) in extra_headers {

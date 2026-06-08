@@ -138,6 +138,15 @@
   <message key="trackDetail.filePath">文件路径</message>
   <message key="trackDetail.noFilePath">无文件路径</message>
   <message key="trackDetail.noLyrics">此曲目没有保存歌词。</message>
+  <message key="trackDetail.favorite">Favorite</message>
+  <message key="trackDetail.notFavorite">Not favorite</message>
+  <message key="trackDetail.addFavorite">Add to favorites</message>
+  <message key="trackDetail.removeFavorite">Remove from favorites</message>
+  <message key="trackDetail.rating">Rating</message>
+  <message key="trackDetail.setRating">Set {rating} star rating</message>
+  <message key="trackDetail.clearRating">Clear rating</message>
+  <message key="trackDetail.userStateSaved">Saved</message>
+  <message key="trackDetail.userStateSummary">{favorite}, rating {rating}</message>
   <message key="data.unknownTrack">未知曲目</message>
   <message key="data.unknownAlbum">未知专辑</message>
   <message key="data.unknownArtist">未知艺术家</message>
@@ -180,7 +189,18 @@
   <message key="status.noAlbumsIndexed">尚未索引专辑。数据库：{databasePath}</message>
   <message key="status.desktopOnly">文件夹扫描在 Tauri 桌面应用中运行。</message>
   <message key="status.enterFolder">请先输入本地音乐文件夹路径。</message>
+  <message key="status.scanDiscovering">Looking for audio files in {libraryPath}...</message>
+  <message key="status.scanReading">Reading library: {processed}/{total} files, {imported} tracks imported, {skipped} skipped</message>
+  <message key="status.scanWriting">Saving library: {imported} tracks, {skipped} skipped</message>
   <message key="status.scanComplete">已从 {libraryPath} 导入 {albums} 张专辑 / {tracks} 首曲目</message>
+  <message key="status.libraryLoadOpening">Opening library database...</message>
+  <message key="status.libraryLoadAlbums">Loading library: {albums}/{total} albums, {tracks} tracks</message>
+  <message key="status.libraryLoadAssets">Preparing artwork access: {albums} albums, {tracks} tracks</message>
+  <message key="status.libraryLoadApplying">Updating screen: {albums} albums, {tracks} tracks</message>
+  <message key="status.workerIdle">Worker: automatic analysis worker idle</message>
+  <message key="status.workerLibraryScan">Worker: library scan running</message>
+  <message key="status.analysisStarted">Analyzing audio cache for {tracks} tracks...</message>
+  <message key="status.analysisComplete">Audio analysis cache ready: {completed}/{total} tracks, {failed} failed</message>
   <message key="status.folderOpenError">无法打开文件夹 {folderPath}：{reason}</message>
   <message key="status.notFolderError">{folderPath} 不是文件夹。</message>
   <message key="status.albumNotFound">未找到专辑 {albumId}。</message>
@@ -190,5 +210,6 @@
   <message key="status.emptyAlbumTitle">专辑名称为必填项。</message>
   <message key="status.emptyArtworkPath">保存前请选择图片。</message>
   <message key="status.unsupportedArtwork">请选择 PNG、JPEG、GIF、BMP 或 TIFF 图片。</message>
+  <message key="status.invalidRating">Rating must be between 1 and 5.</message>
   <message key="status.error">错误：{message}</message>
 </resources>
