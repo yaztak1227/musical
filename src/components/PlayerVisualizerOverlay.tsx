@@ -993,12 +993,6 @@ export function PlayerVisualizerOverlay({
   }, []);
 
   useEffect(() => {
-    if (preferRemoteAudioAnalysis) {
-      analyserRef.current = null;
-      setHasAudioAnalysis(false);
-      return;
-    }
-
     const audio = audioRef.current;
     if (!audio) {
       analyserRef.current = null;

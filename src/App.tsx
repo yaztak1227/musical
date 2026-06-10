@@ -319,6 +319,7 @@ function App() {
   const lastRemoteCommandIdRef = useRef(0);
   const remoteAudioAnalysisLoadStateRef = useRef<RemoteAudioAnalysisLoadState | null>(null);
   const remoteAudioAnalysisPacketsByTrackRef = useRef(new Map<EntityId, RemoteAudioAnalysisPacket>());
+  const activeRemoteAudioAnalysisWarmupsRef = useRef(new Set<EntityId>());
   const loadedRemoteAudioAnalysisTrackIdRef = useRef<EntityId | null>(null);
   const lastRemotePlayerStateRef = useRef<RemotePlayerStateSnapshot | null>(null);
   const remoteSyncRequestIdRef = useRef(0);
@@ -1852,7 +1853,7 @@ function App() {
 
   const loadTrackAnalysis = useEffectEvent((track: Track) => {
     const clock = remotePlaybackClockRef.current;
-    if (isBrowserBackendRuntime && clock?.trackId !== track.id) return;
+    if (isBrowserBackendRuntime && clock && clock.trackId !== track.id) return;
 
     const cachedPacket = remoteAudioAnalysisPacketsByTrackRef.current.get(track.id);
     if (cachedPacket) {
@@ -1884,7 +1885,7 @@ function App() {
       for (let chunkIndex = 0; chunkIndex < chunkCount; chunkIndex += 1) {
         if (
           remoteAudioAnalysisLoadStateRef.current?.requestId !== requestId ||
-          (isBrowserBackendRuntime && remotePlaybackClockRef.current?.trackId !== track.id)
+          (isBrowserBackendRuntime && remotePlaybackClockRef.current && remotePlaybackClockRef.current.trackId !== track.id)
         ) {
           return;
         }
@@ -1895,7 +1896,7 @@ function App() {
         if (
           segment.trackId !== track.id ||
           remoteAudioAnalysisLoadStateRef.current?.requestId !== requestId ||
-          (isBrowserBackendRuntime && remotePlaybackClockRef.current?.trackId !== track.id)
+          (isBrowserBackendRuntime && remotePlaybackClockRef.current && remotePlaybackClockRef.current.trackId !== track.id)
         ) {
           return;
         }
@@ -1917,7 +1918,7 @@ function App() {
 
       if (
         remoteAudioAnalysisLoadStateRef.current?.requestId !== requestId ||
-        (isBrowserBackendRuntime && remotePlaybackClockRef.current?.trackId !== track.id)
+        (isBrowserBackendRuntime && remotePlaybackClockRef.current && remotePlaybackClockRef.current.trackId !== track.id)
       ) {
         return;
       }
@@ -1942,6 +1943,23 @@ function App() {
       }
       // Partial analysis is intentionally not cached unless every chunk completes.
     });
+  });
+
+  const warmTrackAnalysisCache = useEffectEvent((track: Track | null) => {
+    if (!track || activeRemoteAudioAnalysisWarmupsRef.current.has(track.id)) return;
+
+    const duration = Math.max(
+      remoteAudioAnalysisFallbackDurationSeconds,
+      (track.durationSeconds ?? 0) + remoteAudioAnalysisDurationPaddingSeconds,
+    );
+    activeRemoteAudioAnalysisWarmupsRef.current.add(track.id);
+    void getRemoteTrackAnalysisSegment(track.id, 0, duration, duration)
+      .catch(() => {
+        // Cache warmup is best-effort; playback and browser sync should keep running.
+      })
+      .finally(() => {
+        activeRemoteAudioAnalysisWarmupsRef.current.delete(track.id);
+      });
   });
 
   useEffect(() => {
@@ -1990,6 +2008,15 @@ function App() {
 
     loadTrackAnalysis(currentTrack);
   }, [currentTrack?.id, isPlaying]);
+
+  useEffect(() => {
+    if (!isTauriRuntime || !currentTrack || !isPlaying) return;
+
+    const currentTrackIndex = queue.findIndex((track) => track.id === currentTrack.id);
+    const nextTrack = currentTrackIndex >= 0 ? queue[currentTrackIndex + 1] ?? null : null;
+    warmTrackAnalysisCache(currentTrack);
+    warmTrackAnalysisCache(nextTrack);
+  }, [currentTrack?.id, isPlaying, queue]);
 
   useEffect(() => {
     if (!isMockDataRuntime || !isPlaying || !currentTrack) {

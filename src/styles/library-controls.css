@@ -1,0 +1,247 @@
+h2 {
+  font-size: 2rem;
+  line-height: 1.1;
+}
+
+.scan-panel {
+  display: grid;
+  flex: 0 0 auto;
+  gap: 12px;
+  padding: 2px;
+  background: var(--app-surface);
+  overflow-x: scroll;
+}
+
+.scan-panel-content {
+  display: grid;
+  gap: 12px;
+}
+
+.search-field {
+  display: grid;
+  gap: 8px;
+  color: var(--foreground);
+  font-weight: 700;
+}
+
+.view-mode-field {
+  display: grid;
+  gap: 8px;
+  color: var(--foreground);
+  font-weight: 700;
+}
+
+.view-mode-buttons {
+  display: inline-grid;
+  grid-template-columns: repeat(3, 40px);
+  gap: 6px;
+  width: max-content;
+  padding: 4px;
+}
+
+.view-mode-buttons [role="tab"] {
+  width: 40px;
+  min-width: 40px;
+  padding: 0;
+}
+
+.list-mode-buttons {
+  display: inline-grid;
+  grid-template-columns: repeat(2, minmax(68px, auto));
+  gap: 6px;
+  width: max-content;
+  padding: 4px;
+}
+
+.list-mode-buttons [role="tab"] {
+  min-width: 68px;
+  padding-inline: 10px;
+  font-weight: 800;
+}
+
+.album-sort-trigger [data-slot="select-value"] {
+  min-width: 0;
+}
+
+.search-field input {
+  width: 100%;
+}
+
+.album-search-field input {
+  width: 100%;
+}
+
+.search-input-wrap {
+  position: relative;
+  min-width: 0;
+}
+
+.search-input-wrap svg {
+  position: absolute;
+  left: 10px;
+  top: 50%;
+  width: 16px;
+  height: 16px;
+  color: var(--muted-foreground);
+  transform: translateY(-50%);
+  pointer-events: none;
+}
+
+.search-input-wrap input {
+  padding-left: 34px;
+}
+
+.folder-picker-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 8px;
+}
+
+.scan-actions {
+  align-items: start;
+}
+
+.settings-action-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  align-items: start;
+  gap: 8px;
+  min-width: 0;
+  padding-top: 4px;
+  border-top: 1px solid color-mix(in oklch, var(--border), transparent 34%);
+}
+
+.settings-action-row .info-text {
+  margin-top: 4px;
+  font-size: 0.82rem;
+  line-height: 1.35;
+}
+
+.settings-action-row [data-slot="button"] {
+  justify-self: start;
+}
+
+.mcp-setting {
+  display: inline-grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: start;
+  gap: 10px;
+  min-width: 0;
+  color: var(--foreground);
+}
+
+.mcp-setting input {
+  width: 16px;
+  height: 16px;
+  margin-top: 2px;
+  accent-color: var(--primary);
+}
+
+.mcp-setting span {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.mcp-setting span span {
+  color: var(--app-muted);
+  font-size: 0.9rem;
+  font-weight: 500;
+  line-height: 1.35;
+}
+
+.mcp-status {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.scan-loading-rail {
+  position: relative;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  width: 100%;
+  min-width: 0;
+  padding-top: 4px;
+  overflow: hidden;
+}
+
+.scan-skeleton-card {
+  display: block;
+  height: 54px;
+  border: 1px solid color-mix(in oklch, var(--border), transparent 24%);
+  border-radius: 8px;
+  background:
+    linear-gradient(90deg, transparent, color-mix(in oklch, var(--primary), transparent 84%), transparent),
+    color-mix(in oklch, var(--muted), var(--background) 30%);
+  background-size: 220% 100%;
+  animation: scan-skeleton 1.25s ease-in-out infinite;
+}
+
+.scan-skeleton-card:nth-of-type(5) {
+  animation-delay: 120ms;
+}
+
+.scan-skeleton-card:nth-of-type(6) {
+  animation-delay: 240ms;
+}
+
+.scan-note {
+  position: absolute;
+  top: 9px;
+  left: -18px;
+  z-index: 1;
+  color: var(--primary);
+  font-size: 0.9rem;
+  font-weight: 900;
+  opacity: 0.78;
+  pointer-events: none;
+  animation: scan-note-drift 2.8s linear infinite;
+}
+
+.scan-note:nth-child(2) {
+  animation-delay: 880ms;
+}
+
+.scan-note:nth-child(3) {
+  animation-delay: 1.7s;
+}
+
+.scan-button,
+.choose-folder-button,
+.play-button,
+.control-button,
+.option-button,
+.track-list button,
+.album-card {
+  border-radius: 8px;
+}
+
+.scan-button {
+  width: 100%;
+  min-height: 42px;
+  font-weight: 800;
+}
+
+.scan-button:hover:not(:disabled) {
+  background: var(--app-accent-strong);
+}
+
+.choose-folder-button {
+  width: 100%;
+  min-width: 0;
+  min-height: 40px;
+  font-weight: 800;
+}
+
+.scan-button:disabled,
+.choose-folder-button:disabled,
+.play-button:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+
+.info-text {
+  font-size: 0.92rem;
+}
+

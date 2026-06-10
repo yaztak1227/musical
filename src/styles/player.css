@@ -1,0 +1,410 @@
+.empty-state,
+.empty-detail {
+  padding: 18px;
+  border: 1px dashed var(--app-line);
+  border-radius: 8px;
+  color: var(--app-muted);
+  background: var(--muted);
+}
+
+.player-bar {
+  grid-column: 1 / -1;
+  position: relative;
+  display: grid;
+  grid-template-columns:
+    minmax(180px, 0.8fr)
+    minmax(360px, 1.8fr)
+    minmax(220px, 0.9fr);
+  align-items: center;
+  gap: 16px;
+  min-width: 0;
+  min-height: 116px;
+  padding: 14px 28px;
+  color: var(--app-on-player);
+  background:
+    linear-gradient(90deg, var(--app-player-strong), var(--app-player) 58%, color-mix(in oklch, var(--primary), var(--foreground) 42%));
+  overflow: hidden;
+}
+
+.player-bar.queue-popover-open {
+  z-index: 20;
+  overflow: visible;
+}
+
+.player-bar > * {
+  position: relative;
+  z-index: 1;
+}
+
+.player-bar.has-artwork-bg::before {
+  position: absolute;
+  inset: -28px;
+  z-index: 0;
+  content: "";
+  background: var(--player-artwork-bg) center / cover no-repeat;
+  filter: blur(32px) saturate(1.08);
+  opacity: 0.18;
+  transform: scale(1.08);
+  pointer-events: none;
+}
+
+.player-bar.has-artwork-bg::after {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  content: "";
+  background: linear-gradient(90deg, color-mix(in oklch, var(--app-player-strong), transparent 4%), color-mix(in oklch, var(--app-player), transparent 8%));
+  pointer-events: none;
+}
+
+.player-mobile-options-handle {
+  display: none;
+}
+
+.player-bar .eyebrow,
+.player-bar span,
+.player-bar small,
+.queue-count,
+.queue-popover-wrap {
+  color: color-mix(in oklch, var(--app-on-player), transparent 22%);
+}
+
+.player-track {
+  display: grid;
+  grid-template-columns: 58px minmax(0, 1fr);
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+
+.player-artwork-button {
+  display: grid;
+  place-items: center;
+  width: 58px;
+  height: 58px;
+  min-height: 58px;
+  border: 1px solid color-mix(in oklch, var(--app-on-player), transparent 52%);
+  border-radius: 8px;
+  padding: 0;
+  overflow: hidden;
+  color: var(--app-on-player);
+  background: color-mix(in oklch, var(--app-on-player), transparent 88%);
+  cursor: pointer;
+}
+
+.player-artwork-button:disabled {
+  cursor: default;
+  opacity: 0.58;
+}
+
+.player-artwork-button img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.player-artwork-button span {
+  color: var(--app-on-player);
+  font-size: 1.35rem;
+  font-weight: 900;
+}
+
+.player-track-copy {
+  min-width: 0;
+  animation: track-enter 220ms ease-out;
+}
+
+.player-track small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.player-main {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+  width: 100%;
+}
+
+.transport-controls,
+.player-options {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.play-button {
+  min-width: 0;
+  border: 1px solid color-mix(in oklch, var(--app-on-player), transparent 12%);
+  color: var(--primary);
+  background: var(--app-on-player);
+  font-weight: 800;
+}
+
+.control-button,
+.option-button {
+  flex: 0 1 auto;
+  min-width: 0;
+  min-height: 38px;
+  border: 1px solid color-mix(in oklch, var(--app-on-player), transparent 48%);
+  padding: 8px 10px;
+  color: var(--app-on-player);
+  background: transparent;
+  font-size: 0.9rem;
+  font-weight: 800;
+}
+
+.icon-button {
+  display: inline-grid;
+  place-items: center;
+  width: 42px;
+  height: 42px;
+  min-height: 42px;
+  padding: 0;
+  border-radius: 999px;
+}
+
+.play-button.icon-button {
+  width: 48px;
+  height: 48px;
+  min-height: 48px;
+}
+
+.option-button.active {
+  border-color: var(--app-on-player);
+  color: var(--primary);
+  background: var(--app-on-player);
+}
+
+.progress-control,
+.volume-control {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.progress-control {
+  width: 100%;
+}
+
+.seek-slider,
+.volume-slider {
+  min-width: 0;
+  cursor: pointer;
+}
+
+.seek-slider {
+  flex: 1;
+  min-height: 28px;
+}
+
+.seek-slider [data-slot="slider-track"] {
+  height: 6px;
+  background: color-mix(in oklch, var(--app-on-player), transparent 72%);
+}
+
+.seek-slider [data-slot="slider-track"]::before {
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: var(--seek-progress, 0%);
+  content: "";
+  background: var(--app-on-player);
+  pointer-events: none;
+}
+
+.seek-slider [data-slot="slider-range"] {
+  right: auto !important;
+  width: var(--seek-progress, 0%) !important;
+}
+
+.seek-slider [data-slot="slider-range"],
+.volume-slider [data-slot="slider-range"] {
+  background: var(--app-on-player);
+}
+
+.seek-slider [data-slot="slider-thumb"] {
+  width: 0;
+  height: 0;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.volume-slider [data-slot="slider-thumb"] {
+  width: 16px;
+  height: 16px;
+  border-color: var(--app-on-player);
+}
+
+.progress-control span {
+  width: 42px;
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+}
+
+.player-options {
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.volume-control {
+  color: color-mix(in oklch, var(--app-on-player), transparent 22%);
+  font-size: 0.86rem;
+  font-weight: 800;
+}
+
+.volume-slider {
+  flex: 1;
+  min-width: 96px;
+  max-width: 160px;
+  min-height: 24px;
+}
+
+.volume-slider [data-slot="slider-track"] {
+  background: color-mix(in oklch, var(--app-on-player), transparent 72%);
+}
+
+.queue-count {
+  width: 100%;
+  border: 0;
+  margin: 0;
+  padding: 0;
+  font-size: 0.82rem;
+  font-weight: 800;
+  text-align: right;
+  background: transparent;
+  cursor: pointer;
+}
+
+.queue-count:hover,
+.queue-count:focus-visible,
+.queue-popover-wrap.open .queue-count {
+  color: var(--app-on-player);
+}
+
+.queue-popover-wrap {
+  position: relative;
+  width: 100%;
+}
+
+.queue-actions-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 34px;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.visualizer-open-icon-button.icon-button {
+  width: 34px;
+  min-width: 34px;
+  height: 34px;
+  min-height: 34px;
+  border-color: color-mix(in oklch, var(--app-on-player), transparent 64%);
+  color: var(--app-on-player);
+  background: color-mix(in oklch, var(--app-on-player), transparent 92%);
+}
+
+.visualizer-open-icon-button svg {
+  width: 16px;
+  height: 16px;
+}
+
+.queue-popover {
+  position: absolute;
+  right: 0;
+  bottom: calc(100% + 10px);
+  z-index: 30;
+  width: min(360px, calc(100vw - 32px));
+  max-height: min(360px, 48vh);
+  border: 1px solid color-mix(in oklch, var(--app-on-player), transparent 78%);
+  border-radius: 8px;
+  overflow: auto;
+  color: var(--app-on-player);
+  background: color-mix(in oklch, var(--app-player-strong), black 18%);
+  box-shadow: 0 18px 48px color-mix(in oklch, black, transparent 68%);
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(8px) scale(0.98);
+  transform-origin: bottom right;
+  visibility: hidden;
+  transition:
+    opacity 150ms ease,
+    transform 170ms ease,
+    visibility 0ms linear 170ms;
+}
+
+.queue-popover-wrap.open .queue-popover {
+  opacity: 1;
+  pointer-events: auto;
+  transform: translateY(0) scale(1);
+  visibility: visible;
+  transition:
+    opacity 150ms ease,
+    transform 170ms ease,
+    visibility 0ms;
+}
+
+.queue-popover-list {
+  display: grid;
+  gap: 0;
+  margin: 0;
+  padding: 6px;
+}
+
+.queue-popover-row {
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  min-height: 44px;
+  border-radius: 6px;
+  padding: 6px 8px;
+}
+
+.queue-popover-row.current {
+  background: color-mix(in oklch, var(--app-on-player), transparent 90%);
+}
+
+.queue-track-index,
+.queue-track-duration,
+.queue-track-copy span {
+  color: color-mix(in oklch, var(--app-on-player), transparent 28%);
+}
+
+.queue-track-index,
+.queue-track-duration {
+  font-size: 0.78rem;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+}
+
+.queue-track-copy {
+  display: grid;
+  min-width: 0;
+}
+
+.queue-track-copy strong,
+.queue-track-copy span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.queue-track-copy strong {
+  color: var(--app-on-player);
+  font-size: 0.86rem;
+}
+
+.queue-track-copy span {
+  font-size: 0.76rem;
+}
+

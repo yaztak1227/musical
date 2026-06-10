@@ -1,0 +1,263 @@
+.player-visualizer-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  display: grid;
+  grid-template-rows: minmax(0, 1fr) auto;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  color: white;
+  background:
+    radial-gradient(circle at 50% 44%, color-mix(in oklch, var(--primary), transparent 56%), transparent 36%),
+    linear-gradient(135deg, #08070e, color-mix(in oklch, var(--primary), black 72%) 52%, #030509);
+  isolation: isolate;
+}
+
+.visualizer-artwork-backdrop {
+  position: absolute;
+  inset: -44px;
+  z-index: -4;
+  background:
+    linear-gradient(180deg, rgba(3, 3, 8, 0.18), rgba(3, 3, 8, 0.86)),
+    var(--visualizer-artwork) center / cover no-repeat;
+  filter: blur(26px) saturate(1.25) brightness(0.74);
+  opacity: 0.92;
+  transform: scale(1.08);
+}
+
+.player-visualizer-overlay::before {
+  position: absolute;
+  inset: 0;
+  z-index: -3;
+  content: "";
+  background:
+    radial-gradient(circle at 28% 24%, rgba(99, 230, 255, 0.26), transparent 30%),
+    radial-gradient(circle at 74% 30%, rgba(255, 79, 216, 0.22), transparent 28%),
+    linear-gradient(180deg, rgba(0, 0, 0, 0.16), rgba(0, 0, 0, 0.72));
+  pointer-events: none;
+}
+
+.visualizer-canvas {
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  width: 100%;
+  height: 100%;
+}
+
+.visualizer-vignette {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  background:
+    radial-gradient(circle at center, transparent 34%, rgba(0, 0, 0, 0.26) 70%, rgba(0, 0, 0, 0.66)),
+    linear-gradient(180deg, rgba(0, 0, 0, 0.42), transparent 30%, rgba(0, 0, 0, 0.68));
+  pointer-events: none;
+}
+
+.visualizer-content,
+.visualizer-header,
+.visualizer-mode-switch,
+.visualizer-controls,
+.visualizer-close-button {
+  position: relative;
+  z-index: 1;
+}
+
+.visualizer-content {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(260px, 340px);
+  gap: 18px;
+  min-width: 0;
+  min-height: 0;
+  padding: 28px;
+}
+
+.visualizer-primary {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  align-content: start;
+  gap: 22px;
+  min-width: 0;
+  min-height: 0;
+}
+
+.visualizer-header {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 18px;
+  width: 100%;
+  min-width: 0;
+  padding: 28px;
+  padding: 0;
+}
+
+.visualizer-now-playing {
+  display: grid;
+  grid-template-columns: clamp(54px, 7vw, 82px) minmax(0, 1fr);
+  align-items: start;
+  gap: 16px;
+  min-width: 0;
+}
+
+.visualizer-track-artwork {
+  width: clamp(54px, 7vw, 82px);
+  aspect-ratio: 1;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  border-radius: 7px;
+  background:
+    linear-gradient(135deg, rgba(255, 255, 255, 0.18), rgba(255, 255, 255, 0.04)),
+    color-mix(in oklch, var(--primary), black 62%);
+  box-shadow: 0 18px 42px rgba(0, 0, 0, 0.3);
+}
+
+.visualizer-track-artwork img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.visualizer-track-copy {
+  min-width: 0;
+}
+
+.visualizer-header h2 {
+  max-width: min(860px, 88vw);
+  overflow: hidden;
+  color: white;
+  font-size: clamp(2rem, 5.8vw, 5.8rem);
+  line-height: 0.96;
+  text-shadow: 0 16px 48px rgba(0, 0, 0, 0.48);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.visualizer-header h2 .marquee-text {
+  display: block;
+  max-width: 100%;
+  margin-top: 0;
+  overflow: hidden;
+  color: inherit;
+  font: inherit;
+  text-overflow: ellipsis;
+  text-shadow: inherit;
+  white-space: nowrap;
+}
+
+.visualizer-header span {
+  display: block;
+  max-width: min(720px, 82vw);
+  margin-top: 8px;
+  overflow: hidden;
+  color: rgba(255, 255, 255, 0.72);
+  font-size: clamp(1rem, 1.7vw, 1.35rem);
+  font-weight: 760;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.visualizer-header .eyebrow {
+  color: rgba(255, 255, 255, 0.62);
+}
+
+.visualizer-lyrics-panel {
+  position: relative;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  width: min(440px, 100%);
+  min-width: 0;
+  min-height: 0;
+  max-height: min(34dvh, 310px);
+  justify-self: start;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 7px;
+  background: transparent;
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.14);
+  opacity: 0.88;
+}
+
+.visualizer-lyrics-header {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  padding: 12px 14px 8px;
+}
+
+.visualizer-lyrics-header span,
+.visualizer-lyrics-header strong {
+  color: rgba(255, 255, 255, 0.54);
+  font-size: 0.78rem;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.visualizer-lyrics-textbox {
+  min-width: 0;
+  min-height: 0;
+  padding: 0 14px 14px;
+  direction: rtl;
+  overflow-x: hidden;
+  overflow-y: auto;
+  scrollbar-color: rgba(255, 255, 255, 0.26) transparent;
+  scrollbar-width: thin;
+  white-space: pre-wrap;
+}
+
+.visualizer-lyrics-textbox::-webkit-scrollbar {
+  width: 8px;
+}
+
+.visualizer-lyrics-textbox::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.visualizer-lyrics-textbox::-webkit-scrollbar-thumb {
+  border: 2px solid transparent;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.3);
+  background-clip: padding-box;
+}
+
+.visualizer-lyrics-textbox p {
+  min-width: 0;
+  min-height: 1.35em;
+  margin: 0 0 0.42em;
+  color: rgba(255, 255, 255, 0.78);
+  direction: ltr;
+  font-size: 0.92rem;
+  font-weight: 760;
+  line-height: 1.35;
+  text-align: left;
+}
+
+.visualizer-lyrics-textbox p:last-child {
+  margin-bottom: 0;
+}
+
+.visualizer-close-button {
+  position: absolute;
+  top: 28px;
+  right: 28px;
+  z-index: 2;
+  border-color: rgba(255, 255, 255, 0.3);
+  color: white;
+  background: rgba(255, 255, 255, 0.08);
+  backdrop-filter: blur(14px);
+}
+
+.visualizer-mode-switch {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  justify-self: stretch;
+  gap: 8px;
+  width: 100%;
+  min-width: 0;
+}
+

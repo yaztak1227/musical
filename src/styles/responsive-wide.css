@@ -1,0 +1,69 @@
+@media (max-width: 1120px) and (min-width: 981px) {
+  .app-shell {
+    grid-template-columns: minmax(220px, 260px) minmax(330px, 1fr) minmax(250px, 320px);
+  }
+
+  .library-panel,
+  .albums-panel,
+  .album-panel {
+    padding: 20px;
+  }
+
+  .albums-panel {
+    padding: 0;
+  }
+
+  .albums-panel-header {
+    padding: 20px;
+  }
+
+  .albums-panel-main {
+    padding: 20px;
+  }
+
+  .player-bar {
+    grid-template-columns: minmax(0, 0.75fr) minmax(320px, 1.6fr) minmax(0, 0.85fr);
+    gap: 12px;
+    padding-inline: 20px;
+  }
+
+  .control-button,
+  .option-button {
+    padding-inline: 8px;
+    font-size: 0.82rem;
+  }
+}
+
+@media (max-width: 720px) and (min-width: 561px) {
+  .player-bar {
+    max-height: none;
+    overflow: visible;
+  }
+
+  .transport-controls,
+  .player-options {
+    justify-content: stretch;
+  }
+
+  .transport-controls > button,
+  .player-options > button {
+    flex: 1 1 96px;
+  }
+
+  .transport-controls > button.icon-button {
+    flex: 0 0 42px;
+  }
+
+  .transport-controls > button.play-button {
+    flex-basis: 48px;
+  }
+
+  .volume-control {
+    width: 100%;
+  }
+
+  .volume-slider {
+    flex: 1;
+    max-width: none;
+  }
+}

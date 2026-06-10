@@ -12,6 +12,7 @@ use rustfft::{num_complex::Complex, FftPlanner};
 use serde::{Deserialize, Serialize};
 use std::{
     fs::{self, File},
+    io::{self, Read, Seek, SeekFrom},
     path::{Path, PathBuf},
     sync::Arc,
     time::{SystemTime, UNIX_EPOCH},
@@ -22,7 +23,7 @@ use symphonia::core::{
     conv::IntoSample,
     errors::Error,
     formats::FormatOptions,
-    io::MediaSourceStream,
+    io::{MediaSource, MediaSourceStream},
     meta::MetadataOptions,
     probe::Hint,
 };
@@ -284,6 +285,131 @@ fn minute_segment_start(from: f64) -> f64 {
     (from.max(0.0) / 60.0).floor() * 60.0
 }
 
+struct OffsetMediaSource {
+    file: File,
+    len: Option<u64>,
+    position: u64,
+    start: u64,
+}
+
+impl OffsetMediaSource {
+    fn new(mut file: File, start: u64) -> Result<Self, String> {
+        let len = file
+            .metadata()
+            .ok()
+            .and_then(|metadata| metadata.len().checked_sub(start));
+        file.seek(SeekFrom::Start(start)).map_err(to_error_string)?;
+        Ok(Self {
+            file,
+            len,
+            position: 0,
+            start,
+        })
+    }
+}
+
+impl Read for OffsetMediaSource {
+    fn read(&mut self, buffer: &mut [u8]) -> io::Result<usize> {
+        let read_count = self.file.read(buffer)?;
+        self.position += read_count as u64;
+        Ok(read_count)
+    }
+}
+
+impl Seek for OffsetMediaSource {
+    fn seek(&mut self, position: SeekFrom) -> io::Result<u64> {
+        let next_position = match position {
+            SeekFrom::Start(offset) => offset as i128,
+            SeekFrom::Current(offset) => self.position as i128 + offset as i128,
+            SeekFrom::End(offset) => {
+                let len = self
+                    .len
+                    .ok_or_else(|| io::Error::new(io::ErrorKind::Unsupported, "unknown stream length"))?;
+                len as i128 + offset as i128
+            }
+        };
+        if next_position < 0 {
+            return Err(io::Error::new(io::ErrorKind::InvalidInput, "invalid negative seek"));
+        }
+
+        let next_position = next_position as u64;
+        self.file.seek(SeekFrom::Start(self.start + next_position))?;
+        self.position = next_position;
+        Ok(self.position)
+    }
+}
+
+impl MediaSource for OffsetMediaSource {
+    fn is_seekable(&self) -> bool {
+        true
+    }
+
+    fn byte_len(&self) -> Option<u64> {
+        self.len
+    }
+}
+
+fn open_audio_file_for_probe(path: &Path, file_path: &str) -> Result<Box<dyn MediaSource>, String> {
+    let mut file = File::open(path)
+        .map_err(|error| format!("audio.analysis.fileOpen\t{file_path}\t{error}"))?;
+    if let Some(offset) = detect_rmp3_data_offset(&mut file)? {
+        return Ok(Box::new(OffsetMediaSource::new(file, offset)?));
+    }
+    Ok(Box::new(file))
+}
+
+fn make_audio_probe_hint<'a>(path: &'a Path, file_path: &str) -> Result<Hint, String> {
+    let mut hint = Hint::new();
+    if detect_rmp3_data_offset(&mut File::open(path).map_err(|error| {
+        format!("audio.analysis.fileOpen\t{file_path}\t{error}")
+    })?)?
+    .is_some()
+    {
+        hint.with_extension("mp3");
+        return Ok(hint);
+    }
+
+    if let Some(extension) = path.extension().and_then(|value| value.to_str()) {
+        hint.with_extension(extension);
+    }
+    Ok(hint)
+}
+
+fn detect_rmp3_data_offset(file: &mut File) -> Result<Option<u64>, String> {
+    file.seek(SeekFrom::Start(0)).map_err(to_error_string)?;
+    let mut bytes = Vec::new();
+    file.take(64 * 1024)
+        .read_to_end(&mut bytes)
+        .map_err(to_error_string)?;
+    file.seek(SeekFrom::Start(0)).map_err(to_error_string)?;
+
+    let riff_index = bytes
+        .windows(4)
+        .position(|window| window == b"RIFF")
+        .filter(|index| bytes.get(index + 8..index + 12) == Some(&b"RMP3"[..]));
+    let Some(riff_index) = riff_index else {
+        return Ok(None);
+    };
+
+    let mut chunk_index = riff_index + 12;
+    while chunk_index + 8 <= bytes.len() {
+        let chunk_id = &bytes[chunk_index..chunk_index + 4];
+        let chunk_size = u32::from_le_bytes([
+            bytes[chunk_index + 4],
+            bytes[chunk_index + 5],
+            bytes[chunk_index + 6],
+            bytes[chunk_index + 7],
+        ]) as usize;
+        let data_offset = chunk_index + 8;
+        if chunk_id == b"data" {
+            return Ok(Some(data_offset as u64));
+        }
+        chunk_index = data_offset + chunk_size + (chunk_size % 2);
+    }
+
+    Ok(None)
+}
+
 impl TrackAnalysisCacheKey {
     fn from_file(track_id: &str, file_path: &str) -> Result<Self, String> {
         Ok(Self {
@@ -298,15 +424,9 @@ impl TrackAnalysisCacheKey {
 
 fn audio_stream_md5(file_path: &str) -> Result<String, String> {
     let path = Path::new(file_path);
-    let file = File::open(path)
-        .map_err(|error| format!("audio.analysis.fileOpen\t{file_path}\t{error}"))?;
-    let media_source = Box::new(file);
-    let media_stream = MediaSourceStream::new(media_source, Default::default());
-    let mut hint = Hint::new();
-
-    if let Some(extension) = path.extension().and_then(|value| value.to_str()) {
-        hint.with_extension(extension);
-    }
+    let file = open_audio_file_for_probe(path, file_path)?;
+    let media_stream = MediaSourceStream::new(file, Default::default());
+    let hint = make_audio_probe_hint(path, file_path)?;
 
     let probed = symphonia::default::get_probe()
         .format(
@@ -377,15 +497,9 @@ fn decode_mono_samples_until(
     decode_until_seconds: f64,
 ) -> Result<DecodedSamples, String> {
     let path = Path::new(file_path);
-    let file = File::open(path)
-        .map_err(|error| format!("audio.analysis.fileOpen\t{file_path}\t{error}"))?;
-    let media_source = Box::new(file);
-    let media_stream = MediaSourceStream::new(media_source, Default::default());
-    let mut hint = Hint::new();
-
-    if let Some(extension) = path.extension().and_then(|value| value.to_str()) {
-        hint.with_extension(extension);
-    }
+    let file = open_audio_file_for_probe(path, file_path)?;
+    let media_stream = MediaSourceStream::new(file, Default::default());
+    let hint = make_audio_probe_hint(path, file_path)?;
 
     let probed = symphonia::default::get_probe()
         .format(
@@ -555,4 +669,35 @@ fn make_analyser_buckets(fft_buffer: &[Complex<f32>], previous_decibels: &mut [f
     }
 
     values
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::Write;
+
+    #[test]
+    fn detects_rmp3_data_offset_after_id3_padding() {
+        let file_path = std::env::temp_dir().join("musical-rmp3-offset-test.mp3");
+        let mut bytes = vec![0; 24];
+        bytes.extend_from_slice(b"ID3\x03\0\0\0\0\0\x0e");
+        bytes.extend_from_slice(&[0; 14]);
+        bytes.extend_from_slice(b"RIFF");
+        bytes.extend_from_slice(&16u32.to_le_bytes());
+        bytes.extend_from_slice(b"RMP3");
+        bytes.extend_from_slice(b"data");
+        bytes.extend_from_slice(&4u32.to_le_bytes());
+        bytes.extend_from_slice(&[0xff, 0xfb, 0x90, 0x64]);
+
+        {
+            let mut file = File::create(&file_path).expect("create test file");
+            file.write_all(&bytes).expect("write test file");
+        }
+
+        let mut file = File::open(&file_path).expect("open test file");
+        let offset = detect_rmp3_data_offset(&mut file).expect("detect offset");
+        fs::remove_file(&file_path).ok();
+
+        assert_eq!(offset, Some((24 + 10 + 14 + 12 + 8) as u64));
+    }
 }

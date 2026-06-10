@@ -1,0 +1,130 @@
+@keyframes track-title-marquee {
+  0%,
+  12% {
+    transform: translateX(0);
+  }
+
+  88%,
+  100% {
+    transform: translateX(var(--track-title-shift, 0px));
+  }
+}
+
+@keyframes album-pulse {
+  0%,
+  100% {
+    filter: brightness(1);
+    transform: translateY(0);
+  }
+
+  50% {
+    filter: brightness(1.06);
+    transform: translateY(-2px);
+  }
+}
+
+@keyframes button-ripple {
+  0% {
+    opacity: 0.22;
+    transform: translate(-50%, -50%) scale(1);
+  }
+
+  100% {
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(15);
+  }
+}
+
+@keyframes save-pop {
+  0% {
+    transform: scale(0.96);
+  }
+
+  60% {
+    transform: scale(1.04);
+  }
+
+  100% {
+    transform: scale(1);
+  }
+}
+
+@keyframes save-field-glow {
+  0% {
+    filter: brightness(1);
+  }
+
+  28% {
+    filter: brightness(1.08) drop-shadow(0 0 14px color-mix(in oklch, var(--primary), transparent 62%));
+  }
+
+  100% {
+    filter: brightness(1);
+  }
+}
+
+@keyframes track-enter {
+  from {
+    opacity: 0;
+    transform: translateX(8px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes scan-skeleton {
+  from {
+    background-position: 160% 0;
+  }
+
+  to {
+    background-position: -60% 0;
+  }
+}
+
+@keyframes scan-note-drift {
+  from {
+    opacity: 0;
+    transform: translateX(0) translateY(8px);
+  }
+
+  18%,
+  74% {
+    opacity: 0.78;
+  }
+
+  to {
+    opacity: 0;
+    transform: translateX(520px) translateY(-2px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    transition-duration: 1ms !important;
+    animation-duration: 1ms !important;
+    animation-iteration-count: 1 !important;
+  }
+
+  .track-list .track-select-button:hover .track-title-wrap[data-marquee="true"] .track-title,
+  .track-list .track-select-button:focus-visible .track-title-wrap[data-marquee="true"] .track-title,
+  .track-list .track-select-button:focus-within .track-title-wrap[data-marquee="true"] .track-title,
+  .album-card:hover .marquee-wrap[data-marquee="true"] .marquee-text,
+  .album-card:focus-visible .marquee-wrap[data-marquee="true"] .marquee-text,
+  .album-card:focus-within .marquee-wrap[data-marquee="true"] .marquee-text,
+  .album-table-select-button:hover .marquee-wrap[data-marquee="true"] .marquee-text,
+  .album-table-select-button:focus-visible .marquee-wrap[data-marquee="true"] .marquee-text,
+  .album-table-row:hover .table-track-title[data-marquee="true"] .marquee-text,
+  .album-table-row:focus-visible .table-track-title[data-marquee="true"] .marquee-text,
+  .album-table-row:focus-within .table-track-title[data-marquee="true"] .marquee-text,
+  .visualizer-now-playing:hover .visualizer-track-title[data-marquee="true"] .marquee-text {
+    animation: none;
+  }
+}
+
