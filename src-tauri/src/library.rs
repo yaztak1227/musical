@@ -335,9 +335,6 @@ pub fn scan_folder(app: &AppHandle, folder_path: &str) -> Result<ScanSummary, St
     fs::create_dir_all(&musical_dir).map_err(to_error_string)?;
     hide_directory_best_effort(&musical_dir);
     let artwork_dir = artwork_cache_dir_for_root(&canonical_root)?;
-    if artwork_dir.exists() {
-        fs::remove_dir_all(&artwork_dir).map_err(to_error_string)?;
-    }
     fs::create_dir_all(&artwork_dir).map_err(to_error_string)?;
     allow_asset_directory(app, &artwork_dir)?;
 
@@ -1739,7 +1736,11 @@ fn write_artwork_file(
         .and_then(MimeType::ext)
         .or_else(|| sniff_picture_extension(picture.data()))
         .unwrap_or("bin");
-    let file_name = format!("{:016x}.{extension}", stable_hash(album_key));
+    let file_name = format!(
+        "{:016x}-{:016x}.{extension}",
+        stable_hash(album_key),
+        stable_hash_bytes(picture.data()),
+    );
     let path = artwork_dir.join(file_name);
 
     if !path.exists() {
