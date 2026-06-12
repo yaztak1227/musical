@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Musical TV</string>
+    <string name="loading">Opening %1$s</string>
+    <string name="discovering">Searching for Musical on this network...</string>
+    <string name="checking_saved">Checking saved Musical server %1$s...</string>
+    <string name="discovered">Found Musical at %1$s</string>
+    <string name="discovery_failed">Could not find a published Musical server on this network. Opening fallback %1$s.</string>
+    <string name="load_error">Could not open %1$s. Check that the desktop server is running and reachable from Fire TV.</string>
+</resources>

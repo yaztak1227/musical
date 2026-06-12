@@ -1,0 +1,23 @@
+plugins {
+    id "com.android.application"
+}
+
+android {
+    namespace "app.musical.firetv"
+    compileSdk 36
+
+    defaultConfig {
+        applicationId "app.musical.firetv"
+        minSdk 23
+        targetSdk 36
+        versionCode 1
+        versionName "0.1.0"
+
+        def configuredUrl = providers.gradleProperty("tvDisplayUrl").orElse("http://192.168.1.82:1422/tv").get()
+        buildConfigField "String", "DEFAULT_TV_URL", "\"${configuredUrl.replace("\"", "\\\"")}\""
+    }
+
+    buildFeatures {
+        buildConfig true
+    }
+}

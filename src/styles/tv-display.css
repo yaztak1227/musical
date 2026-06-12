@@ -1,0 +1,545 @@
+.tv-display-shell {
+  position: relative;
+  min-height: 100dvh;
+  overflow: hidden;
+  padding: clamp(32px, 5vw, 72px);
+  color: var(--app-on-player);
+  background:
+    linear-gradient(90deg, var(--app-player-strong), var(--app-player) 58%, color-mix(in oklch, var(--primary), var(--foreground) 42%));
+}
+
+.tv-display-backdrop {
+  position: absolute;
+  inset: -5%;
+  background-position: center;
+  background-size: cover;
+  filter: blur(34px) saturate(1.16);
+  opacity: 0.2;
+  transform: scale(1.06);
+}
+
+.tv-now-playing,
+.tv-secondary-grid,
+.tv-candidate-prompt {
+  position: relative;
+  z-index: 1;
+}
+
+.tv-now-playing {
+  display: grid;
+  grid-template-columns: minmax(220px, 28vw) minmax(0, 1fr);
+  gap: clamp(32px, 4vw, 64px);
+  align-items: center;
+  min-height: 54dvh;
+}
+
+.tv-player-surface::after {
+  position: absolute;
+  inset: -20px;
+  z-index: -1;
+  content: "";
+  background:
+    linear-gradient(90deg, color-mix(in oklch, var(--app-player-strong), transparent 4%), color-mix(in oklch, var(--app-player), transparent 12%)),
+    var(--tv-player-artwork-bg, none) center / cover no-repeat;
+  border-radius: 8px;
+  filter: saturate(1.02);
+  opacity: 0.72;
+}
+
+.tv-artwork-frame {
+  aspect-ratio: 1;
+  overflow: hidden;
+  border: 1px solid color-mix(in oklch, var(--app-on-player), transparent 52%);
+  border-radius: 8px;
+  background: color-mix(in oklch, var(--app-on-player), transparent 88%);
+  box-shadow: 0 28px 70px oklch(0 0 0 / 0.34);
+}
+
+.tv-artwork-frame img,
+.tv-artwork-fallback {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.tv-artwork-frame img {
+  object-fit: cover;
+}
+
+.tv-artwork-fallback {
+  background: linear-gradient(135deg, var(--primary), var(--accent));
+}
+
+.tv-track-copy {
+  min-width: 0;
+}
+
+.tv-kicker,
+.tv-artist,
+.tv-album,
+.tv-panel h2,
+.tv-candidate small {
+  margin: 0;
+  color: color-mix(in oklch, var(--app-on-player), transparent 24%);
+}
+
+.tv-kicker {
+  margin-bottom: 14px;
+  font-size: clamp(18px, 1.6vw, 28px);
+  font-weight: 700;
+}
+
+.tv-track-copy h1 {
+  max-width: 14ch;
+  margin: 0;
+  overflow-wrap: anywhere;
+  font-size: clamp(58px, 7vw, 132px);
+  font-weight: 850;
+  letter-spacing: 0;
+  line-height: 0.92;
+}
+
+.tv-artist {
+  margin-top: 24px;
+  font-size: clamp(28px, 3vw, 54px);
+  font-weight: 700;
+}
+
+.tv-album {
+  margin-top: 4px;
+  font-size: clamp(18px, 1.7vw, 32px);
+}
+
+.tv-progress {
+  width: min(920px, 100%);
+  height: 8px;
+  margin-top: 28px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: color-mix(in oklch, var(--app-on-player), transparent 72%);
+}
+
+.tv-progress span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--app-on-player);
+}
+
+.tv-player-times {
+  display: flex;
+  justify-content: space-between;
+  width: min(920px, 100%);
+  margin-top: 6px;
+  color: color-mix(in oklch, var(--app-on-player), transparent 28%);
+  font-size: clamp(16px, 1.4vw, 24px);
+  font-variant-numeric: tabular-nums;
+  font-weight: 760;
+}
+
+.tv-transport-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: center;
+  margin-top: 26px;
+}
+
+.tv-transport-controls button {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  min-height: 48px;
+  padding: 10px 14px;
+  border: 1px solid color-mix(in oklch, var(--app-on-player), transparent 48%);
+  border-radius: 999px;
+  color: var(--app-on-player);
+  background: transparent;
+  font-weight: 840;
+}
+
+.tv-transport-controls button.is-focused {
+  border-color: var(--app-on-player);
+  background: color-mix(in oklch, var(--app-on-player), transparent 84%);
+  box-shadow: 0 0 0 4px color-mix(in oklch, var(--app-on-player), transparent 88%);
+}
+
+.tv-transport-controls .tv-play-control {
+  min-height: 58px;
+  padding-inline: 18px;
+  color: var(--primary);
+  background: var(--app-on-player);
+}
+
+.tv-transport-controls .tv-play-control.is-focused {
+  color: var(--primary);
+  background: var(--app-on-player);
+}
+
+.tv-player-status {
+  margin: 12px 0 0;
+  color: color-mix(in oklch, var(--app-on-player), transparent 30%);
+  font-size: clamp(15px, 1.2vw, 20px);
+  font-weight: 700;
+}
+
+.tv-player-status.is-error {
+  color: oklch(0.84 0.15 60);
+}
+
+.tv-secondary-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.18fr) minmax(300px, 0.92fr) minmax(260px, 0.72fr);
+  gap: 18px;
+  align-items: stretch;
+}
+
+.tv-panel {
+  min-height: 220px;
+  padding: 24px;
+  border: 1px solid color-mix(in oklch, var(--app-on-player), transparent 78%);
+  border-radius: 8px;
+  background: color-mix(in oklch, var(--app-player-strong), transparent 18%);
+  box-shadow: inset 0 1px 0 oklch(1 0 0 / 0.07);
+}
+
+.tv-panel h2 {
+  font-size: clamp(20px, 1.8vw, 30px);
+  font-weight: 780;
+}
+
+.tv-panel-heading {
+  display: flex;
+  gap: 16px;
+  align-items: baseline;
+  justify-content: space-between;
+}
+
+.tv-panel-heading small {
+  min-width: 0;
+  overflow: hidden;
+  color: color-mix(in oklch, var(--app-on-player), transparent 42%);
+  font-size: 14px;
+  font-weight: 760;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tv-panel.is-zone-focused {
+  border-color: color-mix(in oklch, var(--app-on-player), transparent 46%);
+  box-shadow:
+    inset 0 1px 0 oklch(1 0 0 / 0.08),
+    0 0 0 3px color-mix(in oklch, var(--app-on-player), transparent 88%);
+}
+
+.tv-album-browser {
+  overflow: hidden;
+}
+
+.tv-album-rail {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  margin-top: 18px;
+}
+
+.tv-album-rail button {
+  display: grid;
+  grid-template-rows: minmax(86px, 1fr) auto auto;
+  gap: 8px;
+  min-width: 0;
+  min-height: 190px;
+  padding: 10px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  color: var(--app-on-player);
+  background: transparent;
+  text-align: left;
+}
+
+.tv-album-rail button.is-selected {
+  background: color-mix(in oklch, var(--app-on-player), transparent 90%);
+}
+
+.tv-album-rail button.is-focused {
+  border-color: var(--app-on-player);
+  background: color-mix(in oklch, var(--app-on-player), transparent 84%);
+}
+
+.tv-album-cover {
+  display: grid;
+  overflow: hidden;
+  place-items: center;
+  aspect-ratio: 1;
+  border-radius: 8px;
+  background: linear-gradient(135deg, var(--primary), var(--accent));
+}
+
+.tv-album-cover img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.tv-album-rail button > span:not(.tv-album-cover),
+.tv-album-rail small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tv-album-rail button > span:not(.tv-album-cover) {
+  font-size: 17px;
+  font-weight: 820;
+}
+
+.tv-album-rail small {
+  color: color-mix(in oklch, var(--app-on-player), transparent 38%);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.tv-lyrics-lines {
+  display: grid;
+  gap: 5px;
+  margin-top: 18px;
+  font-size: clamp(22px, 2.2vw, 38px);
+  font-weight: 720;
+  line-height: 1.18;
+}
+
+.tv-lyrics-lines p {
+  margin: 0;
+  color: color-mix(in oklch, var(--app-on-player), transparent 58%);
+}
+
+.tv-lyrics-lines p.is-active {
+  color: var(--app-on-player);
+}
+
+.tv-lyrics-lines p.is-past {
+  color: color-mix(in oklch, var(--app-on-player), transparent 72%);
+}
+
+.tv-queue-panel ol {
+  display: grid;
+  gap: 10px;
+  padding: 0;
+  margin: 18px 0 0;
+  list-style: none;
+}
+
+.tv-queue-panel li {
+  display: grid;
+  gap: 2px;
+  min-height: 58px;
+  border-radius: 8px;
+  color: oklch(0.92 0.02 95 / 0.66);
+}
+
+.tv-queue-panel li button {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+  width: 100%;
+  min-height: 58px;
+  padding: 10px 12px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  color: inherit;
+  background: transparent;
+  text-align: left;
+}
+
+.tv-queue-panel li.is-current {
+  color: var(--app-on-player);
+  background: color-mix(in oklch, var(--app-on-player), transparent 88%);
+}
+
+.tv-queue-panel li.is-focused button {
+  border-color: var(--app-on-player);
+  background: color-mix(in oklch, var(--app-on-player), transparent 86%);
+}
+
+.tv-queue-panel span {
+  overflow: hidden;
+  font-size: clamp(18px, 1.45vw, 25px);
+  font-weight: 760;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tv-queue-panel small {
+  overflow: hidden;
+  color: inherit;
+  font-size: 15px;
+  opacity: 0.72;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tv-track-browser {
+  overflow: hidden;
+}
+
+.tv-bars {
+  display: flex;
+  align-items: end;
+  gap: 7px;
+  height: 150px;
+  margin-top: 28px;
+}
+
+.tv-bars span {
+  flex: 1 1 0;
+  min-width: 5px;
+  height: calc(100% * var(--bar-scale));
+  border-radius: 999px 999px 4px 4px;
+  background: linear-gradient(180deg, var(--app-on-player), color-mix(in oklch, var(--app-on-player), transparent 64%));
+  animation: tv-bar-pulse 1400ms ease-in-out infinite alternate;
+  animation-delay: calc(var(--bar-scale) * -900ms);
+}
+
+.tv-next-track {
+  margin: 14px 0 0;
+  color: color-mix(in oklch, var(--app-on-player), transparent 30%);
+  font-size: 16px;
+  font-weight: 760;
+}
+
+@keyframes tv-bar-pulse {
+  from {
+    transform: scaleY(0.58);
+  }
+
+  to {
+    transform: scaleY(1);
+  }
+}
+
+@media (max-height: 560px) and (min-width: 701px) {
+  .tv-display-shell {
+    height: 100dvh;
+    min-height: 0;
+    overflow: hidden;
+    padding: 24px;
+  }
+
+  .tv-now-playing {
+    grid-template-columns: minmax(180px, 27vw) minmax(0, 1fr);
+    gap: 28px;
+    min-height: 306px;
+  }
+
+  .tv-track-copy h1 {
+    max-width: 13ch;
+    font-size: clamp(42px, 6vw, 76px);
+  }
+
+  .tv-artist {
+    margin-top: 14px;
+  }
+
+  .tv-progress {
+    margin-top: 18px;
+  }
+
+  .tv-player-times {
+    font-size: 14px;
+  }
+
+  .tv-transport-controls {
+    gap: 8px;
+    margin-top: 14px;
+  }
+
+  .tv-transport-controls button {
+    min-height: 40px;
+    padding: 7px 10px;
+    font-size: 13px;
+  }
+
+  .tv-transport-controls .tv-play-control {
+    min-height: 46px;
+  }
+
+  .tv-player-status {
+    margin-top: 8px;
+    font-size: 13px;
+  }
+
+  .tv-secondary-grid {
+    grid-template-columns: minmax(0, 1.06fr) minmax(240px, 0.94fr) minmax(210px, 0.82fr);
+    gap: 12px;
+    width: auto;
+  }
+
+  .tv-panel {
+    height: 152px;
+    min-height: 0;
+    overflow: hidden;
+    padding: 16px;
+  }
+
+  .tv-lyrics-lines {
+    gap: 2px;
+    margin-top: 10px;
+    font-size: clamp(15px, 1.75vw, 24px);
+    line-height: 1.1;
+  }
+
+  .tv-album-rail {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 8px;
+    margin-top: 10px;
+  }
+
+  .tv-album-rail button {
+    grid-template-rows: 54px auto;
+    min-height: 104px;
+    padding: 6px;
+  }
+
+  .tv-album-rail small {
+    display: none;
+  }
+
+  .tv-queue-panel ol {
+    gap: 4px;
+    margin-top: 10px;
+  }
+
+  .tv-queue-panel li {
+    min-height: 42px;
+  }
+
+  .tv-queue-panel li button {
+    min-height: 42px;
+    padding: 6px 8px;
+  }
+
+  .tv-bars {
+    height: 84px;
+    margin-top: 18px;
+  }
+
+}
+
+@media (max-width: 700px) {
+  .tv-display-shell {
+    overflow: auto;
+  }
+
+  .tv-now-playing,
+  .tv-secondary-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .tv-artwork-frame {
+    width: min(360px, 70vw);
+  }
+
+  .tv-track-copy h1 {
+    max-width: 100%;
+  }
+}

@@ -523,9 +523,9 @@ fn route_request(
                 .map_err(|error| error.to_string());
             result_response(commands.map(|commands| RemotePlayerCommandsResponse { commands }))
         }
-        ("GET", "/api/media") => {
+        ("GET", "/api/media") | ("HEAD", "/api/media") => {
             if let Some(path) = query_param(&request.query, "path") {
-                file_response(&path)
+                file_response(&request, &path)
             } else {
                 text_response(400, "missing media path")
             }
@@ -1437,21 +1437,120 @@ fn empty_response(status: u16) -> Vec<u8> {
     response(status, "text/plain; charset=utf-8", b"")
 }
 
-fn file_response(path: &str) -> Vec<u8> {
+fn file_response(request: &Request, path: &str) -> Vec<u8> {
     let path = Path::new(path);
     let mut file = match File::open(path) {
         Ok(file) => file,
         Err(error) => return text_response(404, &error.to_string()),
     };
+    let file_size = match file.metadata() {
+        Ok(metadata) => metadata.len(),
+        Err(error) => return text_response(500, &error.to_string()),
+    };
+
+    let content_type = content_type(path);
+    let range = match request.headers.get("range") {
+        Some(value) => parse_byte_range(value, file_size),
+        None => Ok(None),
+    };
+    let (status, start, end) = match range {
+        Ok(Some((start, end))) => (206, start, end),
+        Ok(None) => (200, 0, file_size.saturating_sub(1)),
+        Err(_) => {
+            return response_with_headers(
+                416,
+                "text/plain; charset=utf-8",
+                b"requested range not satisfiable",
+                &[
+                    ("Accept-Ranges".to_owned(), "bytes".to_owned()),
+                    ("Content-Range".to_owned(), format!("bytes */{file_size}")),
+                ],
+            );
+        }
+    };
+
+    if file_size == 0 {
+        return response_with_declared_content_length(
+            200,
+            content_type,
+            b"",
+            0,
+            &[("Accept-Ranges".to_owned(), "bytes".to_owned())],
+        );
+    }
+
+    let read_length = end.saturating_sub(start).saturating_add(1);
     let mut bytes = Vec::new();
     if let Err(error) = file
-        .seek(SeekFrom::Start(0))
-        .and_then(|_| file.read_to_end(&mut bytes))
+        .seek(SeekFrom::Start(start))
+        .and_then(|_| file.take(read_length).read_to_end(&mut bytes))
     {
         return text_response(500, &error.to_string());
     }
 
-    response(200, content_type(path), &bytes)
+    let empty_body: &[u8] = &[];
+    let body: &[u8] = if request.method == "HEAD" {
+        empty_body
+    } else {
+        &bytes
+    };
+    let mut headers = vec![("Accept-Ranges".to_owned(), "bytes".to_owned())];
+    if status == 206 {
+        headers.push((
+            "Content-Range".to_owned(),
+            format!("bytes {start}-{end}/{file_size}"),
+        ));
+    }
+    response_with_declared_content_length(status, content_type, body, read_length, &headers)
+}
+
+fn parse_byte_range(range_header: &str, file_size: u64) -> Result<Option<(u64, u64)>, String> {
+    let Some(range_value) = range_header.strip_prefix("bytes=") else {
+        return Ok(None);
+    };
+    let Some(first_range) = range_value.split(',').next() else {
+        return Ok(None);
+    };
+    let Some((start_text, end_text)) = first_range.trim().split_once('-') else {
+        return Err("invalid range".to_owned());
+    };
+
+    if file_size == 0 {
+        return Err("empty file".to_owned());
+    }
+
+    if start_text.is_empty() {
+        let suffix_length = end_text
+            .parse::<u64>()
+            .map_err(|_| "invalid suffix range".to_owned())?;
+        if suffix_length == 0 {
+            return Err("invalid suffix range".to_owned());
+        }
+        let start = file_size.saturating_sub(suffix_length);
+        return Ok(Some((start, file_size - 1)));
+    }
+
+    let start = start_text
+        .parse::<u64>()
+        .map_err(|_| "invalid range start".to_owned())?;
+    if start >= file_size {
+        return Err("range start exceeds file size".to_owned());
+    }
+
+    let end = if end_text.is_empty() {
+        file_size - 1
+    } else {
+        end_text
+            .parse::<u64>()
+            .map_err(|_| "invalid range end".to_owned())?
+            .min(file_size - 1)
+    };
+
+    if end < start {
+        return Err("range end precedes start".to_owned());
+    }
+
+    Ok(Some((start, end)))
 }
 
 fn frontend_response(path: &str) -> Vec<u8> {
@@ -1486,23 +1585,34 @@ fn response_with_headers(
     body: &[u8],
     extra_headers: &[(String, String)],
 ) -> Vec<u8> {
+    response_with_declared_content_length(status, content_type, body, body.len() as u64, extra_headers)
+}
+
+fn response_with_declared_content_length(
+    status: u16,
+    content_type: &str,
+    body: &[u8],
+    content_length: u64,
+    extra_headers: &[(String, String)],
+) -> Vec<u8> {
     let reason = match status {
         200 => "OK",
         204 => "No Content",
+        206 => "Partial Content",
         400 => "Bad Request",
         404 => "Not Found",
+        416 => "Range Not Satisfiable",
         500 => "Internal Server Error",
         _ => "OK",
     };
     let mut headers = format!(
         "HTTP/1.1 {status} {reason}\r\n\
-         Content-Length: {}\r\n\
+         Content-Length: {content_length}\r\n\
          Content-Type: {content_type}\r\n\
          Access-Control-Allow-Origin: *\r\n\
-         Access-Control-Allow-Methods: GET, POST, OPTIONS\r\n\
-         Access-Control-Allow-Headers: Content-Type, X-Musical-State-Captured-At-Ms\r\n\
-         Access-Control-Expose-Headers: X-Musical-Response-Sent-At-Ms, X-Musical-State-Captured-At-Ms\r\n",
-        body.len()
+         Access-Control-Allow-Methods: GET, HEAD, POST, OPTIONS\r\n\
+         Access-Control-Allow-Headers: Content-Type, Range, X-Musical-State-Captured-At-Ms\r\n\
+         Access-Control-Expose-Headers: Accept-Ranges, Content-Range, X-Musical-Response-Sent-At-Ms, X-Musical-State-Captured-At-Ms\r\n",
     );
     for (key, value) in extra_headers {
         headers.push_str(key);
