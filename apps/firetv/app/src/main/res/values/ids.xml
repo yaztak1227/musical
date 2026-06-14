@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <item name="fire_tv_server_base_url" type="id" />
+    <item name="fire_tv_library_id" type="id" />
+    <item name="fire_tv_locale" type="id" />
+</resources>

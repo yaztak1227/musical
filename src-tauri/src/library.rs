@@ -42,6 +42,22 @@ pub struct LibrarySnapshot {
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct TvLibraryList {
+    pub libraries: Vec<TvLibrarySummary>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TvLibrarySummary {
+    pub id: String,
+    pub name: String,
+    pub path: Option<String>,
+    pub album_count: usize,
+    pub track_count: usize,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct AlbumRecord {
     pub id: String,
     pub group_key: String,
@@ -269,6 +285,67 @@ pub fn load_snapshot(app: &AppHandle) -> Result<LibrarySnapshot, String> {
         count_snapshot_tracks(&snapshot),
     );
     Ok(snapshot)
+}
+
+pub fn load_snapshot_for_tv_library(
+    app: &AppHandle,
+    library_id: Option<&str>,
+) -> Result<LibrarySnapshot, String> {
+    let snapshot = load_snapshot(app)?;
+    let Some(library_id) = library_id else {
+        return Ok(snapshot);
+    };
+
+    let Some(current_library_id) = tv_library_id(&snapshot) else {
+        return Err("library.error.noLibraryScanned".to_owned());
+    };
+    if current_library_id != library_id {
+        return Err("library.error.libraryNotFound".to_owned());
+    }
+
+    Ok(snapshot)
+}
+
+pub fn load_tv_libraries(app: &AppHandle) -> Result<TvLibraryList, String> {
+    let snapshot = load_snapshot(app)?;
+    if snapshot.database_path.is_empty() {
+        return Ok(TvLibraryList {
+            libraries: Vec::new(),
+        });
+    }
+
+    let track_count = count_snapshot_tracks(&snapshot);
+    let name = snapshot
+        .last_scan_path
+        .as_deref()
+        .and_then(|path| Path::new(path).file_name())
+        .and_then(|name| name.to_str())
+        .filter(|name| !name.trim().is_empty())
+        .unwrap_or("Current library")
+        .to_owned();
+
+    Ok(TvLibraryList {
+        libraries: vec![TvLibrarySummary {
+            id: tv_library_id(&snapshot).unwrap_or_default(),
+            name,
+            path: snapshot.last_scan_path,
+            album_count: snapshot.albums.len(),
+            track_count,
+        }],
+    })
+}
+
+fn tv_library_id(snapshot: &LibrarySnapshot) -> Option<String> {
+    if snapshot.database_path.is_empty() {
+        return None;
+    }
+
+    let id_source = snapshot
+        .last_scan_path
+        .as_deref()
+        .filter(|path| !path.trim().is_empty())
+        .unwrap_or(&snapshot.database_path);
+    Some(format!("{:x}", md5::compute(id_source)))
 }
 
 pub fn load_track_lyrics(app: &AppHandle, track_id: &str) -> Result<Option<String>, String> {

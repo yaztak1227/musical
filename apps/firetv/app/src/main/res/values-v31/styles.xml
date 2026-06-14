@@ -8,6 +8,8 @@
         <item name="android:colorAccent">#f2b84b</item>
         <item name="android:navigationBarColor">#3a0e12</item>
         <item name="android:windowBackground">#3a0e12</item>
+        <item name="android:windowSplashScreenBackground">#3a0e12</item>
+        <item name="android:windowSplashScreenAnimatedIcon">@drawable/ic_launcher_foreground</item>
         <item name="android:windowLightStatusBar">false</item>
     </style>
 </resources>

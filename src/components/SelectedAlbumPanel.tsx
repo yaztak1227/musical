@@ -272,6 +272,7 @@ export function SelectedAlbumPanel({
                       </button>
                     </span>
                     <Button
+                      aria-label={localizeLibraryText(track.title, t)}
                       className="track-select-button"
                       onFocus={prepareMarquee}
                       onMouseEnter={prepareMarquee}
@@ -291,7 +292,7 @@ export function SelectedAlbumPanel({
                       <span className="track-title-wrap marquee-wrap">
                         <span className="track-title marquee-text">
                           <span className="track-name">{localizeLibraryText(track.title, t)}</span>
-                          <span className="track-album-meta">
+                          <span aria-hidden="true" className="track-album-meta">
                             {localizeLibraryText(album.title, t)} / {localizeLibraryText(track.artist || album.artist, t)}
                           </span>
                         </span>

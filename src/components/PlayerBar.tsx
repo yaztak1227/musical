@@ -479,7 +479,6 @@ export const PlayerBar = forwardRef<PlayerBarHandle, PlayerBarProps>(function Pl
             </div>
           </div>
           <Button
-            aria-label={t("player.openVisualizer")}
             className="visualizer-open-icon-button icon-button musical-ripple-button"
             disabled={!currentTrack}
             onClick={onOpenVisualizer}
@@ -488,6 +487,7 @@ export const PlayerBar = forwardRef<PlayerBarHandle, PlayerBarProps>(function Pl
             variant="outline"
           >
             <Maximize2 />
+            <span className="sr-only">{t("player.openVisualizer")}</span>
           </Button>
         </div>
       </div>

@@ -396,7 +396,12 @@ fn route_request(
             result_response(result)
         }
         ("GET", "/api/app_status") => json_response(200, &"Musical desktop bridge is ready"),
-        ("GET", "/api/library_snapshot") => result_response(load_library_snapshot(&app)),
+        ("GET", "/api/tv/libraries") => result_response(load_tv_libraries(&app)),
+        ("GET", "/api/library_snapshot") => {
+            let library_id =
+                query_param(&request.query, "libraryId").filter(|value| !value.trim().is_empty());
+            result_response(load_library_snapshot(&app, library_id.as_deref()))
+        }
         ("GET", "/api/track_lyrics") => {
             let track_id = query_param(&request.query, "trackId")
                 .filter(|value| !value.trim().is_empty())
@@ -933,9 +938,8 @@ fn call_mcp_tool(
                 .map_err(|error| error.to_string())?;
             json!({ "state": state })
         }
-        "get_library" => {
-            serde_json::to_value(load_library_snapshot(app)?).map_err(|error| error.to_string())?
-        }
+        "get_library" => serde_json::to_value(load_library_snapshot(app, None)?)
+            .map_err(|error| error.to_string())?,
         "search_library" => search_library(app, &arguments)?,
         "get_track_lyrics" => {
             let track_id = required_string(&arguments, "trackId")?;
@@ -1082,8 +1086,15 @@ fn call_mcp_tool(
     Ok(mcp_success_tool_result(output))
 }
 
-fn load_library_snapshot(app: &AppHandle) -> Result<library::LibrarySnapshot, String> {
-    library::load_snapshot(app)
+fn load_library_snapshot(
+    app: &AppHandle,
+    library_id: Option<&str>,
+) -> Result<library::LibrarySnapshot, String> {
+    library::load_snapshot_for_tv_library(app, library_id)
+}
+
+fn load_tv_libraries(app: &AppHandle) -> Result<library::TvLibraryList, String> {
+    library::load_tv_libraries(app)
 }
 
 fn scan_music_folder(app: &AppHandle, folder_path: &str) -> Result<library::ScanSummary, String> {
@@ -1585,7 +1596,13 @@ fn response_with_headers(
     body: &[u8],
     extra_headers: &[(String, String)],
 ) -> Vec<u8> {
-    response_with_declared_content_length(status, content_type, body, body.len() as u64, extra_headers)
+    response_with_declared_content_length(
+        status,
+        content_type,
+        body,
+        body.len() as u64,
+        extra_headers,
+    )
 }
 
 fn response_with_declared_content_length(

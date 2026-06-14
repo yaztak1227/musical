@@ -1,18 +1,25 @@
 import { type CSSProperties, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ListMusic, Pause, Play, SkipBack, SkipForward, StepBack, StepForward, Volume2, VolumeX } from "lucide-react";
+import { FileText, ListMusic, Pause, Play, SkipBack, SkipForward, StepBack, StepForward } from "lucide-react";
 import { getInitialLocale, translate } from "../../../i18n";
 import type { TvQueueState, TvSessionSnapshot } from "../domain/tvDisplayMessage";
 import { mockTvSessionSnapshot } from "../infrastructure/mockTvDisplayState";
 import type { Album, LibrarySnapshot, Track } from "../../../types/audio";
+import { getArtworkSrc } from "../../../lib/libraryUtils";
 
 type TvDisplayAppProps = {
   snapshot?: TvSessionSnapshot;
 };
 
 type FireTvRemoteKeyEvent = CustomEvent<{ key?: string }>;
+type FireTvTabEvent = CustomEvent<{ tab?: TvSurfaceTab }>;
+type TvSurfaceTab = "player" | "albums" | "tracks";
 type FocusZone = "controls" | "albums" | "tracks";
 
-const controlCount = 7;
+const controlCount = 5;
+const albumGridColumns = 4;
+const visibleAlbumRows = 2;
+const visibleAlbumCount = albumGridColumns * visibleAlbumRows;
+const visibleTrackCount = 7;
 
 export function TvDisplayApp({ snapshot = mockTvSessionSnapshot }: TvDisplayAppProps) {
   const audioRef = useRef<HTMLAudioElement | null>(null);
@@ -24,36 +31,42 @@ export function TvDisplayApp({ snapshot = mockTvSessionSnapshot }: TvDisplayAppP
   const [focusedTrackIndex, setFocusedTrackIndex] = useState(0);
   const [focusZone, setFocusZone] = useState<FocusZone>("albums");
   const [focusedControlIndex, setFocusedControlIndex] = useState(2);
+  const [activeSurfaceTab, setActiveSurfaceTab] = useState<TvSurfaceTab>(() => {
+    const tab = new URLSearchParams(window.location.search).get("tab");
+    return tab === "albums" || tab === "tracks" ? tab : "player";
+  });
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(snapshot.player.durationSeconds);
-  const [volume, setVolume] = useState(0.85);
   const [playbackError, setPlaybackError] = useState<string | null>(null);
   const [libraryError, setLibraryError] = useState<string | null>(null);
+  const libraryId = useMemo(() => new URLSearchParams(window.location.search).get("libraryId")?.trim() || null, []);
   const locale = useMemo(() => getInitialLocale(), []);
   const t = useCallback((key: string) => translate(locale, key as never), [locale]);
 
   const selectedAlbum = albums[selectedAlbumIndex] ?? null;
   const currentTrack = selectedAlbum?.tracks[selectedTrackIndex] ?? null;
   const focusedTrack = selectedAlbum?.tracks[focusedTrackIndex] ?? null;
+  const visibleAlbumStartIndex = getWindowStart(focusedAlbumIndex, albums.length, visibleAlbumCount, albumGridColumns);
+  const visibleTrackStartIndex = getTrackWindowStart(focusedTrackIndex, selectedAlbum?.tracks.length ?? 0);
   const audioUrl = currentTrack?.filePath ? makeMediaStreamUrl(currentTrack.filePath) : "";
   const player = makePlayerState(selectedAlbum, currentTrack, isPlaying, duration, currentTime, snapshot);
-  const lyrics = currentTrack ? makeLyricsState(currentTrack, snapshot) : snapshot.lyrics;
   const queue = selectedAlbum && currentTrack ? makeQueueState(selectedAlbum, currentTrack) : snapshot.queue;
-  const nextTrack = getNextQueueItem(queue);
   const effectiveDuration = duration || player.durationSeconds;
   const progress = effectiveDuration > 0 ? Math.min(100, (currentTime / effectiveDuration) * 100) : 0;
-  const activeLyricIndex = lyrics?.lines.findIndex((line) => line.id === lyrics.activeLineId) ?? -1;
-  const playerStyle = player.artworkUrl
-    ? ({ "--tv-player-artwork-bg": `url("${player.artworkUrl.replace(/"/g, '\\"')}")` } as CSSProperties)
+  const playerArtworkUrl = selectedAlbum ? getArtworkSrc(selectedAlbum) || player.artworkUrl : player.artworkUrl;
+  const playerStyle = playerArtworkUrl
+    ? ({ "--tv-player-artwork-bg": `url("${playerArtworkUrl.replace(/"/g, '\\"')}")` } as CSSProperties)
     : undefined;
+  const previousTrack = getPreviousQueueItem(queue);
+  const nextTrack = getNextQueueItem(queue);
 
   useEffect(() => {
     let isActive = true;
 
     async function loadLibrary() {
       try {
-        const librarySnapshot = await fetchJson<LibrarySnapshot>("/api/library_snapshot");
+        const librarySnapshot = await fetchJson<LibrarySnapshot>(librarySnapshotPath(libraryId));
         if (!isActive) return;
         const nextAlbums = librarySnapshot.albums.filter((album) => album.tracks.length > 0);
         setAlbums(nextAlbums);
@@ -73,7 +86,7 @@ export function TvDisplayApp({ snapshot = mockTvSessionSnapshot }: TvDisplayAppP
       isActive = false;
       window.clearInterval(timer);
     };
-  }, [t]);
+  }, [libraryId, t]);
 
   useEffect(() => {
     const trackCount = selectedAlbum?.tracks.length ?? 0;
@@ -82,15 +95,15 @@ export function TvDisplayApp({ snapshot = mockTvSessionSnapshot }: TvDisplayAppP
   }, [selectedAlbum]);
 
   useEffect(() => {
+    setFocusZone(activeSurfaceTab === "player" ? "controls" : activeSurfaceTab);
+  }, [activeSurfaceTab]);
+
+  useEffect(() => {
     const handleRemoteKey = (key: string | undefined) => {
-      if (key === "ArrowLeft") {
-        moveHorizontal(-1);
-      } else if (key === "ArrowRight") {
-        moveHorizontal(1);
-      } else if (key === "ArrowUp") {
-        moveVertical(-1);
-      } else if (key === "ArrowDown") {
-        moveVertical(1);
+      if (key === "ArrowLeft" || key === "ArrowRight") {
+        moveHorizontal(key === "ArrowLeft" ? -1 : 1);
+      } else if (key === "ArrowUp" || key === "ArrowDown") {
+        moveVertical(key === "ArrowUp" ? -1 : 1);
       } else if (key === "Enter" || key === " ") {
         void activateFocusedItem();
       } else if (key === "MediaPlayPause") {
@@ -107,20 +120,20 @@ export function TvDisplayApp({ snapshot = mockTvSessionSnapshot }: TvDisplayAppP
     };
     const handleKeyDown = (event: KeyboardEvent) => handleRemoteKey(event.key);
     const handleFireTvKey = (event: Event) => handleRemoteKey((event as FireTvRemoteKeyEvent).detail?.key);
+    const handleFireTvTab = (event: Event) => {
+      const tab = (event as FireTvTabEvent).detail?.tab;
+      if (tab === "player" || tab === "albums" || tab === "tracks") setActiveSurfaceTab(tab);
+    };
 
     window.addEventListener("keydown", handleKeyDown);
     window.addEventListener("musical-firetv-key", handleFireTvKey);
+    window.addEventListener("musical-firetv-tab", handleFireTvTab);
     return () => {
       window.removeEventListener("keydown", handleKeyDown);
       window.removeEventListener("musical-firetv-key", handleFireTvKey);
+      window.removeEventListener("musical-firetv-tab", handleFireTvTab);
     };
   });
-
-  useEffect(() => {
-    const audio = audioRef.current;
-    if (!audio) return;
-    audio.volume = volume;
-  }, [volume]);
 
   useEffect(() => {
     const audio = audioRef.current;
@@ -163,9 +176,9 @@ export function TvDisplayApp({ snapshot = mockTvSessionSnapshot }: TvDisplayAppP
   }, [audioUrl, currentTrack?.id]);
 
   function moveHorizontal(delta: number) {
-    if (focusZone === "controls") {
+    if (activeSurfaceTab === "player") {
       setFocusedControlIndex((index) => clamp(index + delta, 0, controlCount - 1));
-    } else if (focusZone === "albums") {
+    } else if (activeSurfaceTab === "albums") {
       setFocusedAlbumIndex((index) => clamp(index + delta, 0, Math.max(0, albums.length - 1)));
     } else {
       setFocusedTrackIndex((index) => clamp(index + delta, 0, Math.max(0, (selectedAlbum?.tracks.length ?? 1) - 1)));
@@ -173,15 +186,18 @@ export function TvDisplayApp({ snapshot = mockTvSessionSnapshot }: TvDisplayAppP
   }
 
   function moveVertical(delta: number) {
-    const zones: FocusZone[] = ["controls", "albums", "tracks"];
-    const currentIndex = zones.indexOf(focusZone);
-    setFocusZone(zones[clamp(currentIndex + delta, 0, zones.length - 1)]);
+    if (activeSurfaceTab === "player") return;
+    if (activeSurfaceTab === "albums") {
+      setFocusedAlbumIndex((index) => clamp(index + delta * albumGridColumns, 0, Math.max(0, albums.length - 1)));
+      return;
+    }
+    setFocusedTrackIndex((index) => clamp(index + delta, 0, Math.max(0, (selectedAlbum?.tracks.length ?? 1) - 1)));
   }
 
   async function activateFocusedItem() {
-    if (focusZone === "controls") {
+    if (activeSurfaceTab === "player") {
       await activateControl(focusedControlIndex);
-    } else if (focusZone === "albums") {
+    } else if (activeSurfaceTab === "albums") {
       await playAlbum(focusedAlbumIndex);
     } else {
       await playTrack(focusedTrackIndex);
@@ -194,8 +210,6 @@ export function TvDisplayApp({ snapshot = mockTvSessionSnapshot }: TvDisplayAppP
     if (index === 2) await togglePlayback();
     if (index === 3) seekBy(15);
     if (index === 4) await playAdjacentTrack(1);
-    if (index === 5) changeVolume(-0.1);
-    if (index === 6) changeVolume(0.1);
   }
 
   async function playAlbum(albumIndex: number) {
@@ -267,21 +281,19 @@ export function TvDisplayApp({ snapshot = mockTvSessionSnapshot }: TvDisplayAppP
     if (audio) audio.currentTime = nextTime;
   }
 
-  function changeVolume(delta: number) {
-    setVolume((currentVolume) => Math.max(0, Math.min(1, currentVolume + delta)));
-  }
-
   return (
-    <main className="tv-display-shell" style={playerStyle}>
+    <main className={`tv-display-shell tv-display-${activeSurfaceTab}`} style={playerStyle}>
       <audio ref={audioRef} preload="metadata" src={audioUrl || undefined} />
-      <div className="tv-display-backdrop" style={{ backgroundImage: player.artworkUrl ? `url(${player.artworkUrl})` : undefined }} />
+      <div className="tv-display-backdrop" style={{ backgroundImage: playerArtworkUrl ? `url(${playerArtworkUrl})` : undefined }} />
       <section className="tv-now-playing tv-player-surface" aria-label={t("tvDisplay.nowPlaying")}>
         <div className="tv-artwork-frame">
-          {player.artworkUrl ? <img src={player.artworkUrl} alt="" /> : <div className="tv-artwork-fallback" />}
+          {playerArtworkUrl ? <img src={playerArtworkUrl} alt="" /> : <div className="tv-artwork-fallback" />}
         </div>
         <div className="tv-track-copy">
           <p className="tv-kicker">{isPlaying ? t("tvDisplay.playingOnTv") : t("tvDisplay.readyOnTv")}</p>
-          <h1>{player.title}</h1>
+          <h1 title={player.title}>
+            <span className="tv-title-marquee">{player.title}</span>
+          </h1>
           <p className="tv-artist">{player.artist}</p>
           <p className="tv-album">{player.album}</p>
           <div className="tv-progress" aria-label={t("tvDisplay.progress")}>
@@ -312,30 +324,40 @@ export function TvDisplayApp({ snapshot = mockTvSessionSnapshot }: TvDisplayAppP
               <StepForward aria-hidden="true" size={24} />
               <span>{t("player.next")}</span>
             </button>
-            <button className={focusedControlIndex === 5 && focusZone === "controls" ? "is-focused" : ""} type="button" onClick={() => changeVolume(-0.1)}>
-              <VolumeX aria-hidden="true" size={24} />
-              <span>{t("tvDisplay.volumeDown")}</span>
+          </div>
+          {playbackError || libraryError || !audioUrl ? (
+            <p className="tv-player-status is-error">{playbackError ?? libraryError ?? t("tvDisplay.noAudioSource")}</p>
+          ) : null}
+          <div className="tv-adjacent-tracks" aria-label={t("tvDisplay.queue")}>
+            <button type="button" onClick={() => void playAdjacentTrack(-1)}>
+              <StepBack aria-hidden="true" size={24} />
+              <span>{t("player.previous")}</span>
+              <strong>{previousTrack?.title ?? t("data.unknownTrack")}</strong>
             </button>
-            <button className={focusedControlIndex === 6 && focusZone === "controls" ? "is-focused" : ""} type="button" onClick={() => changeVolume(0.1)}>
-              <Volume2 aria-hidden="true" size={24} />
-              <span>{Math.round(volume * 100)}%</span>
+            <button type="button" onClick={() => void playAdjacentTrack(1)}>
+              <StepForward aria-hidden="true" size={24} />
+              <span>{t("player.next")}</span>
+              <strong>{nextTrack?.title ?? t("data.unknownTrack")}</strong>
             </button>
           </div>
-          <p className={playbackError || libraryError ? "tv-player-status is-error" : "tv-player-status"}>
-            {playbackError ?? libraryError ?? (audioUrl ? t("tvDisplay.localPlayer") : t("tvDisplay.noAudioSource"))}
-          </p>
         </div>
       </section>
 
-      <section className="tv-secondary-grid">
-        <div className={focusZone === "albums" ? "tv-panel tv-album-browser is-zone-focused" : "tv-panel tv-album-browser"} aria-label={t("tvDisplay.albums")}>
+      {activeSurfaceTab === "albums" ? (
+        <section className="tv-tab-content tv-albums-view">
+          <div className="tv-panel tv-album-browser is-zone-focused" aria-label={t("tvDisplay.albums")}>
           <div className="tv-panel-heading">
             <h2>{t("tvDisplay.albums")}</h2>
             <small>{albums.length > 0 ? t("albums.count").replace("{count}", String(albums.length)) : t("status.noLibraryScanned")}</small>
           </div>
+          {albums[focusedAlbumIndex] ? (
+            <p className="tv-focused-album-title">
+              {albums[focusedAlbumIndex].title} / {albums[focusedAlbumIndex].artist}
+            </p>
+          ) : null}
           <div className="tv-album-rail">
-            {albums.slice(Math.max(0, focusedAlbumIndex - 2), focusedAlbumIndex + 4).map((album) => {
-              const albumIndex = albums.indexOf(album);
+            {albums.slice(visibleAlbumStartIndex, visibleAlbumStartIndex + visibleAlbumCount).map((album, index) => {
+              const albumIndex = visibleAlbumStartIndex + index;
               const isFocused = focusZone === "albums" && albumIndex === focusedAlbumIndex;
               const isSelected = albumIndex === selectedAlbumIndex;
               return (
@@ -346,54 +368,50 @@ export function TvDisplayApp({ snapshot = mockTvSessionSnapshot }: TvDisplayAppP
                   onClick={() => void playAlbum(albumIndex)}
                 >
                   <span className="tv-album-cover">
-                    {album.coverUrl ? <img src={album.coverUrl} alt="" /> : <ListMusic aria-hidden="true" size={34} />}
+                    {getArtworkSrc(album) ? <img src={getArtworkSrc(album)} alt="" /> : <ListMusic aria-hidden="true" size={34} />}
+                    <span className="tv-album-cover-title">{album.title}</span>
                   </span>
-                  <span>{album.title}</span>
-                  <small>{album.artist}</small>
+                  <span className="tv-album-title">{album.title}</span>
+                  <small className="tv-album-artist">{album.artist}</small>
                 </button>
               );
             })}
           </div>
-        </div>
+          </div>
+        </section>
+      ) : null}
 
-        <div className={focusZone === "tracks" ? "tv-panel tv-queue-panel tv-track-browser is-zone-focused" : "tv-panel tv-queue-panel tv-track-browser"} aria-label={t("tvDisplay.tracks")}>
+      {activeSurfaceTab === "tracks" ? (
+        <section className="tv-tab-content tv-tracks-view">
+          <div className="tv-panel tv-queue-panel tv-track-browser is-zone-focused" aria-label={t("tvDisplay.tracks")}>
           <div className="tv-panel-heading">
             <h2>{t("tvDisplay.tracks")}</h2>
             <small>{selectedAlbum ? selectedAlbum.title : t("data.unknownAlbum")}</small>
           </div>
           <ol>
-            {selectedAlbum?.tracks.slice(Math.max(0, focusedTrackIndex - 3), focusedTrackIndex + 5).map((track) => {
-              const trackIndex = selectedAlbum.tracks.indexOf(track);
+            {selectedAlbum?.tracks.slice(visibleTrackStartIndex, visibleTrackStartIndex + visibleTrackCount).map((track, index) => {
+              const trackIndex = visibleTrackStartIndex + index;
               const isFocused = focusZone === "tracks" && trackIndex === focusedTrackIndex;
               const isCurrent = String(track.id) === String(currentTrack?.id);
               return (
                 <li className={`${isCurrent ? "is-current " : ""}${isFocused ? "is-focused" : ""}`} key={track.id}>
                   <button type="button" onClick={() => void playTrack(trackIndex)}>
-                    <span>{track.title}</span>
-                    <small>{track.artist}</small>
+                    <span className="tv-track-lyrics-indicator">
+                      {trackHasLyrics(track) ? <FileText aria-hidden="true" size={22} /> : null}
+                    </span>
+                    <span className="tv-track-row-copy">
+                      <span>{track.title}</span>
+                      <small>{track.artist}</small>
+                    </span>
                   </button>
                 </li>
               );
             })}
           </ol>
           {focusedTrack ? <p className="tv-next-track">{t("tvDisplay.selectedTrack")}: {focusedTrack.title}</p> : null}
-        </div>
-
-        <div className="tv-panel tv-lyrics-panel" aria-label={t("tvDisplay.lyrics")}>
-          <h2>{t("tvDisplay.lyrics")}</h2>
-          <div className="tv-lyrics-lines">
-            {lyrics?.lines.map((line, index) => (
-              <p
-                className={line.id === lyrics.activeLineId ? "is-active" : index < activeLyricIndex ? "is-past" : undefined}
-                key={line.id}
-              >
-                {line.text}
-              </p>
-            ))}
           </div>
-          {nextTrack ? <p className="tv-next-track">{t("tvDisplay.nextTrack")}: {nextTrack.title}</p> : null}
-        </div>
-      </section>
+        </section>
+      ) : null}
     </main>
   );
 }
@@ -402,6 +420,12 @@ async function fetchJson<T>(path: string) {
   const response = await fetch(path);
   if (!response.ok) throw new Error(await response.text());
   return response.json() as Promise<T>;
+}
+
+function librarySnapshotPath(libraryId: string | null) {
+  if (!libraryId) return "/api/library_snapshot";
+  const query = new URLSearchParams({ libraryId });
+  return `/api/library_snapshot?${query.toString()}`;
 }
 
 function makePlayerState(
@@ -419,27 +443,12 @@ function makePlayerState(
     title: track.title,
     artist: track.artist,
     album: album.title,
-    artworkUrl: album.coverUrl,
+    artworkUrl: getArtworkSrc(album),
     audioUrl: track.filePath ? makeMediaStreamUrl(track.filePath) : undefined,
     isPlaying,
     durationSeconds: duration || track.durationSeconds || 0,
     positionSeconds,
     updatedAt: new Date().toISOString(),
-  };
-}
-
-function makeLyricsState(track: Track, fallbackSnapshot: TvSessionSnapshot) {
-  const lyrics = track.lyrics?.trim();
-  if (!lyrics) return fallbackSnapshot.lyrics;
-
-  return {
-    trackId: String(track.id),
-    mode: "plain" as const,
-    lines: lyrics.split(/\r?\n/).filter(Boolean).slice(0, 8).map((text, index) => ({
-      id: `${track.id}-${index}`,
-      text,
-    })),
-    activeLineId: `${track.id}-0`,
   };
 }
 
@@ -451,7 +460,7 @@ function makeQueueState(album: Album, currentTrack: Track): TvQueueState {
       title: track.title,
       artist: track.artist,
       album: album.title,
-      artworkUrl: album.coverUrl,
+      artworkUrl: getArtworkSrc(album),
       isCurrent: String(track.id) === String(currentTrack.id),
     })),
   };
@@ -468,6 +477,17 @@ function getNextQueueItem(queue: TvQueueState | undefined) {
   return queue.items[currentIndex + 1] ?? queue.items[0] ?? null;
 }
 
+function getPreviousQueueItem(queue: TvQueueState | undefined) {
+  if (!queue) return null;
+  const currentIndex = queue.items.findIndex((item) => item.isCurrent);
+  if (currentIndex < 0) return queue.items[0] ?? null;
+  return queue.items[currentIndex - 1] ?? queue.items[queue.items.length - 1] ?? null;
+}
+
+function trackHasLyrics(track: Track) {
+  return Boolean(track.hasLyrics || track.lyrics?.trim());
+}
+
 function clamp(value: number, min: number, max: number) {
   return Math.min(max, Math.max(min, value));
 }
@@ -475,6 +495,17 @@ function clamp(value: number, min: number, max: number) {
 function clampIndex(index: number, length: number) {
   if (length <= 0) return 0;
   return clamp(index, 0, length - 1);
+}
+
+function getWindowStart(focusedIndex: number, length: number, visibleCount: number, step: number) {
+  if (length <= visibleCount) return 0;
+  const alignedStart = Math.floor(Math.max(0, focusedIndex) / step) * step;
+  return clamp(alignedStart, 0, length - visibleCount);
+}
+
+function getTrackWindowStart(focusedIndex: number, length: number) {
+  if (length <= visibleTrackCount) return 0;
+  return clamp(focusedIndex - 1, 0, length - visibleTrackCount);
 }
 
 function formatTime(seconds: number) {

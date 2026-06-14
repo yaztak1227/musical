@@ -108,5 +108,6 @@ export function storePlaybackPreferences(playbackPreferences: PlaybackPreference
 }
 
 function parseStoredAlbumId(value: unknown) {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
   return typeof value === "string" && value.trim() ? value : null;
 }

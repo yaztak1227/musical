@@ -33,6 +33,87 @@
   min-height: 54dvh;
 }
 
+.tv-display-player .tv-now-playing {
+  min-height: calc(100dvh - clamp(64px, 10vw, 144px));
+}
+
+.tv-display-albums .tv-now-playing,
+.tv-display-tracks .tv-now-playing {
+  grid-template-columns: minmax(0, 1fr);
+  max-height: 104px;
+  min-height: 0;
+  overflow: hidden;
+  padding-block: 8px;
+}
+
+.tv-display-albums .tv-player-surface::after,
+.tv-display-tracks .tv-player-surface::after {
+  inset: -8px;
+}
+
+.tv-display-albums .tv-track-copy,
+.tv-display-tracks .tv-track-copy {
+  display: grid;
+  grid-template-columns: minmax(0, 1.18fr) minmax(0, 0.82fr);
+  gap: 16px;
+  align-items: baseline;
+  width: 100%;
+}
+
+.tv-display-albums .tv-artwork-frame,
+.tv-display-tracks .tv-artwork-frame {
+  display: none;
+}
+
+.tv-display-albums .tv-track-copy h1,
+.tv-display-tracks .tv-track-copy h1 {
+  min-width: 0;
+  max-width: none;
+  overflow: hidden;
+  font-size: clamp(24px, 2.2vw, 36px);
+  line-height: 1.05;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tv-display-albums .tv-artist,
+.tv-display-tracks .tv-artist {
+  min-width: 0;
+  margin-top: 0;
+  overflow: hidden;
+  font-size: clamp(16px, 1.35vw, 22px);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tv-display-albums .tv-kicker,
+.tv-display-tracks .tv-kicker {
+  display: none;
+}
+
+.tv-display-albums .tv-album,
+.tv-display-tracks .tv-album {
+  display: none;
+}
+
+.tv-display-albums .tv-player-times,
+.tv-display-tracks .tv-player-times {
+  margin-top: 4px;
+}
+
+.tv-display-albums .tv-progress,
+.tv-display-tracks .tv-progress,
+.tv-display-albums .tv-player-times,
+.tv-display-tracks .tv-player-times,
+.tv-display-albums .tv-transport-controls,
+.tv-display-tracks .tv-transport-controls,
+.tv-display-albums .tv-player-status,
+.tv-display-tracks .tv-player-status,
+.tv-display-albums .tv-adjacent-tracks,
+.tv-display-tracks .tv-adjacent-tracks {
+  display: none;
+}
+
 .tv-player-surface::after {
   position: absolute;
   inset: -20px;
@@ -84,19 +165,25 @@
 }
 
 .tv-kicker {
-  margin-bottom: 14px;
-  font-size: clamp(18px, 1.6vw, 28px);
-  font-weight: 700;
+  display: none;
 }
 
 .tv-track-copy h1 {
-  max-width: 14ch;
+  max-width: min(100%, 980px);
   margin: 0;
-  overflow-wrap: anywhere;
+  overflow: hidden;
   font-size: clamp(58px, 7vw, 132px);
   font-weight: 850;
   letter-spacing: 0;
   line-height: 0.92;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tv-title-marquee {
+  display: inline-block;
+  min-width: max-content;
+  animation: tv-title-marquee 12s ease-in-out 1s infinite alternate;
 }
 
 .tv-artist {
@@ -187,11 +274,180 @@
   color: oklch(0.84 0.15 60);
 }
 
+.tv-adjacent-tracks {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+  width: min(920px, 100%);
+  margin-top: 18px;
+}
+
+.tv-adjacent-tracks button {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 4px 12px;
+  align-items: center;
+  min-width: 0;
+  min-height: 92px;
+  padding: 14px 16px;
+  border: 1px solid color-mix(in oklch, var(--app-on-player), transparent 62%);
+  border-radius: 8px;
+  color: var(--app-on-player);
+  background: color-mix(in oklch, var(--app-on-player), transparent 92%);
+  text-align: left;
+}
+
+.tv-adjacent-tracks button:hover,
+.tv-adjacent-tracks button:focus-visible {
+  border-color: var(--app-on-player);
+  outline: none;
+  background: color-mix(in oklch, var(--app-on-player), transparent 86%);
+}
+
+.tv-adjacent-tracks svg {
+  grid-row: 1 / span 2;
+}
+
+.tv-adjacent-tracks span,
+.tv-adjacent-tracks strong {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tv-adjacent-tracks span {
+  color: color-mix(in oklch, var(--app-on-player), transparent 36%);
+  font-size: 14px;
+  font-weight: 780;
+}
+
+.tv-adjacent-tracks strong {
+  font-size: clamp(18px, 1.5vw, 25px);
+  font-weight: 840;
+}
+
 .tv-secondary-grid {
   display: grid;
   grid-template-columns: minmax(0, 1.18fr) minmax(300px, 0.92fr) minmax(260px, 0.72fr);
   gap: 18px;
   align-items: stretch;
+}
+
+.tv-tab-content {
+  position: relative;
+  z-index: 1;
+  margin-top: 22px;
+}
+
+.tv-albums-view .tv-panel {
+  min-height: 38dvh;
+  padding: 20px 24px;
+}
+
+.tv-albums-view .tv-album-rail {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  align-items: start;
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.tv-albums-view .tv-album-rail button {
+  position: relative;
+  display: grid;
+  grid-template-columns: 122px minmax(0, 1fr);
+  grid-template-rows: 1fr auto auto 1fr;
+  column-gap: 16px;
+  align-items: center;
+  min-height: 154px;
+  height: 154px;
+  padding: 12px;
+  overflow: hidden;
+}
+
+.tv-albums-view .tv-album-cover {
+  grid-row: 1 / -1;
+  width: 122px;
+  height: 122px;
+  min-height: 0;
+  max-height: none;
+}
+
+.tv-albums-view .tv-album-cover::after {
+  content: none;
+}
+
+.tv-albums-view .tv-album-rail button::after {
+  content: none;
+}
+
+.tv-albums-view .tv-album-title {
+  position: static;
+  grid-column: 2;
+  grid-row: 2;
+  font-size: 17px;
+  font-weight: 820;
+}
+
+.tv-albums-view .tv-album-artist {
+  position: static;
+  grid-column: 2;
+  grid-row: 3;
+  color: color-mix(in oklch, var(--app-on-player), transparent 24%);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.tv-albums-view .tv-album-cover-title {
+  display: none;
+}
+
+.tv-tracks-view {
+  display: block;
+}
+
+.tv-tracks-view .tv-panel {
+  min-height: 64dvh;
+}
+
+.tv-tracks-view .tv-queue-panel ol {
+  gap: 6px;
+  margin-top: 12px;
+}
+
+.tv-tracks-view .tv-queue-panel li,
+.tv-tracks-view .tv-queue-panel li button {
+  min-height: 64px;
+}
+
+.tv-tracks-view .tv-queue-panel li button {
+  grid-template-columns: 34px minmax(0, 1fr);
+  gap: 12px;
+  align-items: center;
+  padding: 8px 14px;
+}
+
+.tv-track-row-copy {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.tv-track-lyrics-indicator {
+  display: grid;
+  width: 28px;
+  min-width: 28px;
+  color: color-mix(in oklch, var(--app-on-player), transparent 22%);
+  place-items: center;
+}
+
+.tv-tracks-view .tv-queue-panel .tv-track-row-copy > span {
+  font-size: clamp(18px, 1.45vw, 25px);
+  line-height: 1.05;
+}
+
+.tv-tracks-view .tv-queue-panel small {
+  font-size: 14px;
 }
 
 .tv-panel {
@@ -221,6 +477,16 @@
   color: color-mix(in oklch, var(--app-on-player), transparent 42%);
   font-size: 14px;
   font-weight: 760;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tv-focused-album-title {
+  margin: 10px 0 0;
+  overflow: hidden;
+  color: var(--app-on-player);
+  font-size: clamp(18px, 1.6vw, 28px);
+  font-weight: 820;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -268,11 +534,27 @@
 
 .tv-album-cover {
   display: grid;
+  position: relative;
   overflow: hidden;
   place-items: center;
   aspect-ratio: 1;
   border-radius: 8px;
   background: linear-gradient(135deg, var(--primary), var(--accent));
+}
+
+.tv-album-cover-title {
+  position: absolute;
+  right: 12px;
+  bottom: 12px;
+  left: 12px;
+  z-index: 2;
+  overflow: hidden;
+  color: var(--app-on-player);
+  font-size: 17px;
+  font-weight: 840;
+  text-shadow: 0 2px 10px oklch(0 0 0 / 0.55);
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .tv-album-cover img {
@@ -417,6 +699,24 @@
   }
 }
 
+@keyframes tv-title-marquee {
+  0%,
+  18% {
+    transform: translateX(0);
+  }
+
+  82%,
+  100% {
+    transform: translateX(min(0px, calc(980px - 100%)));
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tv-title-marquee {
+    animation: none;
+  }
+}
+
 @media (max-height: 560px) and (min-width: 701px) {
   .tv-display-shell {
     height: 100dvh;
@@ -468,6 +768,20 @@
     font-size: 13px;
   }
 
+  .tv-adjacent-tracks {
+    gap: 8px;
+    margin-top: 10px;
+  }
+
+  .tv-adjacent-tracks button {
+    min-height: 62px;
+    padding: 8px 10px;
+  }
+
+  .tv-adjacent-tracks strong {
+    font-size: 15px;
+  }
+
   .tv-secondary-grid {
     grid-template-columns: minmax(0, 1.06fr) minmax(240px, 0.94fr) minmax(210px, 0.82fr);
     gap: 12px;
@@ -504,6 +818,74 @@
     display: none;
   }
 
+  .tv-display-albums .tv-now-playing,
+  .tv-display-tracks .tv-now-playing {
+    max-height: 86px;
+    padding-block: 6px;
+  }
+
+  .tv-display-albums .tv-track-copy,
+  .tv-display-tracks .tv-track-copy {
+    grid-template-columns: minmax(0, 1.2fr) minmax(0, 0.8fr);
+    gap: 14px;
+  }
+
+  .tv-display-albums .tv-track-copy h1,
+  .tv-display-tracks .tv-track-copy h1 {
+    font-size: clamp(22px, 3vw, 32px);
+    line-height: 1.05;
+  }
+
+  .tv-display-albums .tv-title-marquee,
+  .tv-display-tracks .tv-title-marquee {
+    animation: none;
+  }
+
+  .tv-display-albums .tv-artist,
+  .tv-display-tracks .tv-artist {
+    font-size: clamp(14px, 1.8vw, 20px);
+  }
+
+  .tv-albums-view .tv-panel {
+    height: 346px;
+    padding: 14px 16px;
+  }
+
+  .tv-albums-view .tv-album-rail {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 8px;
+    margin-top: 8px;
+  }
+
+  .tv-albums-view .tv-album-rail button {
+    display: grid;
+    grid-template-columns: 68px minmax(0, 1fr);
+    grid-template-rows: 1fr auto auto 1fr;
+    column-gap: 10px;
+    height: 88px;
+    min-height: 88px;
+    padding: 8px;
+  }
+
+  .tv-albums-view .tv-album-cover {
+    grid-row: 1 / -1;
+    width: 68px;
+    height: 68px;
+  }
+
+  .tv-albums-view .tv-album-title {
+    grid-column: 2;
+    grid-row: 2;
+    font-size: 13px;
+  }
+
+  .tv-albums-view .tv-album-artist {
+    display: block;
+    grid-column: 2;
+    grid-row: 3;
+    font-size: 10px;
+  }
+
   .tv-queue-panel ol {
     gap: 4px;
     margin-top: 10px;
@@ -516,6 +898,36 @@
   .tv-queue-panel li button {
     min-height: 42px;
     padding: 6px 8px;
+  }
+
+  .tv-tracks-view .tv-queue-panel ol {
+    gap: 5px;
+    margin-top: 8px;
+  }
+
+  .tv-tracks-view .tv-queue-panel li,
+  .tv-tracks-view .tv-queue-panel li button {
+    min-height: 54px;
+  }
+
+  .tv-tracks-view .tv-queue-panel li button {
+    grid-template-columns: 28px minmax(0, 1fr);
+    gap: 10px;
+    padding: 6px 10px;
+  }
+
+  .tv-tracks-view .tv-queue-panel .tv-track-row-copy > span {
+    font-size: 18px;
+    line-height: 1.05;
+  }
+
+  .tv-tracks-view .tv-queue-panel small {
+    font-size: 12px;
+  }
+
+  .tv-tracks-view .tv-panel {
+    height: 520px;
+    min-height: 0;
   }
 
   .tv-bars {

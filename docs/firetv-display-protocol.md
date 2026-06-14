@@ -54,6 +54,50 @@ Development browser route:
 http://localhost:{port}/tv?sessionId={sessionId}
 ```
 
+When Fire TV opens `/tv` from native Settings after a library selection, the
+selected library is passed as a query parameter:
+
+```txt
+http://{desktop-host}:1422/tv?libraryId={libraryId}
+```
+
+The `/tv` route forwards `libraryId` to `/api/library_snapshot`. The local server
+returns the current snapshot only when the id matches the active desktop
+library.
+
+## Library Selection
+
+Fire TV native Settings reads the available TV libraries from the same desktop
+base URL used for `/tv`:
+
+```txt
+GET http://{desktop-host}:1422/api/tv/libraries
+```
+
+Response shape:
+
+```ts
+type TvLibraryList = {
+  libraries: TvLibrarySummary[];
+};
+
+type TvLibrarySummary = {
+  id: string;
+  name: string;
+  path: string | null;
+  albumCount: number;
+  trackCount: number;
+};
+```
+
+Selection policy:
+
+- Fire TV persists the selected library id locally.
+- A saved library is reused only when it still appears in the server response.
+- If the saved library is missing, Fire TV keeps Settings visible and waits for
+  an explicit user selection.
+- The selected library is sent to `/tv` as `libraryId`.
+
 ## Message Envelope
 
 ```ts

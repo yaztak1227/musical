@@ -4,7 +4,10 @@ Thin Fire TV WebView wrapper for the Musical TV display route.
 
 On normal launch, the app looks for a published Musical desktop server on the
 same LAN by probing `http://<LAN-IP>:1422/api/app_status`. When it finds one, it
-opens `http://<LAN-IP>:1422/tv` and stores that URL for the next launch.
+shows the native Settings tab with libraries from
+`http://<LAN-IP>:1422/api/tv/libraries`. Selecting a library opens
+`http://<LAN-IP>:1422/tv?libraryId=<ID>` and stores that URL and library id for
+the next launch.
 
 ## Build
 
@@ -62,6 +65,14 @@ For a forced development launch, pass the desktop TV URL:
 adb shell am start \
   -n app.musical.firetv/.MainActivity \
   --es display_url "http://DESKTOP_LAN_IP:1422/tv"
+```
+
+To force a specific library context, include the `libraryId` query parameter:
+
+```bash
+adb shell am start \
+  -n app.musical.firetv/.MainActivity \
+  --es display_url "http://DESKTOP_LAN_IP:1422/tv?libraryId=LIBRARY_ID"
 ```
 
 For local playback testing, append an encoded `audioUrl` query parameter:

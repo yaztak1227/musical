@@ -29,6 +29,7 @@ Tauri Desktop App
 
 Fire TV App
   -> Android/Kotlin WebView wrapper
+  -> native tab shell and settings
   -> React TV UI
   -> local audio player
   -> remote key adapter for TV-local playback
@@ -50,6 +51,10 @@ Fire TV App
 ### Fire TV App
 
 - Provides a thin Android/Kotlin shell.
+- Owns the native top tab bar and Settings surface.
+- Discovers reachable Musical desktop servers on the local network.
+- Displays selectable libraries returned by the selected server.
+- Persists the selected display URL and selected library.
 - Hosts the React TV UI in WebView.
 - Receives launch parameters such as host URL and session id.
 - Bridges Fire TV remote key input into the TV UI.
@@ -88,6 +93,62 @@ Desktop app creates display session
   -> Fire TV plays audio locally
 ```
 
+## Fire TV Direct Launch And Library Selection
+
+The Fire TV app also supports direct launch without a desktop-initiated DIAL
+handoff. In that mode the Android shell discovers the desktop server and lets
+the user select a library before opening `/tv`.
+
+```txt
+Fire TV app starts
+  -> Read saved display URL and selected library
+  -> Validate saved server through /api/app_status
+  -> If unavailable, scan local IPv4 subnets for Musical servers
+  -> Build one or more discovered server candidates
+  -> For each reachable server, derive {baseUrl}/tv
+  -> Fetch available libraries from {baseUrl}/api/tv/libraries
+  -> Show candidates in the Settings tab
+  -> User selects a library
+  -> Persist selected URL and library id
+  -> Load /tv?libraryId={libraryId}
+  -> Switch to Player tab
+```
+
+The existing discovery code can continue to open the first reachable server for
+the initial MVP, but the internal model should allow multiple server candidates.
+
+Android-side model:
+
+```txt
+DiscoveredServer
+  baseUrl: String
+  tvUrl: String
+  reachable: Boolean
+  fallback: Boolean
+  libraries: List<RemoteLibrary>
+  libraryError: String?
+
+RemoteLibrary
+  id: String
+  name: String
+  path: String?
+  albumCount: Int
+  trackCount: Int
+```
+
+Discovery responsibilities should be split into small units:
+
+- collect local IPv4 addresses
+- generate subnet candidates
+- check Musical server reachability
+- generate `/tv` URLs
+- fetch library lists
+- apply results to native UI state
+
+`loadDisplayUrl()` remains the single WebView loading entry point. Library
+selection should produce the next `/tv` URL and call
+`loadDisplayUrl(nextUrl, remember = true)`.
+
 ## MVP Boundaries
 
 In scope:
@@ -98,6 +159,8 @@ In scope:
 - Fire TV local audio playback from provided stream URLs.
 - Basic lyrics, queue, and visualizer surfaces.
 - Fire TV WebView wrapper design and path.
+- Native Fire TV tab bar.
+- Native Settings tab for server discovery and library selection.
 - Device Registry data model.
 - Candidate prompt model.
 

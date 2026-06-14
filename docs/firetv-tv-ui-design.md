@@ -8,12 +8,41 @@ The TV UI is a 10-foot local player surface for music playback. It should be rea
 
 MVP surfaces:
 
+- native app tab bar
+- settings and library selection
 - Now Playing
 - synced lyrics
 - queue
 - visualizer
 - local transport controls
 - local playback status
+
+## Native Fire TV Shell
+
+The Android Fire TV app wraps the TV route in a native shell. The shell owns
+connection selection, library selection, tab navigation, and remote-key routing.
+The React `/tv` route remains responsible for the detailed player experience.
+
+Root layout:
+
+- Top: native tab bar.
+- Center: selected tab content.
+- Main player surface: existing WebView-hosted `/tv` UI.
+
+Implemented tab order:
+
+1. Settings
+2. Albums
+3. Tracks
+4. Player
+
+Albums and Tracks are native tab placeholders for the extracted lower TV
+surfaces. Current playback, queue, transport, and other player-related elements
+remain in the Player tab's WebView-hosted `/tv` UI.
+
+The native shell should avoid duplicating detailed player UI. It should provide
+only the controls needed to select a server/library and decide whether Fire TV
+remote input is handled natively or bridged into the WebView.
 
 ## Layout Principles
 
@@ -23,6 +52,52 @@ MVP surfaces:
 - Avoid dense desktop-style controls.
 - Avoid hover-only interactions.
 - Keep motion calm and performance-aware.
+
+## Tab Bar
+
+Tab navigation is optimized for a Fire TV remote:
+
+- Left / Right moves focus between tabs.
+- Select activates the focused tab.
+- Focused and selected states must be visually distinct at TV distance.
+- The selected tab is stored as Activity-local state. A small enum or sealed
+  class is enough for the first implementation.
+
+Back handling priority:
+
+1. Close native panels such as Settings and return to Player.
+2. If the WebView can navigate back, call `webView.goBack()`.
+3. Otherwise, fall through to Android's default Back behavior.
+
+When Settings is visible, DPAD and Select are handled by the native UI and should
+not be forwarded to the WebView. When Player is visible, playback-oriented keys
+are bridged into the `/tv` UI.
+
+## Settings
+
+Settings is the leftmost tab. Its primary MVP job is library selection.
+
+Initial content:
+
+- discovered Musical servers
+- `/tv` URL for each reachable server
+- libraries returned by each server
+- currently selected library
+- rescan action
+
+The selected library is persisted with the same `SharedPreferences` approach
+used for the display URL. On the next launch, the saved server and library id
+are used only if the server is reachable and the library still appears in
+`/api/tv/libraries`.
+
+Empty and error states:
+
+- If no server is discovered, open Settings and allow rescan.
+- Show server reachability separately from library-list fetch failures.
+- If the saved library no longer exists, do not silently choose the first
+  library; keep Settings visible and ask for explicit selection.
+- The fallback URL may still load, but the UI should make it clear that
+  discovery failed and fallback mode is active.
 
 ## Now Playing
 
@@ -188,7 +263,7 @@ Select
   -> activate focused player control
 
 Back
-  -> close overlay or return to Now Playing
+  -> close native panel, return to Player, or go back in WebView
 
 Play / Pause
   -> toggle local Fire TV playback
@@ -199,6 +274,8 @@ Play / Pause
 Candidate files:
 
 ```txt
+apps/firetv/app/src/main/java/app/musical/firetv/MainActivity.kt
+apps/firetv/app/src/main/res/values/strings.xml
 src/features/tv-display/presentation/TvDisplayApp.tsx
 src/features/tv-display/presentation/NowPlayingView.tsx
 src/features/tv-display/presentation/LyricsView.tsx
@@ -215,3 +292,5 @@ src/features/tv-display/presentation/useTvRemoteNavigation.ts
 - Lyrics, queue, visualizer, and candidate prompt have usable first implementations.
 - Keyboard navigation approximates Fire TV remote navigation.
 - 16:9 desktop and TV-like viewport checks pass without text overlap.
+- Native Fire TV Settings can show discovered servers and libraries.
+- Selecting a library reloads `/tv` with the selected library context.
