@@ -8,7 +8,7 @@ use lofty::{
     read_from_path,
     tag::{items::Timestamp, Accessor, ItemKey, Tag},
 };
-use rusqlite::{params, Connection, OptionalExtension};
+use rusqlite::{params, Connection, OpenFlags, OptionalExtension};
 use serde::{Deserialize, Serialize};
 use std::{
     collections::{BTreeSet, HashMap},
@@ -250,7 +250,7 @@ pub fn load_snapshot(app: &AppHandle) -> Result<LibrarySnapshot, String> {
         });
     };
     emit_library_load_progress(app, "opening", 0, 0, 0);
-    let connection = open_database(&database_path)?;
+    let connection = open_database_for_read(&database_path)?;
     let snapshot = read_snapshot(app, &connection, &database_path)?;
 
     emit_library_load_progress(
@@ -350,7 +350,7 @@ fn tv_library_id(snapshot: &LibrarySnapshot) -> Option<String> {
 
 pub fn load_track_lyrics(app: &AppHandle, track_id: &str) -> Result<Option<String>, String> {
     let database_path = required_app_database_path(app)?;
-    let connection = open_database(&database_path)?;
+    let connection = open_database_for_read(&database_path)?;
 
     connection
         .query_row(
@@ -365,7 +365,7 @@ pub fn load_track_lyrics(app: &AppHandle, track_id: &str) -> Result<Option<Strin
 
 pub fn load_track_file_path(app: &AppHandle, track_id: &str) -> Result<String, String> {
     let database_path = required_app_database_path(app)?;
-    let connection = open_database(&database_path)?;
+    let connection = open_database_for_read(&database_path)?;
 
     connection
         .query_row(
@@ -383,7 +383,7 @@ pub fn load_track_file_path_and_duration(
     track_id: &str,
 ) -> Result<(String, i64), String> {
     let database_path = required_app_database_path(app)?;
-    let connection = open_database(&database_path)?;
+    let connection = open_database_for_read(&database_path)?;
 
     connection
         .query_row(
@@ -397,8 +397,10 @@ pub fn load_track_file_path_and_duration(
 }
 
 pub fn scan_folder(app: &AppHandle, folder_path: &str) -> Result<ScanSummary, String> {
-    let canonical_root = fs::canonicalize(folder_path)
-        .map_err(|error| format!("library.error.folderOpen\t{folder_path}\t{error}"))?;
+    let canonical_root = normalize_windows_extended_path(
+        fs::canonicalize(folder_path)
+            .map_err(|error| format!("library.error.folderOpen\t{folder_path}\t{error}"))?,
+    );
 
     if !canonical_root.is_dir() {
         return Err(format!(
@@ -835,7 +837,7 @@ pub fn update_track_user_state(
                 unix_timestamp_millis()?.to_string(),
             ],
         )
-        .map_err(to_error_string)?;
+        .map_err(|error| format!("library.error.userStateWrite\t{error}"))?;
 
     Ok(TrackUserStateUpdateResult {
         track_id: request.track_id,
@@ -856,7 +858,8 @@ fn read_snapshot(
             |row| row.get::<_, String>(0),
         )
         .optional()
-        .map_err(to_error_string)?;
+        .map_err(to_error_string)?
+        .map(normalize_windows_extended_path_string);
 
     let mut album_statement = connection
         .prepare(
@@ -1523,6 +1526,35 @@ fn database_path_for_root(root: &Path) -> PathBuf {
     musical_dir_for_root(root).join(DATABASE_NAME)
 }
 
+#[cfg(windows)]
+fn normalize_windows_extended_path(path: PathBuf) -> PathBuf {
+    let path_text = path.to_string_lossy();
+    PathBuf::from(normalize_windows_extended_path_string(
+        path_text.into_owned(),
+    ))
+}
+
+#[cfg(not(windows))]
+fn normalize_windows_extended_path(path: PathBuf) -> PathBuf {
+    path
+}
+
+#[cfg(windows)]
+fn normalize_windows_extended_path_string(path: String) -> String {
+    if let Some(stripped) = path.strip_prefix(r"\\?\UNC\") {
+        return format!(r"\\{stripped}");
+    }
+    if let Some(stripped) = path.strip_prefix(r"\\?\") {
+        return stripped.to_owned();
+    }
+    path
+}
+
+#[cfg(not(windows))]
+fn normalize_windows_extended_path_string(path: String) -> String {
+    path
+}
+
 fn artwork_cache_dir_for_root(root: &Path) -> Result<PathBuf, String> {
     Ok(musical_dir_for_root(root).join(ARTWORK_DIR_NAME))
 }
@@ -1546,13 +1578,30 @@ fn open_database(database_path: &Path) -> Result<Connection, String> {
     if let Some(parent) = database_path.parent() {
         fs::create_dir_all(parent).map_err(to_error_string)?;
     }
-    if database_path.exists() && !database_schema_is_current(database_path)? {
-        fs::remove_file(database_path).map_err(to_error_string)?;
+    let should_initialize = if database_path.exists() {
+        if database_schema_is_current(database_path)? {
+            false
+        } else {
+            fs::remove_file(database_path).map_err(to_error_string)?;
+            true
+        }
+    } else {
+        true
+    };
+    let connection = open_database_connection(database_path)?;
+    if !should_initialize {
+        return Ok(connection);
     }
-    let connection = Connection::open(database_path).map_err(to_error_string)?;
+    initialize_database(&connection, database_path)?;
+    Ok(connection)
+}
+
+fn initialize_database(connection: &Connection, database_path: &Path) -> Result<(), String> {
     connection
         .execute_batch(
             "
+            PRAGMA journal_mode = WAL;
+            PRAGMA synchronous = NORMAL;
             PRAGMA foreign_keys = ON;
 
             CREATE TABLE IF NOT EXISTS schema_meta (
@@ -1613,19 +1662,74 @@ fn open_database(database_path: &Path) -> Result<Connection, String> {
             );
             ",
         )
-        .map_err(to_error_string)?;
+        .map_err(|error| {
+            format!(
+                "library.error.schemaCreate\t{}\t{error}",
+                database_path.display()
+            )
+        })?;
     connection
         .execute(
             "INSERT INTO schema_meta (key, value) VALUES ('schema_version', ?1)
              ON CONFLICT(key) DO UPDATE SET value = excluded.value",
             [SCHEMA_VERSION],
         )
+        .map_err(|error| {
+            format!(
+                "library.error.schemaVersionWrite\t{}\t{error}",
+                database_path.display()
+            )
+        })?;
+    Ok(())
+}
+
+fn open_database_for_read(database_path: &Path) -> Result<Connection, String> {
+    if database_path.exists() && database_schema_is_current(database_path)? {
+        return open_database_read_connection(database_path);
+    }
+    open_database(database_path)
+}
+
+fn open_database_read_connection(database_path: &Path) -> Result<Connection, String> {
+    let connection = Connection::open_with_flags(
+        database_path,
+        OpenFlags::SQLITE_OPEN_READ_ONLY
+            | OpenFlags::SQLITE_OPEN_NO_MUTEX
+            | OpenFlags::SQLITE_OPEN_PRIVATE_CACHE,
+    )
+    .map_err(to_error_string)?;
+    connection
+        .busy_timeout(std::time::Duration::from_secs(5))
+        .map_err(to_error_string)?;
+    Ok(connection)
+}
+
+fn open_database_connection(database_path: &Path) -> Result<Connection, String> {
+    let connection = Connection::open_with_flags(
+        database_path,
+        OpenFlags::SQLITE_OPEN_READ_WRITE
+            | OpenFlags::SQLITE_OPEN_CREATE
+            | OpenFlags::SQLITE_OPEN_NO_MUTEX
+            | OpenFlags::SQLITE_OPEN_PRIVATE_CACHE,
+    )
+    .map_err(to_error_string)?;
+    connection
+        .busy_timeout(std::time::Duration::from_secs(5))
+        .map_err(to_error_string)?;
+    connection
+        .execute_batch(
+            "
+            PRAGMA journal_mode = WAL;
+            PRAGMA synchronous = NORMAL;
+            PRAGMA foreign_keys = ON;
+            ",
+        )
         .map_err(to_error_string)?;
     Ok(connection)
 }
 
 fn database_schema_is_current(database_path: &Path) -> Result<bool, String> {
-    let connection = Connection::open(database_path).map_err(to_error_string)?;
+    let connection = open_database_read_connection(database_path)?;
     let has_schema_meta = connection
         .query_row(
             "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'schema_meta'",

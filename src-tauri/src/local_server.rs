@@ -10,7 +10,7 @@ use crate::{
     },
 };
 use include_dir::{include_dir, Dir};
-use log::{error, info};
+use log::{error, info, warn};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::{
@@ -1318,12 +1318,14 @@ fn analyze_and_cache_track(
         total_duration,
     )?;
     if !loaded_analysis.is_complete {
-        audio_analysis::save_track_analysis_cache(
+        if let Err(error) = audio_analysis::save_track_analysis_cache(
             app,
             track_id,
             file_path,
             &loaded_analysis.analysis,
-        )?;
+        ) {
+            warn!("audio analysis cache save failed for {track_id}: {error}");
+        }
     }
     Ok(audio_analysis::TrackAnalysisLoad {
         analysis: loaded_analysis.analysis,

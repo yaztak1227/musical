@@ -7,14 +7,14 @@ use crate::{
     },
     app_settings,
 };
-use rusqlite::{params, Connection, OptionalExtension};
+use rusqlite::{params, Connection, Error as SqliteError, ErrorCode, OpenFlags, OptionalExtension};
 use rustfft::{num_complex::Complex, FftPlanner};
 use serde::{Deserialize, Serialize};
 use std::{
     fs::{self, File},
     io::{self, Read, Seek, SeekFrom},
     path::{Path, PathBuf},
-    sync::Arc,
+    sync::{Arc, Mutex, OnceLock},
     time::{SystemTime, UNIX_EPOCH},
 };
 use symphonia::core::{
@@ -31,6 +31,7 @@ use tauri::AppHandle;
 
 const MUSICAL_DIR_NAME: &str = ".musical";
 const AUDIO_ANALYSIS_DATABASE_NAME: &str = "audio_analysis.sqlite3";
+static AUDIO_ANALYSIS_CACHE_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
 #[serde(rename_all = "camelCase")]
@@ -60,8 +61,16 @@ pub fn get_or_analyze_track_segment(
     duration: f64,
 ) -> Result<TrackAnalysisLoad, String> {
     let cache_key = TrackAnalysisCacheKey::from_file(track_id, file_path)?;
-    let connection = open_cache_database(app)?;
-    if let Some(analysis) = load_cached_track_analysis(&connection, &cache_key)? {
+    let cached_analysis = {
+        let _cache_guard = audio_analysis_cache_lock()
+            .lock()
+            .map_err(|error| error.to_string())?;
+        match open_existing_cache_database(app)? {
+            Some(connection) => load_cached_track_analysis(&connection, &cache_key)?,
+            None => None,
+        }
+    };
+    if let Some(analysis) = cached_analysis {
         return Ok(TrackAnalysisLoad {
             analysis,
             is_complete: true,
@@ -82,8 +91,13 @@ pub fn get_cached_track_analysis(
     file_path: &str,
 ) -> Result<Option<TrackAnalysis>, String> {
     let cache_key = TrackAnalysisCacheKey::from_file(track_id, file_path)?;
-    let connection = open_cache_database(app)?;
-    load_cached_track_analysis(&connection, &cache_key)
+    let _cache_guard = audio_analysis_cache_lock()
+        .lock()
+        .map_err(|error| error.to_string())?;
+    match open_existing_cache_database(app)? {
+        Some(connection) => load_cached_track_analysis(&connection, &cache_key),
+        None => Ok(None),
+    }
 }
 
 pub fn analyze_track_file_segment(
@@ -113,9 +127,37 @@ pub fn save_track_analysis_cache(
     file_path: &str,
     analysis: &TrackAnalysis,
 ) -> Result<(), String> {
-    let cache_key = TrackAnalysisCacheKey::from_file(track_id, file_path)?;
-    let connection = open_cache_database(app)?;
-    save_cached_track_analysis(&connection, &cache_key, analysis)
+    let cache_key = TrackAnalysisCacheKey::from_file(track_id, file_path)
+        .map_err(|error| format!("audio.analysis.cacheKey\t{file_path}\t{error}"))?;
+    let _cache_guard = audio_analysis_cache_lock()
+        .lock()
+        .map_err(|error| error.to_string())?;
+    let database_path = cache_database_path(app, true)?;
+    let connection = open_cache_database_at(&database_path).map_err(|error| {
+        format!(
+            "audio.analysis.cacheOpen\t{}\t{error}",
+            database_path.display()
+        )
+    })?;
+    match save_cached_track_analysis(&connection, &cache_key, analysis) {
+        Ok(()) => Ok(()),
+        Err(error) if is_readonly_database_error(&error) => {
+            drop(connection);
+            recreate_cache_database(&database_path)?;
+            let connection = open_cache_database_at(&database_path).map_err(|error| {
+                format!(
+                    "audio.analysis.cacheOpen\t{}\t{error}",
+                    database_path.display()
+                )
+            })?;
+            save_cached_track_analysis(&connection, &cache_key, analysis).map_err(to_error_string)
+        }
+        Err(error) => Err(format!(
+            "audio.analysis.cacheWrite\t{}\t{}",
+            database_path.display(),
+            error
+        )),
+    }
 }
 
 struct TrackAnalysisCacheKey {
@@ -126,15 +168,89 @@ struct TrackAnalysisCacheKey {
     track_id: String,
 }
 
-fn open_cache_database(app: &AppHandle) -> Result<Connection, String> {
-    let database_path = cache_database_path(app)?;
-    if database_path.exists() && !cache_schema_is_current(&database_path)? {
-        fs::remove_file(&database_path).map_err(to_error_string)?;
+fn open_existing_cache_database(app: &AppHandle) -> Result<Option<Connection>, String> {
+    let database_path = cache_database_path(app, false)?;
+    if !database_path.exists() || !cache_schema_is_current(&database_path)? {
+        return Ok(None);
     }
-    let connection = Connection::open(database_path).map_err(to_error_string)?;
+    open_cache_read_connection(&database_path).map(Some)
+}
+
+fn open_cache_database_at(database_path: &Path) -> Result<Connection, String> {
+    let should_initialize = if database_path.exists() {
+        if cache_schema_is_current(database_path)? {
+            false
+        } else {
+            fs::remove_file(database_path).map_err(to_error_string)?;
+            true
+        }
+    } else {
+        true
+    };
+    let connection = open_cache_connection(database_path)?;
+    if !should_initialize {
+        return Ok(connection);
+    }
+    match initialize_cache_database(&connection) {
+        Ok(()) => Ok(connection),
+        Err(error) if is_readonly_database_error(&error) => {
+            drop(connection);
+            recreate_cache_database(database_path)?;
+            let connection = open_cache_connection(database_path)?;
+            initialize_cache_database(&connection).map_err(to_error_string)?;
+            Ok(connection)
+        }
+        Err(error) => Err(to_error_string(error)),
+    }
+}
+
+fn audio_analysis_cache_lock() -> &'static Mutex<()> {
+    AUDIO_ANALYSIS_CACHE_LOCK.get_or_init(|| Mutex::new(()))
+}
+
+fn open_cache_connection(database_path: &Path) -> Result<Connection, String> {
+    let connection = Connection::open_with_flags(
+        database_path,
+        OpenFlags::SQLITE_OPEN_READ_WRITE
+            | OpenFlags::SQLITE_OPEN_CREATE
+            | OpenFlags::SQLITE_OPEN_NO_MUTEX
+            | OpenFlags::SQLITE_OPEN_PRIVATE_CACHE,
+    )
+    .map_err(to_error_string)?;
+    connection
+        .busy_timeout(std::time::Duration::from_secs(5))
+        .map_err(to_error_string)?;
     connection
         .execute_batch(
             "
+            PRAGMA journal_mode = WAL;
+            PRAGMA synchronous = NORMAL;
+            ",
+        )
+        .map_err(to_error_string)?;
+    Ok(connection)
+}
+
+fn open_cache_read_connection(database_path: &Path) -> Result<Connection, String> {
+    let connection = Connection::open_with_flags(
+        database_path,
+        OpenFlags::SQLITE_OPEN_READ_ONLY
+            | OpenFlags::SQLITE_OPEN_NO_MUTEX
+            | OpenFlags::SQLITE_OPEN_PRIVATE_CACHE,
+    )
+    .map_err(to_error_string)?;
+    connection
+        .busy_timeout(std::time::Duration::from_secs(5))
+        .map_err(to_error_string)?;
+    Ok(connection)
+}
+
+fn initialize_cache_database(connection: &Connection) -> Result<(), SqliteError> {
+    connection.execute_batch(
+        "
+            PRAGMA journal_mode = WAL;
+            PRAGMA synchronous = NORMAL;
+
             CREATE TABLE IF NOT EXISTS schema_meta (
                 key TEXT PRIMARY KEY,
                 value TEXT NOT NULL
@@ -152,30 +268,61 @@ fn open_cache_database(app: &AppHandle) -> Result<Connection, String> {
                 PRIMARY KEY (track_uuid, stream_hash)
             );
             ",
-        )
-        .map_err(to_error_string)?;
-    connection
-        .execute(
-            "INSERT INTO schema_meta (key, value) VALUES ('analysis_version', ?1)
+    )?;
+    connection.execute(
+        "INSERT INTO schema_meta (key, value) VALUES ('analysis_version', ?1)
              ON CONFLICT(key) DO UPDATE SET value = excluded.value",
-            [AUDIO_ANALYSIS_CACHE_VERSION.to_string()],
-        )
-        .map_err(to_error_string)?;
-    Ok(connection)
+        [AUDIO_ANALYSIS_CACHE_VERSION.to_string()],
+    )?;
+    Ok(())
 }
 
-fn cache_database_path(app: &AppHandle) -> Result<PathBuf, String> {
+fn recreate_cache_database(database_path: &Path) -> Result<(), String> {
+    for path in cache_database_cleanup_paths(database_path) {
+        if path.exists() {
+            fs::remove_file(&path).map_err(to_error_string)?;
+        }
+    }
+    Ok(())
+}
+
+#[cfg(windows)]
+fn cache_database_cleanup_paths(database_path: &Path) -> Vec<PathBuf> {
+    let database_path_text = database_path.to_string_lossy();
+    vec![
+        database_path.to_path_buf(),
+        PathBuf::from(format!("{database_path_text}-wal")),
+        PathBuf::from(format!("{database_path_text}-shm")),
+    ]
+}
+
+#[cfg(not(windows))]
+fn cache_database_cleanup_paths(database_path: &Path) -> Vec<PathBuf> {
+    vec![database_path.to_path_buf()]
+}
+
+fn is_readonly_database_error(error: &SqliteError) -> bool {
+    matches!(
+        error,
+        SqliteError::SqliteFailure(sqlite_error, _)
+            if sqlite_error.code == ErrorCode::ReadOnly
+    )
+}
+
+fn cache_database_path(app: &AppHandle, create_parent: bool) -> Result<PathBuf, String> {
     let settings = app_settings::load(app)?;
     let Some(last_library_path) = settings.last_library_path else {
         return Err("library.error.noLibraryScanned".to_owned());
     };
     let musical_dir = PathBuf::from(last_library_path).join(MUSICAL_DIR_NAME);
-    fs::create_dir_all(&musical_dir).map_err(to_error_string)?;
+    if create_parent {
+        fs::create_dir_all(&musical_dir).map_err(to_error_string)?;
+    }
     Ok(musical_dir.join(AUDIO_ANALYSIS_DATABASE_NAME))
 }
 
 fn cache_schema_is_current(database_path: &Path) -> Result<bool, String> {
-    let connection = Connection::open(database_path).map_err(to_error_string)?;
+    let connection = open_cache_read_connection(database_path)?;
     let has_schema_meta = connection
         .query_row(
             "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'schema_meta'",
@@ -244,11 +391,11 @@ fn save_cached_track_analysis(
     connection: &Connection,
     cache_key: &TrackAnalysisCacheKey,
     analysis: &TrackAnalysis,
-) -> Result<(), String> {
-    let frames_json = serde_json::to_string(&analysis.frames).map_err(to_error_string)?;
-    connection
-        .execute(
-            "INSERT INTO track_analysis_cache (
+) -> Result<(), SqliteError> {
+    let frames_json = serde_json::to_string(&analysis.frames)
+        .map_err(|error| SqliteError::ToSqlConversionFailure(Box::new(error)))?;
+    connection.execute(
+        "INSERT INTO track_analysis_cache (
                 track_uuid,
                 stream_hash,
                 file_path,
@@ -266,18 +413,17 @@ fn save_cached_track_analysis(
                 analysis_version = excluded.analysis_version,
                 frame_interval_ms = excluded.frame_interval_ms,
                 frames_json = excluded.frames_json",
-            params![
-                cache_key.track_id,
-                cache_key.stream_hash,
-                cache_key.file_path,
-                cache_key.file_modified_ms,
-                cache_key.analyzed_at,
-                AUDIO_ANALYSIS_CACHE_VERSION,
-                analysis.frame_interval_ms,
-                frames_json,
-            ],
-        )
-        .map_err(to_error_string)?;
+        params![
+            cache_key.track_id,
+            cache_key.stream_hash,
+            cache_key.file_path,
+            cache_key.file_modified_ms,
+            cache_key.analyzed_at,
+            AUDIO_ANALYSIS_CACHE_VERSION,
+            analysis.frame_interval_ms,
+            frames_json,
+        ],
+    )?;
     Ok(())
 }
 
@@ -322,18 +468,22 @@ impl Seek for OffsetMediaSource {
             SeekFrom::Start(offset) => offset as i128,
             SeekFrom::Current(offset) => self.position as i128 + offset as i128,
             SeekFrom::End(offset) => {
-                let len = self
-                    .len
-                    .ok_or_else(|| io::Error::new(io::ErrorKind::Unsupported, "unknown stream length"))?;
+                let len = self.len.ok_or_else(|| {
+                    io::Error::new(io::ErrorKind::Unsupported, "unknown stream length")
+                })?;
                 len as i128 + offset as i128
             }
         };
         if next_position < 0 {
-            return Err(io::Error::new(io::ErrorKind::InvalidInput, "invalid negative seek"));
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "invalid negative seek",
+            ));
         }
 
         let next_position = next_position as u64;
-        self.file.seek(SeekFrom::Start(self.start + next_position))?;
+        self.file
+            .seek(SeekFrom::Start(self.start + next_position))?;
         self.position = next_position;
         Ok(self.position)
     }
@@ -360,9 +510,10 @@ fn open_audio_file_for_probe(path: &Path, file_path: &str) -> Result<Box<dyn Med
 
 fn make_audio_probe_hint<'a>(path: &'a Path, file_path: &str) -> Result<Hint, String> {
     let mut hint = Hint::new();
-    if detect_rmp3_data_offset(&mut File::open(path).map_err(|error| {
-        format!("audio.analysis.fileOpen\t{file_path}\t{error}")
-    })?)?
+    if detect_rmp3_data_offset(
+        &mut File::open(path)
+            .map_err(|error| format!("audio.analysis.fileOpen\t{file_path}\t{error}"))?,
+    )?
     .is_some()
     {
         hint.with_extension("mp3");
@@ -412,60 +563,26 @@ fn detect_rmp3_data_offset(file: &mut File) -> Result<Option<u64>, String> {
 
 impl TrackAnalysisCacheKey {
     fn from_file(track_id: &str, file_path: &str) -> Result<Self, String> {
+        let metadata = fs::metadata(file_path)
+            .map_err(|error| format!("audio.analysis.metadata\t{file_path}\t{error}"))?;
+        let file_modified_ms = file_modified_millis_from_metadata(file_path, &metadata)?;
         Ok(Self {
             analyzed_at: unix_timestamp_seconds()?,
-            file_modified_ms: file_modified_millis(file_path)?,
+            file_modified_ms,
             file_path: file_path.to_owned(),
-            stream_hash: audio_stream_md5(file_path)?,
+            stream_hash: format!("{file_modified_ms}:{}", metadata.len()),
             track_id: track_id.to_owned(),
         })
     }
 }
 
-fn audio_stream_md5(file_path: &str) -> Result<String, String> {
-    let path = Path::new(file_path);
-    let file = open_audio_file_for_probe(path, file_path)?;
-    let media_stream = MediaSourceStream::new(file, Default::default());
-    let hint = make_audio_probe_hint(path, file_path)?;
-
-    let probed = symphonia::default::get_probe()
-        .format(
-            &hint,
-            media_stream,
-            &FormatOptions::default(),
-            &MetadataOptions::default(),
-        )
-        .map_err(|error| format!("audio.analysis.unsupported\t{file_path}\t{error}"))?;
-    let mut format = probed.format;
-    let track_id = format
-        .default_track()
-        .ok_or_else(|| format!("audio.analysis.noDefaultTrack\t{file_path}"))?
-        .id;
-    let mut context = md5::Context::new();
-
-    loop {
-        let packet = match format.next_packet() {
-            Ok(packet) => packet,
-            Err(Error::IoError(error)) if error.kind() == std::io::ErrorKind::UnexpectedEof => {
-                break
-            }
-            Err(Error::ResetRequired) => continue,
-            Err(error) => return Err(format!("audio.analysis.packet\t{file_path}\t{error}")),
-        };
-
-        if packet.track_id() == track_id {
-            context.consume(&packet.data);
-        }
-    }
-
-    Ok(format!("{:x}", context.compute()))
-}
-
-fn file_modified_millis(file_path: &str) -> Result<i64, String> {
-    let modified = fs::metadata(file_path)
-        .map_err(|error| format!("audio.analysis.metadata\t{file_path}\t{error}"))?
+fn file_modified_millis_from_metadata(
+    file_path: &str,
+    metadata: &fs::Metadata,
+) -> Result<i64, String> {
+    let modified = metadata
         .modified()
-        .map_err(to_error_string)?;
+        .map_err(|error| format!("audio.analysis.metadata\t{file_path}\t{error}"))?;
     Ok(system_time_millis(modified)?)
 }
 

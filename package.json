@@ -16,6 +16,7 @@
     "preview": "vite preview",
     "test:e2e": "playwright test",
     "test:e2e:ui": "playwright test --ui",
+    "tauri:dev:windows": "powershell -ExecutionPolicy Bypass -File scripts/tauri-dev-localappdata.ps1",
     "tauri": "tauri"
   },
   "dependencies": {

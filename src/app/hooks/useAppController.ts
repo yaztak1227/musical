@@ -520,6 +520,21 @@ export function useAppController() {
     }
   }, [audioSourceKey, isPlaying]);
 
+  useEffect(() => {
+    const audio = audioRef.current;
+    if (!audio || !isTauriRuntime || !audioSourceKey || !isPlaying) return;
+
+    const timer = window.setInterval(() => {
+      if (!audio.paused || audio.ended) return;
+      void playHtmlAudio(audio).catch((error: unknown) => {
+        setIsPlaying(false);
+        setPlaybackError(`${String(error)} / ${audio.currentSrc || audio.src}`);
+      });
+    }, 1000);
+
+    return () => window.clearInterval(timer);
+  }, [audioSourceKey, isPlaying, isTauriRuntime]);
+
   function clearAudioAnalysisPacket() {
     audioAnalysisPacketRef.current = null;
   }
