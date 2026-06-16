@@ -54,4 +54,17 @@ export const mockTvSessionSnapshot: TvSessionSnapshot = {
       },
     ],
   },
+  analysis: {
+    trackId: "mock-101",
+    frameIntervalMs: 50,
+    frames: Array.from({ length: 120 }, (_, frameIndex) => ({
+      timeMs: frameIndex * 50,
+      bands: Array.from({ length: 32 }, (_, bandIndex) => {
+        const wave = Math.sin(frameIndex * 0.18 + bandIndex * 0.42) * 0.5 + 0.5;
+        const center = 1 - Math.abs(bandIndex / 31 - 0.5) * 0.75;
+        return Math.max(0.08, Math.min(1, wave * center));
+      }),
+    })),
+    isComplete: false,
+  },
 };

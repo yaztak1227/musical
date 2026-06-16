@@ -53,6 +53,51 @@ pub struct TrackAnalysisLoad {
     pub is_complete: bool,
 }
 
+pub struct TrackAnalysisBytes {
+    pub bucket_count: usize,
+    pub frame_count: usize,
+    pub frame_interval_ms: f64,
+    pub is_complete: bool,
+    pub start_time_ms: f64,
+    pub track_id: String,
+    pub values: Vec<u8>,
+}
+
+impl TrackAnalysisBytes {
+    pub fn from_frames(
+        track_id: &str,
+        frame_interval_ms: f64,
+        is_complete: bool,
+        frames: &[AudioAnalysisFrame],
+    ) -> Self {
+        let bucket_count = frames
+            .first()
+            .map(|frame| frame.values.len())
+            .unwrap_or(AUDIO_ANALYSIS_BUCKETS);
+        let mut values = Vec::with_capacity(frames.len() * bucket_count);
+        for frame in frames {
+            let copied_count = bucket_count.min(frame.values.len());
+            values.extend_from_slice(&frame.values[..copied_count]);
+            if copied_count < bucket_count {
+                values.resize(values.len() + bucket_count - copied_count, 0);
+            }
+        }
+
+        Self {
+            bucket_count,
+            frame_count: frames.len(),
+            frame_interval_ms,
+            is_complete,
+            start_time_ms: frames
+                .first()
+                .map(|frame| frame.timecode * 1000.0)
+                .unwrap_or(0.0),
+            track_id: track_id.to_owned(),
+            values,
+        }
+    }
+}
+
 pub fn get_or_analyze_track_segment(
     app: &AppHandle,
     track_id: &str,
@@ -66,7 +111,9 @@ pub fn get_or_analyze_track_segment(
             .lock()
             .map_err(|error| error.to_string())?;
         match open_existing_cache_database(app)? {
-            Some(connection) => load_cached_track_analysis(&connection, &cache_key)?,
+            Some(connection) => {
+                load_cached_track_analysis(&connection, &cache_key, from + duration)?
+            }
             None => None,
         }
     };
@@ -89,13 +136,16 @@ pub fn get_cached_track_analysis(
     app: &AppHandle,
     track_id: &str,
     file_path: &str,
+    min_duration_seconds: f64,
 ) -> Result<Option<TrackAnalysis>, String> {
     let cache_key = TrackAnalysisCacheKey::from_file(track_id, file_path)?;
     let _cache_guard = audio_analysis_cache_lock()
         .lock()
         .map_err(|error| error.to_string())?;
     match open_existing_cache_database(app)? {
-        Some(connection) => load_cached_track_analysis(&connection, &cache_key),
+        Some(connection) => {
+            load_cached_track_analysis(&connection, &cache_key, min_duration_seconds)
+        }
         None => Ok(None),
     }
 }
@@ -264,7 +314,11 @@ fn initialize_cache_database(connection: &Connection) -> Result<(), SqliteError>
                 analyzed_at INTEGER NOT NULL,
                 analysis_version INTEGER NOT NULL DEFAULT 1,
                 frame_interval_ms REAL NOT NULL,
-                frames_json TEXT NOT NULL,
+                start_time_ms REAL NOT NULL DEFAULT 0,
+                analyzed_duration_ms REAL NOT NULL DEFAULT 0,
+                bucket_count INTEGER NOT NULL,
+                frame_count INTEGER NOT NULL,
+                frames_blob BLOB NOT NULL,
                 PRIMARY KEY (track_uuid, stream_hash)
             );
             ",
@@ -314,11 +368,13 @@ fn cache_database_path(app: &AppHandle, create_parent: bool) -> Result<PathBuf, 
     let Some(last_library_path) = settings.last_library_path else {
         return Err("library.error.noLibraryScanned".to_owned());
     };
-    let musical_dir = PathBuf::from(last_library_path).join(MUSICAL_DIR_NAME);
+    // Keep analysis cache beside the library so moving the library to another
+    // machine preserves expensive analysis work with the audio files.
+    let cache_dir = PathBuf::from(last_library_path).join(MUSICAL_DIR_NAME);
     if create_parent {
-        fs::create_dir_all(&musical_dir).map_err(to_error_string)?;
+        fs::create_dir_all(&cache_dir).map_err(to_error_string)?;
     }
-    Ok(musical_dir.join(AUDIO_ANALYSIS_DATABASE_NAME))
+    Ok(cache_dir.join(AUDIO_ANALYSIS_DATABASE_NAME))
 }
 
 fn cache_schema_is_current(database_path: &Path) -> Result<bool, String> {
@@ -348,17 +404,19 @@ fn cache_schema_is_current(database_path: &Path) -> Result<bool, String> {
 fn load_cached_track_analysis(
     connection: &Connection,
     cache_key: &TrackAnalysisCacheKey,
+    min_duration_seconds: f64,
 ) -> Result<Option<TrackAnalysis>, String> {
     connection
         .query_row(
-            "SELECT frame_interval_ms, frames_json
+            "SELECT frame_interval_ms, start_time_ms, bucket_count, frame_count, frames_blob
              FROM track_analysis_cache
              WHERE track_uuid = ?1
                AND stream_hash = ?2
                AND file_path = ?3
                AND file_modified_ms = ?4
                AND (?5 <= 0 OR analyzed_at >= ?6)
-               AND analysis_version = ?7",
+               AND analysis_version = ?7
+               AND (?8 <= 0 OR analyzed_duration_ms >= ?8)",
             params![
                 cache_key.track_id,
                 cache_key.stream_hash,
@@ -367,23 +425,41 @@ fn load_cached_track_analysis(
                 AUDIO_ANALYSIS_CACHE_TTL_SECONDS,
                 cache_key.analyzed_at - AUDIO_ANALYSIS_CACHE_TTL_SECONDS,
                 AUDIO_ANALYSIS_CACHE_VERSION,
+                minimum_cached_duration_ms(min_duration_seconds),
             ],
             |row| {
                 let frame_interval_ms = row.get::<_, f64>(0)?;
-                let frames_json = row.get::<_, String>(1)?;
-                Ok((frame_interval_ms, frames_json))
+                let start_time_ms = row.get::<_, f64>(1)?;
+                let bucket_count = row.get::<_, i64>(2)?;
+                let frame_count = row.get::<_, i64>(3)?;
+                let frames_blob = row.get::<_, Vec<u8>>(4)?;
+                Ok((
+                    frame_interval_ms,
+                    start_time_ms,
+                    bucket_count,
+                    frame_count,
+                    frames_blob,
+                ))
             },
         )
         .optional()
         .map_err(to_error_string)?
-        .map(|(frame_interval_ms, frames_json)| {
-            let frames = serde_json::from_str::<Vec<AudioAnalysisFrame>>(&frames_json)
-                .map_err(to_error_string)?;
-            Ok(TrackAnalysis {
-                frame_interval_ms,
-                frames,
-            })
-        })
+        .map(
+            |(frame_interval_ms, start_time_ms, bucket_count, frame_count, frames_blob)| {
+                let frames = frames_from_blob(
+                    &cache_key.track_id,
+                    frame_interval_ms,
+                    start_time_ms,
+                    bucket_count,
+                    frame_count,
+                    &frames_blob,
+                )?;
+                Ok(TrackAnalysis {
+                    frame_interval_ms,
+                    frames,
+                })
+            },
+        )
         .transpose()
 }
 
@@ -392,8 +468,22 @@ fn save_cached_track_analysis(
     cache_key: &TrackAnalysisCacheKey,
     analysis: &TrackAnalysis,
 ) -> Result<(), SqliteError> {
-    let frames_json = serde_json::to_string(&analysis.frames)
-        .map_err(|error| SqliteError::ToSqlConversionFailure(Box::new(error)))?;
+    let start_time_ms = analysis
+        .frames
+        .first()
+        .map(|frame| frame.timecode * 1000.0)
+        .unwrap_or(0.0);
+    let bucket_count = analysis
+        .frames
+        .first()
+        .map(|frame| frame.values.len())
+        .unwrap_or(AUDIO_ANALYSIS_BUCKETS);
+    let frames_blob = frames_to_blob(&analysis.frames, bucket_count);
+    let analyzed_duration_ms = analysis
+        .frames
+        .last()
+        .map(|frame| frame.timecode * 1000.0 + analysis.frame_interval_ms)
+        .unwrap_or(0.0);
     connection.execute(
         "INSERT INTO track_analysis_cache (
                 track_uuid,
@@ -403,16 +493,24 @@ fn save_cached_track_analysis(
                 analyzed_at,
                 analysis_version,
                 frame_interval_ms,
-                frames_json
+                start_time_ms,
+                analyzed_duration_ms,
+                bucket_count,
+                frame_count,
+                frames_blob
              )
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)
              ON CONFLICT(track_uuid, stream_hash) DO UPDATE SET
                 file_path = excluded.file_path,
                 file_modified_ms = excluded.file_modified_ms,
                 analyzed_at = excluded.analyzed_at,
                 analysis_version = excluded.analysis_version,
                 frame_interval_ms = excluded.frame_interval_ms,
-                frames_json = excluded.frames_json",
+                start_time_ms = excluded.start_time_ms,
+                analyzed_duration_ms = excluded.analyzed_duration_ms,
+                bucket_count = excluded.bucket_count,
+                frame_count = excluded.frame_count,
+                frames_blob = excluded.frames_blob",
         params![
             cache_key.track_id,
             cache_key.stream_hash,
@@ -421,10 +519,60 @@ fn save_cached_track_analysis(
             cache_key.analyzed_at,
             AUDIO_ANALYSIS_CACHE_VERSION,
             analysis.frame_interval_ms,
-            frames_json,
+            start_time_ms,
+            analyzed_duration_ms,
+            bucket_count as i64,
+            analysis.frames.len() as i64,
+            frames_blob,
         ],
     )?;
     Ok(())
+}
+
+fn frames_to_blob(frames: &[AudioAnalysisFrame], bucket_count: usize) -> Vec<u8> {
+    let mut blob = Vec::with_capacity(frames.len() * bucket_count);
+    for frame in frames {
+        let copied_count = bucket_count.min(frame.values.len());
+        blob.extend_from_slice(&frame.values[..copied_count]);
+        if copied_count < bucket_count {
+            blob.resize(blob.len() + bucket_count - copied_count, 0);
+        }
+    }
+    blob
+}
+
+fn minimum_cached_duration_ms(min_duration_seconds: f64) -> f64 {
+    (min_duration_seconds.max(0.0) * 1000.0 - AUDIO_ANALYSIS_FRAME_INTERVAL_MS * 4.0).max(0.0)
+}
+
+fn frames_from_blob(
+    track_id: &str,
+    frame_interval_ms: f64,
+    start_time_ms: f64,
+    bucket_count: i64,
+    frame_count: i64,
+    blob: &[u8],
+) -> Result<Vec<AudioAnalysisFrame>, String> {
+    let bucket_count = usize::try_from(bucket_count)
+        .map_err(|_| "audio.analysis.invalidBucketCount".to_owned())?;
+    let frame_count =
+        usize::try_from(frame_count).map_err(|_| "audio.analysis.invalidFrameCount".to_owned())?;
+    let expected_len = bucket_count
+        .checked_mul(frame_count)
+        .ok_or_else(|| "audio.analysis.invalidFrameBlob".to_owned())?;
+    if bucket_count == 0 || blob.len() != expected_len {
+        return Err("audio.analysis.invalidFrameBlob".to_owned());
+    }
+
+    Ok(blob
+        .chunks_exact(bucket_count)
+        .enumerate()
+        .map(|(index, values)| AudioAnalysisFrame {
+            timecode: (start_time_ms + index as f64 * frame_interval_ms) / 1000.0,
+            track_id: track_id.to_owned(),
+            values: values.to_vec(),
+        })
+        .collect())
 }
 
 fn minute_segment_start(from: f64) -> f64 {
@@ -816,5 +964,29 @@ mod tests {
         fs::remove_file(&file_path).ok();
 
         assert_eq!(offset, Some((24 + 10 + 14 + 12 + 8) as u64));
+    }
+
+    #[test]
+    fn round_trips_analysis_frames_through_blob_storage() {
+        let frames = vec![
+            AudioAnalysisFrame {
+                timecode: 1.5,
+                track_id: "track-a".to_owned(),
+                values: vec![1, 2, 3],
+            },
+            AudioAnalysisFrame {
+                timecode: 1.533,
+                track_id: "track-a".to_owned(),
+                values: vec![4, 5, 6],
+            },
+        ];
+        let blob = frames_to_blob(&frames, 3);
+        let restored = frames_from_blob("track-a", 33.0, 1500.0, 3, 2, &blob).expect("restore");
+
+        assert_eq!(blob, vec![1, 2, 3, 4, 5, 6]);
+        assert_eq!(restored.len(), 2);
+        assert_eq!(restored[0].timecode, 1.5);
+        assert_eq!(restored[1].timecode, 1.533);
+        assert_eq!(restored[1].values, vec![4, 5, 6]);
     }
 }

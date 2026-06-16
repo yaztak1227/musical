@@ -211,6 +211,7 @@ export const translationKeys = [
   "tvDisplay.lyrics",
   "tvDisplay.queue",
   "tvDisplay.visualizer",
+  "tvDisplay.memoryUsage",
   "status.noLibraryScanned",
   "status.webMockMode",
   "status.loadedAlbums",

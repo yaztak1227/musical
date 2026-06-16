@@ -1,10 +1,11 @@
 import { type CSSProperties, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { FileText, ListMusic, Pause, Play, SkipBack, SkipForward, StepBack, StepForward } from "lucide-react";
 import { getInitialLocale, translate } from "../../../i18n";
-import type { TvQueueState, TvSessionSnapshot } from "../domain/tvDisplayMessage";
+import type { TvAudioAnalysisFrame, TvQueueState, TvSessionSnapshot } from "../domain/tvDisplayMessage";
 import { mockTvSessionSnapshot } from "../infrastructure/mockTvDisplayState";
 import type { Album, LibrarySnapshot, Track } from "../../../types/audio";
 import { getArtworkSrc } from "../../../lib/libraryUtils";
+import { FireTvPlayerVisualizer } from "./FireTvPlayerVisualizer";
 
 type TvDisplayAppProps = {
   snapshot?: TvSessionSnapshot;
@@ -12,8 +13,30 @@ type TvDisplayAppProps = {
 
 type FireTvRemoteKeyEvent = CustomEvent<{ key?: string }>;
 type FireTvTabEvent = CustomEvent<{ tab?: TvSurfaceTab }>;
+type FireTvDiagnosticsEvent = CustomEvent<{ memory?: FireTvMemoryInfo }>;
 type TvSurfaceTab = "player" | "albums" | "tracks";
 type FocusZone = "controls" | "albums" | "tracks";
+type FireTvMemoryInfo = {
+  availableMb?: number;
+  maxMb: number;
+  totalMb: number;
+  usedMb: number;
+};
+type RemoteAnalysisSegment = {
+  frameIntervalMs: number;
+  frames: Array<{ timecode: number; values: number[] }>;
+  isComplete?: boolean;
+  trackId: string | number;
+};
+type RemoteAnalysisBytesSegment = {
+  bucketCount: number;
+  frameCount: number;
+  frameIntervalMs: number;
+  isComplete: boolean;
+  startTimeMs: number;
+  trackId: string;
+  values: Uint8Array;
+};
 
 const controlCount = 5;
 const albumGridColumns = 4;
@@ -40,6 +63,9 @@ export function TvDisplayApp({ snapshot = mockTvSessionSnapshot }: TvDisplayAppP
   const [duration, setDuration] = useState(snapshot.player.durationSeconds);
   const [playbackError, setPlaybackError] = useState<string | null>(null);
   const [libraryError, setLibraryError] = useState<string | null>(null);
+  const [analysisFrames, setAnalysisFrames] = useState<TvAudioAnalysisFrame[]>(snapshot.analysis?.frames ?? []);
+  const [memoryInfo, setMemoryInfo] = useState<FireTvMemoryInfo | null>(null);
+  const currentTimeRef = useRef(currentTime);
   const libraryId = useMemo(() => new URLSearchParams(window.location.search).get("libraryId")?.trim() || null, []);
   const locale = useMemo(() => getInitialLocale(), []);
   const t = useCallback((key: string) => translate(locale, key as never), [locale]);
@@ -60,6 +86,10 @@ export function TvDisplayApp({ snapshot = mockTvSessionSnapshot }: TvDisplayAppP
     : undefined;
   const previousTrack = getPreviousQueueItem(queue);
   const nextTrack = getNextQueueItem(queue);
+
+  useEffect(() => {
+    currentTimeRef.current = currentTime;
+  }, [currentTime]);
 
   useEffect(() => {
     let isActive = true;
@@ -167,7 +197,56 @@ export function TvDisplayApp({ snapshot = mockTvSessionSnapshot }: TvDisplayAppP
   useEffect(() => {
     setCurrentTime(0);
     setDuration(currentTrack?.durationSeconds ?? 0);
+    setAnalysisFrames([]);
   }, [currentTrack?.id, currentTrack?.durationSeconds]);
+
+  useEffect(() => {
+    const trackId = currentTrack?.id;
+    if (!trackId) {
+      setAnalysisFrames([]);
+      return;
+    }
+
+    let isActive = true;
+    let abortController: AbortController | null = null;
+    let isLoadingAnalysis = false;
+
+    const loadAnalysis = async () => {
+      if (isLoadingAnalysis) return;
+      isLoadingAnalysis = true;
+      abortController = new AbortController();
+      try {
+        const currentPosition = currentTimeRef.current;
+        const nextFrames = await fetchAnalysisFrames(String(trackId), Math.max(0, currentPosition - 0.5), 4, duration || currentTrack?.durationSeconds || 1, abortController.signal);
+        if (!isActive) return;
+        setAnalysisFrames((frames) => mergeAnalysisFrames(frames, nextFrames, currentTimeRef.current));
+      } catch {
+        if (isActive) setAnalysisFrames((frames) => retainAnalysisWindow(frames, currentTimeRef.current));
+      } finally {
+        isLoadingAnalysis = false;
+      }
+    };
+
+    void loadAnalysis();
+    const timer = window.setInterval(() => void loadAnalysis(), 2000);
+    return () => {
+      isActive = false;
+      abortController?.abort();
+      window.clearInterval(timer);
+    };
+  }, [currentTrack?.id, currentTrack?.durationSeconds, duration]);
+
+  useEffect(() => {
+    const handleDiagnostics = (event: Event) => {
+      const memory = (event as FireTvDiagnosticsEvent).detail?.memory;
+      if (memory && Number.isFinite(memory.usedMb) && Number.isFinite(memory.totalMb) && Number.isFinite(memory.maxMb)) {
+        setMemoryInfo(memory);
+      }
+    };
+
+    window.addEventListener("musical-firetv-diagnostics", handleDiagnostics);
+    return () => window.removeEventListener("musical-firetv-diagnostics", handleDiagnostics);
+  }, []);
 
   useEffect(() => {
     if (!audioUrl || !pendingAutoplayRef.current) return;
@@ -286,6 +365,12 @@ export function TvDisplayApp({ snapshot = mockTvSessionSnapshot }: TvDisplayAppP
       <audio ref={audioRef} preload="metadata" src={audioUrl || undefined} />
       <div className="tv-display-backdrop" style={{ backgroundImage: playerArtworkUrl ? `url(${playerArtworkUrl})` : undefined }} />
       <section className="tv-now-playing tv-player-surface" aria-label={t("tvDisplay.nowPlaying")}>
+        <FireTvPlayerVisualizer
+          frames={analysisFrames}
+          isPlaying={isPlaying}
+          playbackTimeSeconds={currentTime}
+          trackId={player.trackId}
+        />
         <div className="tv-artwork-frame">
           {playerArtworkUrl ? <img src={playerArtworkUrl} alt="" /> : <div className="tv-artwork-fallback" />}
         </div>
@@ -341,6 +426,14 @@ export function TvDisplayApp({ snapshot = mockTvSessionSnapshot }: TvDisplayAppP
             </button>
           </div>
         </div>
+        {memoryInfo ? (
+          <div className="tv-memory-diagnostics" aria-label={t("tvDisplay.memoryUsage")}>
+            <span>{t("tvDisplay.memoryUsage")}</span>
+            <strong>
+              {memoryInfo.usedMb}/{memoryInfo.maxMb} MB
+            </strong>
+          </div>
+        ) : null}
       </section>
 
       {activeSurfaceTab === "albums" ? (
@@ -416,10 +509,178 @@ export function TvDisplayApp({ snapshot = mockTvSessionSnapshot }: TvDisplayAppP
   );
 }
 
-async function fetchJson<T>(path: string) {
-  const response = await fetch(path);
+async function fetchAnalysisFrames(
+  trackId: string,
+  from: number,
+  duration: number,
+  totalDuration: number,
+  signal: AbortSignal,
+) {
+  try {
+    return segmentBytesToAnalysisFrames(
+      await fetchAnalysisBytesSegment(trackId, from, duration, totalDuration, signal),
+    );
+  } catch {
+    return segmentToAnalysisFrames(
+      await fetchAnalysisSegment(trackId, from, duration, totalDuration, signal),
+    );
+  }
+}
+
+async function fetchAnalysisBytesSegment(
+  trackId: string,
+  from: number,
+  duration: number,
+  totalDuration: number,
+  signal: AbortSignal,
+) {
+  const query = new URLSearchParams({
+    compact: "true",
+    duration: String(duration),
+    from: String(from),
+    totalDuration: String(totalDuration),
+    trackId,
+  });
+  const response = await fetch(`/api/track_analysis_bytes?${query.toString()}`, { signal });
+  if (!response.ok) throw new Error(await response.text());
+  const values = new Uint8Array(await response.arrayBuffer());
+  const segment = {
+    bucketCount: parsePositiveIntegerHeader(response, "X-Musical-Bucket-Count"),
+    frameCount: parseNonNegativeIntegerHeader(response, "X-Musical-Frame-Count"),
+    frameIntervalMs: parseFiniteNumberHeader(response, "X-Musical-Frame-Interval-Ms"),
+    isComplete: response.headers.get("X-Musical-Is-Complete") === "true",
+    startTimeMs: parseFiniteNumberHeader(response, "X-Musical-Start-Time-Ms"),
+    trackId: parseTrackIdHeader(response) ?? trackId,
+    values,
+  } satisfies RemoteAnalysisBytesSegment;
+  if (segment.values.length !== segment.bucketCount * segment.frameCount) {
+    throw new Error("invalid analysis byte length");
+  }
+  if (String(segment.trackId) !== String(trackId)) {
+    throw new Error("stale analysis response");
+  }
+  return segment;
+}
+
+async function fetchAnalysisSegment(
+  trackId: string,
+  from: number,
+  duration: number,
+  totalDuration: number,
+  signal: AbortSignal,
+) {
+  const query = new URLSearchParams({
+    compact: "true",
+    duration: String(duration),
+    from: String(from),
+    totalDuration: String(totalDuration),
+    trackId,
+  });
+  return fetchJson<RemoteAnalysisSegment>(`/api/track_analysis?${query.toString()}`, signal);
+}
+
+async function fetchJson<T>(path: string, signal?: AbortSignal) {
+  const response = await fetch(path, { signal });
   if (!response.ok) throw new Error(await response.text());
   return response.json() as Promise<T>;
+}
+
+function segmentToAnalysisFrames(segment: RemoteAnalysisSegment): TvAudioAnalysisFrame[] {
+  return segment.frames
+    .map((frame) => ({
+      bands: frame.values.map((value) => clamp(value / 255, 0, 1)),
+      peak: Math.max(0, ...frame.values) / 255,
+      rms: rootMeanSquare(frame.values),
+      timeMs: Math.round(frame.timecode * 1000),
+    }))
+    .sort((first, second) => first.timeMs - second.timeMs);
+}
+
+function segmentBytesToAnalysisFrames(segment: RemoteAnalysisBytesSegment): TvAudioAnalysisFrame[] {
+  const frames: TvAudioAnalysisFrame[] = [];
+  for (let frameIndex = 0; frameIndex < segment.frameCount; frameIndex += 1) {
+    const offset = frameIndex * segment.bucketCount;
+    const values = segment.values.subarray(offset, offset + segment.bucketCount);
+    frames.push({
+      bands: Array.from(values, (value) => clamp(value / 255, 0, 1)),
+      peak: maxByte(values) / 255,
+      rms: rootMeanSquareBytes(values),
+      timeMs: Math.round(segment.startTimeMs + frameIndex * segment.frameIntervalMs),
+    });
+  }
+  return frames;
+}
+
+function parseFiniteNumberHeader(response: Response, name: string) {
+  const value = Number(response.headers.get(name));
+  if (!Number.isFinite(value)) throw new Error(`missing ${name}`);
+  return value;
+}
+
+function parsePositiveIntegerHeader(response: Response, name: string) {
+  const value = parseNonNegativeIntegerHeader(response, name);
+  if (value <= 0) throw new Error(`invalid ${name}`);
+  return value;
+}
+
+function parseNonNegativeIntegerHeader(response: Response, name: string) {
+  const value = Number(response.headers.get(name));
+  if (!Number.isInteger(value) || value < 0) throw new Error(`missing ${name}`);
+  return value;
+}
+
+function parseTrackIdHeader(response: Response) {
+  const value = response.headers.get("X-Musical-Track-Id");
+  if (!value) return null;
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return value;
+  }
+}
+
+function maxByte(values: Uint8Array) {
+  let max = 0;
+  for (const value of values) {
+    if (value > max) max = value;
+  }
+  return max;
+}
+
+function mergeAnalysisFrames(
+  currentFrames: TvAudioAnalysisFrame[],
+  nextFrames: TvAudioAnalysisFrame[],
+  currentTimeSeconds: number,
+) {
+  const framesByTime = new Map<number, TvAudioAnalysisFrame>();
+  for (const frame of currentFrames) framesByTime.set(frame.timeMs, frame);
+  for (const frame of nextFrames) framesByTime.set(frame.timeMs, frame);
+  return retainAnalysisWindow(
+    Array.from(framesByTime.values()).sort((first, second) => first.timeMs - second.timeMs),
+    currentTimeSeconds,
+  );
+}
+
+function retainAnalysisWindow(frames: TvAudioAnalysisFrame[], currentTimeSeconds: number) {
+  const currentTimeMs = currentTimeSeconds * 1000;
+  const minTimeMs = Math.max(0, currentTimeMs - 1500);
+  const maxTimeMs = currentTimeMs + 4500;
+  return frames.filter((frame) => frame.timeMs >= minTimeMs && frame.timeMs <= maxTimeMs);
+}
+
+function rootMeanSquare(values: number[]) {
+  if (values.length === 0) return 0;
+  const sum = values.reduce((total, value) => total + (value / 255) ** 2, 0);
+  return Math.sqrt(sum / values.length);
+}
+
+function rootMeanSquareBytes(values: Uint8Array) {
+  if (values.length === 0) return 0;
+  let sum = 0;
+  for (const value of values) {
+    sum += (value / 255) ** 2;
+  }
+  return Math.sqrt(sum / values.length);
 }
 
 function librarySnapshotPath(libraryId: string | null) {

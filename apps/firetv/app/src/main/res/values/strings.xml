@@ -31,4 +31,9 @@
     <string name="settings_library_selected_item">Selected: %1$s — %2$d albums / %3$d tracks</string>
     <string name="settings_selected_library">Selected library: %1$s</string>
     <string name="settings_no_library_selected">none</string>
+    <string name="exit_dialog_title">Exit Musical TV?</string>
+    <string name="exit_dialog_message">Playback will stop before the app closes.</string>
+    <string name="exit_dialog_confirm">Exit</string>
+    <string name="exit_dialog_cancel">Cancel</string>
+    <string name="exit_shutting_down_player">Stopping playback...</string>
 </resources>

@@ -13,6 +13,7 @@ export type TvSessionSnapshot = {
   player: TvPlayerState;
   lyrics?: TvLyricsState;
   queue?: TvQueueState;
+  analysis?: TvAudioAnalysisPacket;
   activePrompt?: TvCandidatePrompt;
 };
 
@@ -55,11 +56,16 @@ export type TvQueueState = {
 
 export type TvAudioAnalysisPacket = {
   trackId: string;
-  playbackTimeSeconds: number;
-  frameRate: number;
+  frameIntervalMs: number;
+  frames: TvAudioAnalysisFrame[];
+  isComplete?: boolean;
+};
+
+export type TvAudioAnalysisFrame = {
+  timeMs: number;
   bands: number[];
-  peak: number;
-  rms: number;
+  peak?: number;
+  rms?: number;
 };
 
 export type TvCommandResult = {

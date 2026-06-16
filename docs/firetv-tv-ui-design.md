@@ -154,7 +154,6 @@ Allowed MVP effects:
 - Blurred artwork background.
 - CSS animation.
 - Canvas 2D waveform or bars.
-- Lightweight particles.
 - Gradient derived from artwork.
 
 Avoid in MVP:
@@ -165,6 +164,15 @@ Avoid in MVP:
 - High-frequency realtime FFT in WebView.
 - Always-on 60fps requirement.
 
+Data source:
+
+- Fire TV does not analyze the `<audio>` element directly.
+- The app/local backend provides analysis frames from the existing audio
+  analysis cache.
+- The Player visualizer reads timecoded analysis frames, interpolates around the
+  local playback time, and decays gracefully when fresh frames are unavailable.
+- A missing analysis response must not block local playback controls.
+
 ## Performance Budget
 
 - DOM UI may render at full TV resolution.
@@ -172,6 +180,8 @@ Avoid in MVP:
 - Use 1280x720 for low-power mode.
 - Default visualizer target is 30fps.
 - Drop late analysis frames rather than queueing them.
+- Retain only a short analysis window on Fire TV, normally 2-4 seconds around
+  current playback.
 
 Canvas sizing candidate:
 

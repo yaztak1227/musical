@@ -131,6 +131,7 @@ type TvSessionSnapshot = {
   player: TvPlayerState;
   lyrics?: TvLyricsState;
   queue?: TvQueueState;
+  analysis?: TvAudioAnalysisPacket;
   activePrompt?: TvCandidatePrompt;
 };
 ```
@@ -196,19 +197,67 @@ type TvQueueState = {
 ```ts
 type TvAudioAnalysisPacket = {
   trackId: string;
-  playbackTimeSeconds: number;
-  frameRate: number;
+  frameIntervalMs: number;
+  frames: TvAudioAnalysisFrame[];
+  isComplete?: boolean;
+};
+
+type TvAudioAnalysisFrame = {
+  timeMs: number;
   bands: number[];
-  peak: number;
-  rms: number;
+  peak?: number;
+  rms?: number;
 };
 ```
 
 Performance rules:
 
-- Keep packets compact.
+- Fire TV does not create realtime FFT data from the WebView audio element.
+- The app/local backend provides analysis data from the library audio analysis
+  cache through `/api/track_analysis?compact=true` or an equivalent display
+  message.
+- Frame identity is the rounded `timeMs`; duplicate frames overwrite earlier
+  frames with the same timestamp.
+- Keep packets compact. The TV UI should request or receive a short window,
+  normally around 1-4 seconds, instead of full-track analysis when possible.
 - Cap visualizer rendering at 30fps by default.
-- Drop late packets rather than queueing unbounded work.
+- Drop late frames rather than queueing unbounded work.
+- Reset the retained frame buffer on track change or seek jumps.
+
+## Fire TV Native Diagnostics
+
+The native Fire TV shell may send diagnostics to the WebView for debug display.
+This is intentionally native-sourced so the value represents the Android app
+process more closely than `performance.memory` inside the WebView.
+
+```ts
+type FireTvDiagnosticsEvent = CustomEvent<{
+  memory?: FireTvMemoryInfo;
+}>;
+
+type FireTvMemoryInfo = {
+  usedMb: number;
+  totalMb: number;
+  maxMb: number;
+  availableMb?: number;
+};
+```
+
+Transport:
+
+```ts
+window.dispatchEvent(
+  new CustomEvent("musical-firetv-diagnostics", { detail })
+);
+```
+
+Rules:
+
+- Native updates should be low frequency, about every 2-5 seconds.
+- The TV UI should show diagnostics only as a small, non-interactive overlay on
+  Player.
+- If diagnostics are unavailable, the TV UI keeps playback usable and may hide
+  the memory strip.
 
 ## Command Result
 

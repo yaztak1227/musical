@@ -50,6 +50,18 @@ npm run tauri dev
 
 Tauri のデスクトップアプリとして起動します。ローカルフォルダのスキャン、音声ファイルの再生、タグ編集、アートワーク保存などはこのモードで利用します。
 
+開発用ブラウザルートはデフォルトでは自動で開きません。起動時に同時に開きたい場合:
+
+```bash
+MUSICAL_OPEN_DEV_BROWSER=1 npm run tauri dev
+```
+
+またはアプリ引数で指定します。
+
+```bash
+npm run tauri -- dev -- --open-dev-browser
+```
+
 ## モック Web モード
 
 ```bash

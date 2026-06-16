@@ -50,6 +50,18 @@ npm run tauri dev
 
 This runs the real Tauri desktop app. Use it for local folder scanning, audio playback, tag editing, and artwork saving.
 
+The dev browser route does not open automatically by default. To open it at startup:
+
+```bash
+MUSICAL_OPEN_DEV_BROWSER=1 npm run tauri dev
+```
+
+Or pass the app flag:
+
+```bash
+npm run tauri -- dev -- --open-dev-browser
+```
+
 ## Mock Web Mode
 
 ```bash

@@ -96,9 +96,12 @@ pub fn run() {
             {
                 use tauri_plugin_opener::OpenerExt;
 
-                if let Err(error) = app.opener().open_url("http://localhost:1420", None::<&str>) {
-                    error!("failed to open controller browser: {error}");
-                    eprintln!("failed to open controller browser: {error}");
+                if should_open_dev_browser() {
+                    if let Err(error) = app.opener().open_url("http://localhost:1420", None::<&str>)
+                    {
+                        error!("failed to open controller browser: {error}");
+                        eprintln!("failed to open controller browser: {error}");
+                    }
                 }
             }
 
@@ -116,4 +119,12 @@ pub fn run() {
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
+}
+
+#[cfg(debug_assertions)]
+fn should_open_dev_browser() -> bool {
+    let env_enabled = std::env::var("MUSICAL_OPEN_DEV_BROWSER")
+        .map(|value| matches!(value.as_str(), "1" | "true" | "TRUE" | "yes" | "YES"))
+        .unwrap_or(false);
+    env_enabled || std::env::args().any(|arg| arg == "--open-dev-browser")
 }

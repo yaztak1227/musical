@@ -204,6 +204,7 @@
   <message key="tvDisplay.lyrics">歌詞</message>
   <message key="tvDisplay.queue">次に再生</message>
   <message key="tvDisplay.visualizer">ビジュアライザ</message>
+  <message key="tvDisplay.memoryUsage">メモリ</message>
   <message key="status.noLibraryScanned">ライブラリはまだスキャンされていません。</message>
   <message key="status.webMockMode">Web モードではモックアルバムを使用しています。</message>
   <message key="status.loadedAlbums">{count} 件のアルバムを {databasePath} から読み込みました</message>

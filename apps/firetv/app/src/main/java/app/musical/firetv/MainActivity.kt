@@ -2,6 +2,10 @@ package app.musical.firetv
 
 import android.annotation.SuppressLint
 import android.app.Activity
+import android.app.ActivityManager
+import android.app.AlertDialog
+import android.content.Context
+import android.content.Intent
 import android.graphics.Color
 import android.net.Uri
 import android.os.Bundle
@@ -11,7 +15,9 @@ import android.util.Log
 import android.view.KeyEvent
 import android.view.View
 import android.webkit.WebChromeClient
+import android.webkit.ConsoleMessage
 import android.webkit.WebResourceError
+import android.webkit.WebResourceResponse
 import android.webkit.WebResourceRequest
 import android.webkit.WebSettings
 import android.webkit.WebView
@@ -45,6 +51,15 @@ class MainActivity : Activity() {
     private var isWebSurfaceFocused = true
     private var isSettingsContentFocused = false
     private var selectedLocale: String = "en"
+    private var isExitDialogVisible = false
+    private var isExitInProgress = false
+    private var isWebViewDestroyed = false
+    private val memoryDiagnosticsRunnable = object : Runnable {
+        override fun run() {
+            sendMemoryDiagnostics()
+            mainHandler.postDelayed(this, MEMORY_DIAGNOSTICS_INTERVAL_MS)
+        }
+    }
 
     @SuppressLint("SetJavaScriptEnabled")
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -74,13 +89,30 @@ class MainActivity : Activity() {
             setBackgroundColor(Color.TRANSPARENT)
             isFocusable = true
             isFocusableInTouchMode = true
-            webChromeClient = WebChromeClient()
+            webChromeClient = object : WebChromeClient() {
+                override fun onConsoleMessage(consoleMessage: ConsoleMessage?): Boolean {
+                    if (consoleMessage != null) {
+                        Log.i(
+                            TAG,
+                            "WebView console ${consoleMessage.messageLevel()} ${consoleMessage.sourceId()}:${consoleMessage.lineNumber()} ${consoleMessage.message()}",
+                        )
+                    }
+                    return super.onConsoleMessage(consoleMessage)
+                }
+            }
             webViewClient = object : WebViewClient() {
+                override fun onPageStarted(view: WebView?, url: String?, favicon: android.graphics.Bitmap?) {
+                    Log.i(TAG, "WebView page started: $url")
+                    super.onPageStarted(view, url, favicon)
+                }
+
                 override fun onPageFinished(view: WebView?, url: String?) {
+                    Log.i(TAG, "WebView page finished: $url")
                     statusMessageVisible = false
                     statusView.visibility = View.GONE
                     webBridge.remoteKey("APP_READY")
                     webBridge.selectedTab(selectedTab)
+                    startMemoryDiagnostics()
                     hideSplashOverlay()
                 }
 
@@ -90,8 +122,20 @@ class MainActivity : Activity() {
                     error: WebResourceError?,
                 ) {
                     if (request?.isForMainFrame == true) {
+                        Log.w(TAG, "WebView main frame error: ${error?.errorCode} ${error?.description} ${request.url}")
                         showStatus(getString(R.string.load_error, displayUrl))
                     }
+                }
+
+                override fun onReceivedHttpError(
+                    view: WebView?,
+                    request: WebResourceRequest?,
+                    errorResponse: WebResourceResponse?,
+                ) {
+                    if (request?.isForMainFrame == true) {
+                        Log.w(TAG, "WebView main frame HTTP error: ${errorResponse?.statusCode} ${request.url}")
+                    }
+                    super.onReceivedHttpError(view, request, errorResponse)
                 }
             }
 
@@ -139,20 +183,27 @@ class MainActivity : Activity() {
         mainHandler.postDelayed({ hideSplashOverlay() }, 6500)
     }
 
-    override fun onNewIntent(intent: android.content.Intent?) {
+    override fun onNewIntent(intent: Intent?) {
         super.onNewIntent(intent)
-        val nextUrl = FireTvIntentResolver.resolveExplicitDisplayUrl(
+        if (intent != null) setIntent(intent)
+        if (isExitInProgress) return
+        if (isWebViewDestroyed) {
+            recreate()
+            return
+        }
+        val explicitUrl = FireTvIntentResolver.resolveExplicitDisplayUrl(
             intent?.data,
             intent?.getStringExtra(EXTRA_DISPLAY_URL),
         )
-            ?: BuildConfig.DEFAULT_TV_URL
-        if (nextUrl != displayUrl) {
-            loadDisplayUrl(nextUrl, remember = true)
+        if (explicitUrl != null && explicitUrl != displayUrl) {
+            loadDisplayUrl(explicitUrl, remember = true)
         }
     }
 
     override fun onDestroy() {
+        mainHandler.removeCallbacks(memoryDiagnosticsRunnable)
         discoveryRepository.shutdown()
+        destroyPlayerSurface(reason = "onDestroy")
         super.onDestroy()
     }
 
@@ -236,7 +287,8 @@ class MainActivity : Activity() {
                     webView.goBack()
                     return true
                 }
-                return super.dispatchKeyEvent(event)
+                showExitConfirmation()
+                return true
             }
         }
 
@@ -452,6 +504,7 @@ class MainActivity : Activity() {
     }
 
     private fun loadDisplayUrl(url: String, remember: Boolean) {
+        if (isExitInProgress || isWebViewDestroyed) return
         displayUrl = url
         if (remember) preferences().edit().putString(PREF_DISPLAY_URL, url).apply()
         if (discoveredServers.isEmpty()) {
@@ -487,6 +540,98 @@ class MainActivity : Activity() {
         statusView.visibility = if (selectedTab == FireTvTab.PLAYER) View.VISIBLE else View.GONE
     }
 
+    private fun showExitConfirmation() {
+        if (isExitDialogVisible || isExitInProgress) return
+        isExitDialogVisible = true
+        AlertDialog.Builder(this)
+            .setTitle(R.string.exit_dialog_title)
+            .setMessage(R.string.exit_dialog_message)
+            .setPositiveButton(R.string.exit_dialog_confirm) { dialog, _ ->
+                dialog.dismiss()
+                isExitDialogVisible = false
+                shutdownPlayerAndFinish()
+            }
+            .setNegativeButton(R.string.exit_dialog_cancel) { dialog, _ ->
+                dialog.dismiss()
+                isExitDialogVisible = false
+            }
+            .setOnCancelListener {
+                isExitDialogVisible = false
+            }
+            .show()
+    }
+
+    private fun shutdownPlayerAndFinish() {
+        if (isExitInProgress) return
+        isExitInProgress = true
+        mainHandler.removeCallbacks(memoryDiagnosticsRunnable)
+        showStatus(getString(R.string.exit_shutting_down_player))
+
+        if (!::webView.isInitialized || isWebViewDestroyed) {
+            finishAndRemoveTask()
+            return
+        }
+
+        webBridge.shutdownPlayer { result ->
+            Log.i(TAG, "Player shutdown result: $result")
+            destroyPlayerSurface(reason = "confirmed-exit", runShutdownScript = false)
+            finishAndRemoveTask()
+        }
+        mainHandler.postDelayed({
+            if (!isFinishing && isExitInProgress && !isWebViewDestroyed) {
+                Log.w(TAG, "Player shutdown confirmation timed out; destroying WebView")
+                destroyPlayerSurface(reason = "shutdown-timeout", runShutdownScript = false)
+                finishAndRemoveTask()
+            }
+        }, PLAYER_SHUTDOWN_TIMEOUT_MS)
+    }
+
+    private fun destroyPlayerSurface(reason: String, runShutdownScript: Boolean = true) {
+        if (!::webView.isInitialized || isWebViewDestroyed) return
+        isWebViewDestroyed = true
+        Log.i(TAG, "Releasing player WebView: $reason")
+        if (runShutdownScript) {
+            try {
+                webBridge.shutdownPlayer(null)
+            } catch (error: RuntimeException) {
+                Log.w(TAG, "Player shutdown script failed during $reason", error)
+            }
+        }
+        try {
+            webView.onPause()
+            webView.pauseTimers()
+            webView.stopLoading()
+            webView.clearHistory()
+            webView.webChromeClient = null
+            webView.webViewClient = WebViewClient()
+            webView.removeAllViews()
+            contentArea.removeView(webView)
+        } catch (error: RuntimeException) {
+            Log.w(TAG, "WebView release failed during $reason", error)
+        }
+    }
+
+    private fun startMemoryDiagnostics() {
+        mainHandler.removeCallbacks(memoryDiagnosticsRunnable)
+        memoryDiagnosticsRunnable.run()
+    }
+
+    private fun sendMemoryDiagnostics() {
+        val runtime = Runtime.getRuntime()
+        val usedMb = bytesToMb(runtime.totalMemory() - runtime.freeMemory())
+        val totalMb = bytesToMb(runtime.totalMemory())
+        val maxMb = bytesToMb(runtime.maxMemory())
+        val availableMb = availableMemoryMb()
+        webBridge.memoryDiagnostics(usedMb, totalMb, maxMb, availableMb)
+    }
+
+    private fun availableMemoryMb(): Long? {
+        val activityManager = getSystemService(Context.ACTIVITY_SERVICE) as? ActivityManager ?: return null
+        val memoryInfo = ActivityManager.MemoryInfo()
+        activityManager.getMemoryInfo(memoryInfo)
+        return bytesToMb(memoryInfo.availMem)
+    }
+
     companion object {
         private const val TAG = "MusicalFireTv"
         const val EXTRA_DISPLAY_URL = "display_url"
@@ -494,5 +639,9 @@ class MainActivity : Activity() {
         private const val PREF_DISPLAY_URL = "display_url"
         private const val PREF_LIBRARY_ID = "library_id"
         private const val PREF_LOCALE = "locale"
+        private const val MEMORY_DIAGNOSTICS_INTERVAL_MS = 3000L
+        private const val PLAYER_SHUTDOWN_TIMEOUT_MS = 1200L
+
+        private fun bytesToMb(bytes: Long): Long = (bytes / (1024L * 1024L)).coerceAtLeast(0)
     }
 }

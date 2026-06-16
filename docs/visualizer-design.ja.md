@@ -58,6 +58,11 @@ Tauri 起動時に `127.0.0.1:1422` 相当の local API を提供する。
 
 キャッシュ DB はライブラリフォルダ配下の `.musical/audio_analysis.sqlite3`。
 
+この保存先は意図的にライブラリフォルダへ寄せる。ライブラリを別の PC や
+外部ディスクへ移動した場合でも、音源ファイルと解析キャッシュを一緒に持ち
+運べるようにするため。アプリの user data / app data 配下へ集約すると、
+端末ごとに再解析が必要になり、portable library としての扱いやすさが落ちる。
+
 キャッシュキーは主に以下で決まる。
 
 - track id
@@ -232,4 +237,3 @@ sequenceDiagram
 - アプリ内再生中に `/api/player_state` が現在曲を返すか
 - `/api/player_commands?after=0` に command が溜まり続けていないか
 - Tauri app の command polling effect が起動しているか
-

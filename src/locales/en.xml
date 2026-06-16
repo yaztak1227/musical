@@ -204,6 +204,7 @@
   <message key="tvDisplay.lyrics">Lyrics</message>
   <message key="tvDisplay.queue">Up next</message>
   <message key="tvDisplay.visualizer">Visualizer</message>
+  <message key="tvDisplay.memoryUsage">Memory</message>
   <message key="status.noLibraryScanned">No library scanned yet.</message>
   <message key="status.webMockMode">Web mode is using mock albums.</message>
   <message key="status.loadedAlbums">{count} albums loaded from {databasePath}</message>

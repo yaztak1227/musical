@@ -492,6 +492,10 @@ fn route_request(
             let result = get_track_analysis_segment(&app, &request, &remote_state);
             result_response(result)
         }
+        ("GET", "/api/track_analysis_bytes") => {
+            let result = get_track_analysis_bytes(&app, &request, &remote_state);
+            track_analysis_bytes_response(result)
+        }
         ("POST", "/api/player_command") => {
             let request_body = parse_json::<RemotePlayerCommand>(&request.body);
             let result = request_body.and_then(|command| {
@@ -1226,12 +1230,15 @@ fn get_track_analysis_segment(
         .filter(|value| value.is_finite())
         .unwrap_or(duration)
         .clamp(duration, 60.0 * 60.0 * 4.0);
+    let compact = query_param(&request.query, "compact")
+        .map(|value| value == "true" || value == "1")
+        .unwrap_or(false);
     let to = from + duration;
 
     let file_path = library::load_track_file_path(app, &track_id)?;
     let loaded_analysis =
         get_or_analyze_track_once(app, remote_state, &track_id, &file_path, total_duration)?;
-    let frames = if loaded_analysis.is_complete {
+    let frames = if loaded_analysis.is_complete && !compact {
         loaded_analysis.analysis.frames.clone()
     } else {
         loaded_analysis
@@ -1252,6 +1259,20 @@ fn get_track_analysis_segment(
     })
 }
 
+fn get_track_analysis_bytes(
+    app: &AppHandle,
+    request: &Request,
+    remote_state: &SharedRemoteServerState,
+) -> Result<audio_analysis::TrackAnalysisBytes, String> {
+    let segment = get_track_analysis_segment(app, request, remote_state)?;
+    Ok(audio_analysis::TrackAnalysisBytes::from_frames(
+        &segment.track_id,
+        segment.frame_interval_ms,
+        segment.is_complete,
+        &segment.frames,
+    ))
+}
+
 fn get_or_analyze_track_once(
     app: &AppHandle,
     remote_state: &SharedRemoteServerState,
@@ -1259,7 +1280,9 @@ fn get_or_analyze_track_once(
     file_path: &str,
     total_duration: f64,
 ) -> Result<audio_analysis::TrackAnalysisLoad, String> {
-    if let Some(analysis) = audio_analysis::get_cached_track_analysis(app, track_id, file_path)? {
+    if let Some(analysis) =
+        audio_analysis::get_cached_track_analysis(app, track_id, file_path, total_duration)?
+    {
         return Ok(audio_analysis::TrackAnalysisLoad {
             analysis,
             is_complete: true,
@@ -1280,7 +1303,8 @@ fn get_or_analyze_track_once(
                 .wait(state)
                 .map_err(|error| error.to_string())?,
         );
-        if let Some(analysis) = audio_analysis::get_cached_track_analysis(app, track_id, file_path)?
+        if let Some(analysis) =
+            audio_analysis::get_cached_track_analysis(app, track_id, file_path, total_duration)?
         {
             return Ok(audio_analysis::TrackAnalysisLoad {
                 analysis,
@@ -1303,7 +1327,9 @@ fn analyze_and_cache_track(
     file_path: &str,
     total_duration: f64,
 ) -> Result<audio_analysis::TrackAnalysisLoad, String> {
-    if let Some(analysis) = audio_analysis::get_cached_track_analysis(app, track_id, file_path)? {
+    if let Some(analysis) =
+        audio_analysis::get_cached_track_analysis(app, track_id, file_path, total_duration)?
+    {
         return Ok(audio_analysis::TrackAnalysisLoad {
             analysis,
             is_complete: true,
@@ -1440,6 +1466,43 @@ fn json_response_with_headers<T: serde::Serialize>(
         &body,
         extra_headers,
     )
+}
+
+fn track_analysis_bytes_response(
+    result: Result<audio_analysis::TrackAnalysisBytes, String>,
+) -> Vec<u8> {
+    match result {
+        Ok(analysis) => {
+            let headers = vec![
+                (
+                    "X-Musical-Track-Id".to_owned(),
+                    url_encode(&analysis.track_id),
+                ),
+                (
+                    "X-Musical-Start-Time-Ms".to_owned(),
+                    analysis.start_time_ms.to_string(),
+                ),
+                (
+                    "X-Musical-Frame-Interval-Ms".to_owned(),
+                    analysis.frame_interval_ms.to_string(),
+                ),
+                (
+                    "X-Musical-Bucket-Count".to_owned(),
+                    analysis.bucket_count.to_string(),
+                ),
+                (
+                    "X-Musical-Frame-Count".to_owned(),
+                    analysis.frame_count.to_string(),
+                ),
+                (
+                    "X-Musical-Is-Complete".to_owned(),
+                    analysis.is_complete.to_string(),
+                ),
+            ];
+            response_with_headers(200, "application/octet-stream", &analysis.values, &headers)
+        }
+        Err(error) => text_response(500, &error),
+    }
 }
 
 fn text_response(status: u16, message: &str) -> Vec<u8> {
@@ -1631,7 +1694,7 @@ fn response_with_declared_content_length(
          Access-Control-Allow-Origin: *\r\n\
          Access-Control-Allow-Methods: GET, HEAD, POST, OPTIONS\r\n\
          Access-Control-Allow-Headers: Content-Type, Range, X-Musical-State-Captured-At-Ms\r\n\
-         Access-Control-Expose-Headers: Accept-Ranges, Content-Range, X-Musical-Response-Sent-At-Ms, X-Musical-State-Captured-At-Ms\r\n",
+         Access-Control-Expose-Headers: Accept-Ranges, Content-Range, X-Musical-Response-Sent-At-Ms, X-Musical-State-Captured-At-Ms, X-Musical-Track-Id, X-Musical-Start-Time-Ms, X-Musical-Frame-Interval-Ms, X-Musical-Bucket-Count, X-Musical-Frame-Count, X-Musical-Is-Complete\r\n",
     );
     for (key, value) in extra_headers {
         headers.push_str(key);
@@ -1673,6 +1736,18 @@ fn url_decode(value: &str) -> String {
     }
 
     String::from_utf8_lossy(&bytes).into_owned()
+}
+
+fn url_encode(value: &str) -> String {
+    let mut encoded = String::with_capacity(value.len());
+    for byte in value.as_bytes() {
+        if byte.is_ascii_alphanumeric() || matches!(*byte, b'-' | b'.' | b'_' | b'~') {
+            encoded.push(*byte as char);
+        } else {
+            encoded.push_str(&format!("%{byte:02X}"));
+        }
+    }
+    encoded
 }
 
 fn find_subsequence(haystack: &[u8], needle: &[u8]) -> Option<usize> {
