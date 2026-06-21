@@ -58,6 +58,33 @@
   max-width: none;
 }
 
+.playlist-detail-art {
+  display: grid;
+  place-items: center;
+  justify-self: center;
+  width: 100%;
+  max-width: min(240px, 100%);
+  aspect-ratio: 1;
+  border-radius: 8px;
+  color: var(--primary-foreground);
+  background:
+    radial-gradient(circle at 26% 22%, rgba(255, 255, 255, 0.42), transparent 28%),
+    linear-gradient(135deg, var(--app-accent), var(--app-teal));
+  box-shadow: 0 18px 50px var(--app-shadow);
+  overflow: hidden;
+}
+
+.playlist-detail-art svg {
+  width: 36%;
+  height: 36%;
+}
+
+.playlist-detail-art img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
 .album-artwork-edit-button {
   position: absolute;
   right: 10px;
@@ -147,6 +174,59 @@
   min-width: 0;
 }
 
+.album-playlist-add-wrap,
+.playlist-detail-actions {
+  position: relative;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  margin-top: 12px;
+}
+
+.album-playlist-add-wrap > button,
+.playlist-detail-actions > button {
+  min-width: 0;
+  gap: 7px;
+}
+
+.album-playlist-add-wrap svg,
+.playlist-detail-actions svg {
+  width: 16px;
+  height: 16px;
+}
+
+.album-playlist-menu {
+  top: calc(100% + 6px);
+  right: auto;
+  left: 0;
+}
+
+.playlist-name-form {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 38px 38px;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.playlist-name-form input {
+  min-width: 0;
+}
+
+.missing-track-row {
+  opacity: 0.72;
+}
+
+.missing-track-copy {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  min-height: 46px;
+  padding: 8px 0;
+}
+
 .track-list {
   display: grid;
   gap: 10px;
@@ -160,17 +240,18 @@
 }
 
 .track-list-row {
+  position: relative;
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
-  align-items: center;
-  gap: 12px;
+  align-items: stretch;
+  gap: 0;
   min-width: 0;
   min-height: 46px;
   border: 1px solid var(--app-line);
   border-radius: 8px;
-  padding-right: 14px;
+  padding-right: 0;
   background: var(--card);
-  overflow: hidden;
+  overflow: visible;
 }
 
 .track-list-row.active-track-row {
@@ -196,6 +277,7 @@
   gap: 7px;
   min-width: 0;
   max-width: 100%;
+  padding-right: 12px;
   overflow: hidden;
 }
 
@@ -400,8 +482,120 @@
   text-overflow: clip;
 }
 
-.track-list small {
-  flex: none;
-  color: var(--app-muted);
+.track-row-actions {
+  position: relative;
+  display: inline-flex;
+  align-items: stretch;
+  justify-content: flex-end;
+  gap: 0;
+  min-width: 0;
+  overflow: visible;
+  border-left: 1px solid color-mix(in oklch, var(--border), transparent 24%);
 }
 
+.track-playlist-add-wrap {
+  position: relative;
+  display: inline-flex;
+  align-items: stretch;
+  align-self: stretch;
+}
+
+.track-row-actions .track-playlist-add-button {
+  display: grid;
+  place-items: center;
+  align-self: stretch;
+  width: 34px;
+  min-width: 34px;
+  min-height: 100%;
+  border: 0;
+  border-left: 1px solid color-mix(in oklch, var(--primary), transparent 46%);
+  border-radius: 0;
+  border-top-left-radius: 0;
+  border-bottom-left-radius: 0;
+  border-top-right-radius: 7px;
+  border-bottom-right-radius: 7px;
+  padding: 0;
+  color: var(--primary);
+  background: color-mix(in oklch, var(--primary), transparent 92%);
+}
+
+.track-row-actions .track-playlist-add-button:hover:not(:disabled),
+.track-row-actions .track-playlist-add-button:focus-visible,
+.track-row-actions .track-playlist-add-button[aria-expanded="true"] {
+  color: var(--primary-foreground);
+  background: var(--primary);
+}
+
+.track-row-actions .track-playlist-add-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.42;
+}
+
+.track-row-actions .track-playlist-add-button svg {
+  width: 15px;
+  height: 15px;
+}
+
+.track-playlist-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 8;
+  display: grid;
+  gap: 4px;
+  width: min(220px, 64vw);
+  max-height: 240px;
+  padding: 6px;
+  overflow-y: auto;
+  border: 1px solid color-mix(in oklch, var(--border), transparent 18%);
+  border-radius: 8px;
+  background: var(--popover);
+  box-shadow: 0 14px 34px color-mix(in oklch, var(--foreground), transparent 82%);
+}
+
+.track-playlist-menu button {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 34px;
+  border: 0;
+  border-radius: 6px;
+  padding: 6px 8px;
+  color: var(--popover-foreground);
+  background: transparent;
+  text-align: left;
+}
+
+.track-playlist-menu button:hover,
+.track-playlist-menu button:focus-visible {
+  color: var(--foreground);
+  background: var(--accent);
+}
+
+.track-playlist-menu button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.track-playlist-menu button:disabled:hover {
+  color: var(--popover-foreground);
+  background: transparent;
+}
+
+.track-playlist-menu span,
+.track-playlist-menu small {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.track-list small {
+  flex: none;
+  display: grid;
+  place-items: center;
+  padding-inline: 12px;
+  color: var(--app-muted);
+}

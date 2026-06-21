@@ -140,6 +140,33 @@
   display: none;
 }
 
+.playlist-create-button {
+  min-height: 32px;
+  gap: 6px;
+  border-color: color-mix(in oklch, var(--primary), transparent 34%);
+  color: var(--primary);
+  background: color-mix(in oklch, var(--primary), transparent 92%);
+  font-weight: 850;
+}
+
+.playlist-create-button svg {
+  width: 15px;
+  height: 15px;
+}
+
+.playlist-create-form {
+  display: grid;
+  grid-template-columns: minmax(120px, 180px) auto;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.playlist-create-form input {
+  height: 32px;
+  min-width: 0;
+}
+
 .albums-title span {
   color: var(--app-muted);
   font-size: 0.92rem;
@@ -229,4 +256,3 @@
   background: linear-gradient(135deg, var(--primary), color-mix(in oklch, var(--primary), var(--foreground) 24%));
   box-shadow: 0 7px 18px color-mix(in oklch, var(--primary), transparent 78%);
 }
-

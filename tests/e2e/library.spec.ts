@@ -111,6 +111,120 @@ test("switches the interface language", async ({ page }) => {
   await expect(page.getByText("音楽フォルダ")).toBeVisible();
 });
 
+test("creates an empty playlist", async ({ page }) => {
+  await page.addInitScript(() => window.localStorage.setItem("musical.locale", "en"));
+  await page.goto("/");
+
+  await page.getByRole("tab", { name: "Playlists" }).click();
+  await expect(page.getByText("No playlists yet.")).toBeVisible();
+  await page.getByLabel("Playlist name").fill("Road Set");
+  await page.getByRole("button", { name: "New playlist" }).click();
+
+  await expect(page.getByText("1 playlists")).toBeVisible();
+  await expect(page.getByRole("region", { name: "Selected playlist" })).toContainText("Road Set");
+  await expect(page.getByRole("button", { name: "Choose artwork for Road Set" })).toBeVisible();
+  await expect(page.getByRole("region", { name: "Selected playlist" })).toContainText("0 tracks");
+  await expect(page.getByRole("region", { name: "Selected playlist" })).toContainText("Add tracks before playing this playlist.");
+  await expect(page.getByRole("region", { name: "Selected playlist" }).getByRole("button", { name: "Play", exact: true })).toBeDisabled();
+
+  await page.getByRole("tab", { name: "Large icons" }).click();
+  await page.getByRole("region", { name: "Album library" }).getByRole("button", { name: /Midnight Transit/ }).click();
+  await page.getByRole("button", { name: "Add Station Lights to playlist" }).click();
+  await expect(page.getByRole("menu", { name: "Choose playlist" })).toBeVisible();
+  await page.getByRole("menuitem", { name: /Road Set/ }).click();
+  await page.getByRole("button", { name: "Add Station Lights to playlist" }).click();
+  await expect(page.getByRole("menuitem", { name: /Road Set/ })).toContainText("Already added");
+
+  await page.getByRole("tab", { name: "Playlists" }).click();
+  await page.locator(".playlist-card").first().click();
+  await expect(page.getByRole("region", { name: "Selected playlist" })).toContainText("1 tracks");
+  await page.getByRole("region", { name: "Selected playlist" }).getByRole("button", { name: "Play", exact: true }).click();
+  await expect(page.getByLabel("Player")).toContainText("From Road Set");
+
+  const selectedPlaylistRegion = page.getByRole("region", { name: "Selected playlist" });
+  await selectedPlaylistRegion.getByRole("button", { name: "Rename Road Set" }).click();
+  await selectedPlaylistRegion.getByLabel("Playlist name").fill("Night Drive");
+  await selectedPlaylistRegion.getByRole("button", { name: "Save" }).click();
+  await expect(selectedPlaylistRegion).toContainText("Night Drive");
+
+  await page.getByRole("button", { name: "Add tracks" }).click();
+  await page.getByRole("button", { name: "Add tracks from Midnight Transit to playlist" }).click();
+  await page.getByRole("menuitem", { name: /Night Drive/ }).click();
+  await page.getByRole("tab", { name: "Playlists" }).click();
+  await page.locator(".playlist-card").first().click();
+  await expect(page.getByRole("region", { name: "Selected playlist" })).toContainText("3 tracks");
+
+  await page.getByRole("button", { name: "Move Last Train Home up" }).click();
+  const firstTrack = page.getByRole("region", { name: "Selected playlist" }).getByRole("listitem").first();
+  await expect(firstTrack).toContainText("Last Train Home");
+
+  await page.getByRole("button", { name: "Remove Last Train Home from playlist" }).click();
+  await expect(page.getByRole("region", { name: "Selected playlist" })).toContainText("2 tracks");
+
+  await page.getByRole("button", { name: "Show album Midnight Transit" }).first().click();
+  await expect(page.getByRole("region", { name: "Selected album" })).toContainText("Midnight Transit");
+
+  await page.getByRole("tab", { name: "Playlists" }).click();
+  await page.locator(".playlist-card").first().click();
+  await page.getByRole("button", { name: "Delete Night Drive" }).click();
+  await expect(page.getByText("No playlists yet.")).toBeVisible();
+});
+
+test("shows playlists as playable collections on the TV display", async ({ page }) => {
+  await page.addInitScript(() => window.localStorage.setItem("musical.locale", "en"));
+  await page.route("**/api/library_snapshot", async (route) => {
+    await route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({
+        albums: [],
+        databasePath: "mock.sqlite3",
+        lastScanPath: "/music",
+        playlists: [
+          {
+            id: "playlist-road-set",
+            name: "Road Set",
+            filePath: "/music/.musical/playlist/road-set.mplaylist",
+            artworkPath: null,
+            missingTrackPaths: [],
+            trackCount: 2,
+            tracks: [
+              {
+                id: "station-lights",
+                title: "Station Lights",
+                artist: "Transit Ensemble",
+                durationSeconds: 202,
+                filePath: "/music/station-lights.mp3",
+                hasLyrics: false,
+                isFavorite: false,
+                rating: null,
+              },
+              {
+                id: "last-train-home",
+                title: "Last Train Home",
+                artist: "Transit Ensemble",
+                durationSeconds: 191,
+                filePath: "/music/last-train-home.mp3",
+                hasLyrics: false,
+                isFavorite: false,
+                rating: null,
+              },
+            ],
+          },
+        ],
+      }),
+    });
+  });
+
+  await page.goto("/tv?tab=albums");
+  await expect(page.getByLabel("Albums")).toContainText("Road Set");
+  await expect(page.getByLabel("Albums")).toContainText("Playlists");
+
+  await page.getByRole("button", { name: /Road Set/ }).click();
+  await page.evaluate(() => window.dispatchEvent(new CustomEvent("musical-firetv-tab", { detail: { tab: "player" } })));
+  await expect(page.getByRole("region", { name: "Now playing" })).toContainText("Station Lights");
+  await expect(page.getByLabel("Up next")).toContainText("Last Train Home");
+});
+
 test("restores playback preferences", async ({ page }) => {
   await page.addInitScript(() => {
     window.localStorage.setItem("musical.locale", "en");

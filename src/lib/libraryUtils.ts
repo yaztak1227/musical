@@ -1,4 +1,4 @@
-import { type Album, type Track } from "../types/audio";
+import { type Album, type Playlist, type Track } from "../types/audio";
 import { type AlbumSortDirection, type AlbumSortMode, type I18nMessage } from "../types/app";
 import { type TranslationKey } from "../i18n";
 import { getBackendMediaSrc, hasRealBackend } from "./backend";
@@ -18,6 +18,11 @@ export function getArtworkSrc(album: Album) {
   if (album.coverUrl) return album.coverUrl;
   if (!album.artworkPath) return "";
   return hasRealBackend ? getBackendMediaSrc(album.artworkPath) : album.artworkPath;
+}
+
+export function getPlaylistArtworkSrc(playlist: Playlist) {
+  if (!playlist.artworkPath) return "";
+  return hasRealBackend ? getBackendMediaSrc(playlist.artworkPath) : playlist.artworkPath;
 }
 
 export function getAlbumStartTrack(album: Album, isShuffle: boolean) {
@@ -128,12 +133,20 @@ export function toI18nError(error: unknown): I18nMessage {
     return { key: "status.trackNotFound", values: { trackId: folderPath } };
   }
 
+  if (key === "library.error.playlistNotFound") {
+    return { key: "status.playlistNotFound", values: { playlistId: folderPath } };
+  }
+
   if (key === "library.error.emptyTrackTitle") {
     return { key: "status.emptyTrackTitle" };
   }
 
   if (key === "library.error.emptyAlbumTitle") {
     return { key: "status.emptyAlbumTitle" };
+  }
+
+  if (key === "library.error.emptyPlaylistName") {
+    return { key: "status.emptyPlaylistName" };
   }
 
   if (key === "library.error.emptyArtworkPath") {

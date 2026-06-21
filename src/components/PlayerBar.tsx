@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Slider } from "@/components/ui/slider";
 import { Toggle } from "@/components/ui/toggle";
 import type { TranslationKey } from "@/i18n";
-import type { Album, Track } from "@/types/audio";
+import type { Album, Playlist, Track } from "@/types/audio";
 import type { RepeatMode } from "@/types/app";
 import { formatSeconds, formatTrackDuration, getTrackDurationSeconds } from "@/lib/formatUtils";
 import { getAudioErrorMessage, getArtworkSrc, localizeLibraryText } from "@/lib/libraryUtils";
@@ -30,6 +30,7 @@ type PlayerBarProps = {
   isShuffle: boolean;
   isTauriRuntime: boolean;
   playbackError: string | null;
+  playbackPlaylist: Playlist | null;
   queueLength: number;
   queueTracks: Track[];
   repeatMode: RepeatMode;
@@ -58,6 +59,7 @@ export const PlayerBar = forwardRef<PlayerBarHandle, PlayerBarProps>(function Pl
     isShuffle,
     isTauriRuntime,
     playbackError,
+    playbackPlaylist,
     queueLength,
     queueTracks,
     repeatMode,
@@ -356,7 +358,13 @@ export const PlayerBar = forwardRef<PlayerBarHandle, PlayerBarProps>(function Pl
         <div className="player-track-copy" key={currentTrack?.id ?? "empty"}>
           <p className="eyebrow">{t("player.nowPlaying")}</p>
           <strong>{currentTrack ? localizeLibraryText(currentTrack.title, t) : t("player.nothingSelected")}</strong>
-          <span>{currentTrack ? localizeLibraryText(currentTrack.artist, t) : t("player.pickPrompt")}</span>
+          <span>
+            {currentTrack
+              ? playbackPlaylist
+                ? t("player.playlistSource", { playlist: playbackPlaylist.name })
+                : localizeLibraryText(currentTrack.artist, t)
+              : t("player.pickPrompt")}
+          </span>
           {playbackError ? (
             <small role="alert">{t("player.playbackError", { message: playbackError })}</small>
           ) : null}

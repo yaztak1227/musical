@@ -29,8 +29,19 @@ export type Album = {
   tracks: Track[];
 };
 
+export type Playlist = {
+  id: EntityId;
+  name: string;
+  filePath: string;
+  artworkPath?: string | null;
+  trackCount: number;
+  missingTrackPaths: string[];
+  tracks: Track[];
+};
+
 export type LibrarySnapshot = {
   albums: Album[];
+  playlists: Playlist[];
   lastScanPath: string | null;
   databasePath: string;
 };

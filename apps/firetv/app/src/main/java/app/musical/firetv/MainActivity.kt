@@ -283,10 +283,6 @@ class MainActivity : Activity() {
                     selectTab(FireTvTab.PLAYER)
                     return true
                 }
-                if (webView.canGoBack()) {
-                    webView.goBack()
-                    return true
-                }
                 showExitConfirmation()
                 return true
             }

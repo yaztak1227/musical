@@ -4,6 +4,7 @@ import { LibrarySettingsDialog } from "../components/LibrarySettingsDialog";
 import { LibrarySidebar } from "../components/LibrarySidebar";
 import { PlayerBar } from "../components/PlayerBar";
 import { SelectedAlbumPanel } from "../components/SelectedAlbumPanel";
+import { SelectedPlaylistPanel } from "../components/SelectedPlaylistPanel";
 import { TrackDetailDialog } from "../components/TrackDetailDialog";
 import { useLibraryController } from "../features/library/presentation/useLibraryController";
 import { usePlaybackController } from "../features/playback/presentation/usePlaybackController";
@@ -31,6 +32,8 @@ export function AppShell({ controller }: AppShellProps) {
     albumTagMessage,
     albumViewMode,
     albumsPanelRef,
+    addTracksToSelectedPlaylist,
+    addTrackToSelectedPlaylist,
     artworkDraftPath,
     artworkPreviewSrc,
     audioAnalysisPacketRef,
@@ -43,10 +46,13 @@ export function AppShell({ controller }: AppShellProps) {
     changeShuffle,
     changeTrackDetailTab,
     chooseArtwork,
+    choosePlaylistArtwork,
     closeTrackDetail,
+    createEmptyPlaylist,
     currentLyrics,
     currentTrack,
     cycleRepeatMode,
+    deleteSelectedPlaylist,
     detailAlbum,
     detailArtworkSrc,
     detailLyrics,
@@ -76,6 +82,7 @@ export function AppShell({ controller }: AppShellProps) {
     isPlaying,
     isSavingAlbumTags,
     isSavingArtwork,
+    isSavingPlaylistArtwork,
     isSavingTrackTags,
     isSavingTrackUserState,
     isScanning,
@@ -91,6 +98,8 @@ export function AppShell({ controller }: AppShellProps) {
     mcpError,
     mcpUrl,
     moveTrackLongPress,
+    openAlbumFromPlaylist,
+    openPlaylistAddTracks,
     openSelectedAlbumArtworkEditor,
     openTrackDetail,
     openTrackLyrics,
@@ -100,16 +109,23 @@ export function AppShell({ controller }: AppShellProps) {
     playAlbum,
     playNextTrack,
     playPreviousTrack,
+    playPlaylist,
     playQueuedTrack,
     playTrack,
     playbackAlbum,
     playbackError,
+    playbackPlaylist,
     playerBarRef,
+    playlists,
     query,
     queue,
     remoteAccess,
     remotePlaybackClockRef,
+    reloadPlaylists,
+    removeTrackFromSelectedPlaylist,
+    renameSelectedPlaylist,
     repeatMode,
+    reorderTrackInSelectedPlaylist,
     saveAlbumTags,
     saveTrackArtwork,
     saveTrackTags,
@@ -119,7 +135,11 @@ export function AppShell({ controller }: AppShellProps) {
     selectAlbum,
     selectedAlbum,
     selectedAlbumTrackEntries,
+    selectedPlaylist,
+    selectedPlaylistId,
+    selectedPlaylistTrackEntries,
     selectedTrackId,
+    selectPlaylist,
     selectTrack,
     setAlbumListMode,
     setAlbumSortDirection,
@@ -188,20 +208,25 @@ export function AppShell({ controller }: AppShellProps) {
       isTauriRuntime: hasRealBackend,
       lyricsOnly,
       playbackAlbumId: playbackAlbum?.id ?? null,
+      onCreatePlaylist: (name) => void createEmptyPlaylist(name),
       onPausePlayback: pausePlayback,
       onPlayAlbum: playAlbum,
+      onPlayPlaylist: playPlaylist,
       onListModeChange: setAlbumListMode,
       onLyricsOnlyChange: setLyricsOnly,
       onOpenTrackLyrics: openTrackLyrics,
       onPlayTrack: playTrack,
       onQueryChange: setQuery,
       onSelectAlbum: selectAlbum,
+      onSelectPlaylist: selectPlaylist,
       onSortDirectionChange: setAlbumSortDirection,
       onSortModeChange: setAlbumSortMode,
       onViewModeChange: setAlbumViewMode,
       panelRef: albumsPanelRef,
+      playlists,
       query,
       selectedAlbumId: selectedAlbum?.id ?? null,
+      selectedPlaylistId,
       t,
     },
     librarySettingsDialogProps: isLibrarySettingsOpen
@@ -269,6 +294,7 @@ export function AppShell({ controller }: AppShellProps) {
       onOpenVisualizer: () => setIsPlayerVisualizerOpen(true),
       onVolumeChange: setVolume,
       playbackError,
+      playbackPlaylist,
       queueLength: queue.length,
       queueTracks: queue,
       ref: playerBarRef,
@@ -293,12 +319,15 @@ export function AppShell({ controller }: AppShellProps) {
       ...trackLongPress,
       onOpenSelectedAlbumArtworkEditor: openSelectedAlbumArtworkEditor,
       onOpenTrackDetail: openTrackDetail,
+      onAddTrackToPlaylist: (track, playlist) => void addTrackToSelectedPlaylist(track, playlist),
+      onAddTracksToPlaylist: (tracks, playlist) => void addTracksToSelectedPlaylist(tracks, playlist),
       onPlayTrack: playTrack,
       onSaveAlbumTags: () => void saveAlbumTags(),
       onSelectTrack: selectTrack,
       onStartAlbumTagEditing: startAlbumTagEditing,
       selectedAlbum,
       selectedTrackId,
+      playlists,
       t,
       trackEntries: selectedAlbumTrackEntries,
     },
@@ -349,7 +378,34 @@ export function AppShell({ controller }: AppShellProps) {
 
         <AlbumBrowser {...library.albumBrowserProps} />
 
-        <SelectedAlbumPanel {...tagEditing.selectedAlbumPanelProps} />
+        {selectedPlaylist ? (
+          <SelectedPlaylistPanel
+            albumPanelRef={albumPanelRef}
+            currentTrack={currentTrack}
+            isAlbumPanelCollapsed={isAlbumPanelCollapsed}
+            {...albumPanelGesture}
+            onDeletePlaylist={(playlist) => void deleteSelectedPlaylist(playlist)}
+            onJumpToAlbum={openAlbumFromPlaylist}
+            onOpenAddTracks={openPlaylistAddTracks}
+            onOpenTrackDetail={openTrackDetail}
+            onOpenTrackLyrics={openTrackLyrics}
+            onChooseArtwork={choosePlaylistArtwork}
+            onPlayTrack={playTrack}
+            onPlayPlaylist={playPlaylist}
+            onReloadPlaylist={() => void reloadPlaylists()}
+            onRemoveTrack={(playlist, trackIndex) => void removeTrackFromSelectedPlaylist(playlist, trackIndex)}
+            onRenamePlaylist={(playlist, name) => void renameSelectedPlaylist(playlist, name)}
+            onReorderTrack={(playlist, fromIndex, toIndex) => void reorderTrackInSelectedPlaylist(playlist, fromIndex, toIndex)}
+            onSelectTrack={selectTrack}
+            isSavingArtwork={isSavingPlaylistArtwork}
+            playlist={selectedPlaylist}
+            selectedTrackId={selectedTrackId}
+            t={t}
+            trackEntries={selectedPlaylistTrackEntries}
+          />
+        ) : (
+          <SelectedAlbumPanel {...tagEditing.selectedAlbumPanelProps} />
+        )}
 
         {shouldShowLibraryStatus && libraryInfo ? (
           <section className="library-status-bar" aria-live="polite">

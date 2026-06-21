@@ -11,7 +11,7 @@ import {
   useState,
 } from "react";
 import { getInitialLocale, translate, type Locale, type TranslationKey } from "../../i18n";
-import type { Album, EntityId, Track, LibrarySnapshot } from "../../types/audio";
+import type { Album, EntityId, Track, LibrarySnapshot, Playlist } from "../../types/audio";
 import {
   type AlbumListMode,
   type AlbumSortDirection,
@@ -100,9 +100,17 @@ import {
   findTracksByIds as findTracksByIdsInLibrary,
 } from "../../features/library/domain/librarySelection";
 import {
+  addTracksToPlaylist,
+  addTrackToPlaylist,
+  createPlaylist,
+  deletePlaylist,
   loadLibrarySnapshot,
   loadTrackLyrics as loadTrackLyricsFromRepository,
+  removePlaylistTrack,
+  renamePlaylist,
+  reorderPlaylistTrack,
   scanMusicFolder,
+  updatePlaylistArtwork,
 } from "../../features/library/infrastructure/tauriLibraryRepository";
 import {
   loadTrackAudioSource,
@@ -146,6 +154,7 @@ const {
   chunkDurationSeconds: remoteAudioAnalysisChunkDurationSeconds,
   durationPaddingSeconds: remoteAudioAnalysisDurationPaddingSeconds,
   fallbackDurationSeconds: remoteAudioAnalysisFallbackDurationSeconds,
+  maxCachedPackets: remoteAudioAnalysisMaxCachedPackets,
 } = remoteAudioAnalysisConfig;
 const {
   clockSnapThresholdSeconds: remotePlaybackClockSnapThresholdSeconds,
@@ -227,6 +236,16 @@ function waitForNextPaint() {
   });
 }
 
+function getHeapTotalUsageMb() {
+  const performanceWithMemory = performance as Performance & {
+    memory?: { totalJSHeapSize: number };
+  };
+
+  return performanceWithMemory.memory
+    ? Math.round(performanceWithMemory.memory.totalJSHeapSize / 1024 / 1024)
+    : null;
+}
+
 export function useAppController() {
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const playerBarRef = useRef<PlayerBarHandle | null>(null);
@@ -264,13 +283,16 @@ export function useAppController() {
   const [mcpUrl, setMcpUrl] = useState<string | null>(null);
   const [mcpError, setMcpError] = useState<string | null>(null);
   const [albums, setAlbums] = useState<Album[]>(hasRealBackend ? [] : mockAlbums);
+  const [playlists, setPlaylists] = useState<Playlist[]>([]);
   const [selectedAlbumId, setSelectedAlbumId] = useState<EntityId | null>(() =>
     hasRealBackend ? null : getInitialAlbumId(mockAlbums, storedPlaybackPreferences.selectedAlbumId),
   );
+  const [selectedPlaylistId, setSelectedPlaylistId] = useState<EntityId | null>(null);
   const [selectedTrackId, setSelectedTrackId] = useState<EntityId | null>(null);
   const [playbackAlbumId, setPlaybackAlbumId] = useState<EntityId | null>(() =>
     hasRealBackend ? null : getInitialAlbumId(mockAlbums, storedPlaybackPreferences.playbackAlbumId),
   );
+  const [playbackPlaylistId, setPlaybackPlaylistId] = useState<EntityId | null>(null);
   const [currentTrack, setCurrentTrack] = useState<Track | null>(() =>
     hasRealBackend ? null : getInitialTrack(mockAlbums, getInitialAlbumId(mockAlbums, storedPlaybackPreferences.playbackAlbumId)),
   );
@@ -314,6 +336,7 @@ export function useAppController() {
   const [artworkDraftPath, setArtworkDraftPath] = useState("");
   const [artworkPreviewSrc, setArtworkPreviewSrc] = useState("");
   const [isSavingArtwork, setIsSavingArtwork] = useState(false);
+  const [isSavingPlaylistArtwork, setIsSavingPlaylistArtwork] = useState(false);
   const remoteAccess = useRemoteAccess();
   renderCountRef.current += 1;
 
@@ -459,6 +482,7 @@ export function useAppController() {
     if (albums.length === 0) {
       setSelectedAlbumId(null);
       setPlaybackAlbumId(null);
+      setPlaybackPlaylistId(null);
       setCurrentTrack(null);
       setPlaybackQueueTrackIds([]);
       setIsPlaying(false);
@@ -479,6 +503,7 @@ export function useAppController() {
     }
 
     setPlaybackAlbumId(selectedAlbum.id);
+    setPlaybackPlaylistId(null);
     const nextTrack = selectedAlbum.tracks[0] ?? null;
     setCurrentTrack(nextTrack);
     setPlaybackQueueTrackIds(selectedAlbum.tracks.map((track) => track.id));
@@ -539,15 +564,92 @@ export function useAppController() {
     audioAnalysisPacketRef.current = null;
   }
 
+  function getRemoteAudioAnalysisRetainedTrackIds(trackId: EntityId | null = null) {
+    const retainedTrackIds = new Set<EntityId>();
+    if (trackId != null) retainedTrackIds.add(trackId);
+    if (currentTrack?.id != null) retainedTrackIds.add(currentTrack.id);
+    if (loadedRemoteAudioAnalysisTrackIdRef.current != null) {
+      retainedTrackIds.add(loadedRemoteAudioAnalysisTrackIdRef.current);
+    }
+    if (remotePlaybackClockRef.current?.trackId != null) {
+      retainedTrackIds.add(remotePlaybackClockRef.current.trackId);
+    }
+
+    const anchorTrackIndex =
+      currentTrackIndex >= 0
+        ? currentTrackIndex
+        : trackId != null
+          ? queue.findIndex((track) => track.id === trackId)
+          : -1;
+    if (anchorTrackIndex >= 0) {
+      const lastRetainedQueueIndex = Math.min(queue.length - 1, anchorTrackIndex + 1);
+      for (let index = Math.max(0, anchorTrackIndex - 1); index <= lastRetainedQueueIndex; index += 1) {
+        retainedTrackIds.add(queue[index].id);
+      }
+    }
+
+    return retainedTrackIds;
+  }
+
+  function logRemoteAudioAnalysisCacheDiagnostic(label: string, purgedTrackIds: EntityId[]) {
+    const payload = {
+      audioAnalysisPacketsCached: remoteAudioAnalysisPacketsByTrackRef.current.size,
+      jsHeapTotalMb: getHeapTotalUsageMb(),
+      jsHeapUsedMb: getHeapUsageMb(),
+      purgedAudioAnalysisPackets: purgedTrackIds.length,
+      purgedTrackIds,
+    };
+    logRenderDiagnostic(label, payload);
+    console.debug(`[remote-audio-analysis] ${label} ${JSON.stringify(payload)}`);
+  }
+
+  function purgeRemoteAudioAnalysisPackets(retainTrackId: EntityId | null = null) {
+    const packetsByTrack = remoteAudioAnalysisPacketsByTrackRef.current;
+    if (packetsByTrack.size <= remoteAudioAnalysisMaxCachedPackets) return;
+
+    const retainedTrackIds = getRemoteAudioAnalysisRetainedTrackIds(retainTrackId);
+    const purgedTrackIds: EntityId[] = [];
+    while (packetsByTrack.size > remoteAudioAnalysisMaxCachedPackets) {
+      const purgeTrackId =
+        [...packetsByTrack.keys()].find((trackId) => !retainedTrackIds.has(trackId)) ??
+        packetsByTrack.keys().next().value;
+      if (purgeTrackId == null) break;
+      packetsByTrack.delete(purgeTrackId);
+      purgedTrackIds.push(purgeTrackId);
+    }
+
+    if (purgedTrackIds.length === 0) return;
+    logRemoteAudioAnalysisCacheDiagnostic("Remote audio analysis cache purged", purgedTrackIds);
+  }
+
+  function clearRemoteAudioAnalysisPacketCache() {
+    const packetsByTrack = remoteAudioAnalysisPacketsByTrackRef.current;
+    if (packetsByTrack.size === 0) return;
+
+    const purgedTrackIds = [...packetsByTrack.keys()];
+    packetsByTrack.clear();
+    logRemoteAudioAnalysisCacheDiagnostic("Remote audio analysis cache cleared", purgedTrackIds);
+  }
+
   const filteredAlbums = useMemo(
     () => filterAndSortAlbums(albums, query, albumSortMode, albumSortDirection, t, lyricsOnly),
     [albumSortDirection, albumSortMode, albums, lyricsOnly, query, t],
   );
   const selectedAlbum =
     albums.find((album) => album.id === selectedAlbumId) ?? filteredAlbums[0] ?? albums[0] ?? null;
+  const selectedPlaylist = playlists.find((playlist) => playlist.id === selectedPlaylistId) ?? null;
   const selectedAlbumTrackEntries = useMemo(
     () => selectedAlbum?.tracks.map((track, trackIndex) => ({ album: selectedAlbum, track, trackIndex })) ?? [],
     [selectedAlbum],
+  );
+  const selectedPlaylistTrackEntries = useMemo(
+    () =>
+      selectedPlaylist?.tracks.map((track, trackIndex) => ({
+        album: findAlbumByTrackId(track.id),
+        track,
+        trackIndex,
+      })) ?? [],
+    [albums, selectedPlaylist],
   );
   const playbackAlbum =
     albums.find((album) => album.id === playbackAlbumId) ??
@@ -659,6 +761,11 @@ export function useAppController() {
 
   function applyLibrarySnapshot(snapshot: LibrarySnapshot, options: { resetPlayback: boolean }) {
     setAlbums(snapshot.albums);
+    setPlaylists(snapshot.playlists ?? []);
+    setSelectedPlaylistId((playlistId) =>
+      playlistId && snapshot.playlists?.some((playlist) => playlist.id === playlistId) ? playlistId : null,
+    );
+    clearRemoteAudioAnalysisPacketCache();
     setTrackLyricsById({});
     setLibraryPath(snapshot.lastScanPath ?? "");
     if (options.resetPlayback) {
@@ -667,6 +774,7 @@ export function useAppController() {
         getInitialAlbumId(snapshot.albums, storedPlaybackPreferences.playbackAlbumId) ?? restoredSelectedAlbumId;
       setSelectedAlbumId(restoredSelectedAlbumId);
       setPlaybackAlbumId(restoredPlaybackAlbumId);
+      setPlaybackPlaylistId(null);
       const restoredTrack = getInitialTrack(snapshot.albums, restoredPlaybackAlbumId);
       setCurrentTrack(restoredTrack);
       setPlaybackQueueTrackIds(
@@ -753,6 +861,9 @@ export function useAppController() {
     };
     if (playbackAlbumId !== state.playbackAlbumId) {
       setPlaybackAlbumId(state.playbackAlbumId);
+    }
+    if (playbackPlaylistId !== null) {
+      setPlaybackPlaylistId(null);
     }
 
     const syncedTrack = findTrackById(state.currentTrackId);
@@ -904,6 +1015,14 @@ export function useAppController() {
 
   const selectAlbum = useCallback((album: Album) => {
     setSelectedAlbumId(album.id);
+    setSelectedPlaylistId(null);
+    setSelectedTrackId(null);
+    setIsAlbumTagEditing(false);
+    setAlbumTagMessage(null);
+  }, []);
+
+  const selectPlaylist = useCallback((playlist: Playlist) => {
+    setSelectedPlaylistId(playlist.id);
     setSelectedTrackId(null);
     setIsAlbumTagEditing(false);
     setAlbumTagMessage(null);
@@ -918,6 +1037,7 @@ export function useAppController() {
 
     if (shouldSelectAlbum) setSelectedAlbumId(album.id);
     setPlaybackAlbumId(album.id);
+    setPlaybackPlaylistId(null);
     setPlaybackQueueTrackIds(queueTrackIds);
     setCurrentTrack(firstTrack);
     playerBarRef.current?.resetPosition();
@@ -931,10 +1051,254 @@ export function useAppController() {
     if (sendRemoteCommand("play-track", { albumId, trackId: track.id, isShuffle, queueTrackIds })) return;
 
     setPlaybackAlbumId(album?.id ?? albumId);
+    setPlaybackPlaylistId(null);
     setPlaybackQueueTrackIds(queueTrackIds);
     setCurrentTrack(track);
     setIsPlaying(true);
   }, [albums, isShuffle, selectedAlbumId]);
+
+  const playPlaylist = useCallback((playlist: Playlist) => {
+    const queueTracks = playlist.tracks;
+    const firstTrack = queueTracks[0] ?? null;
+    if (!firstTrack) return;
+    const firstAlbum = firstTrack ? findAlbumByTrackId(firstTrack.id) : null;
+    const queueTrackIds = queueTracks.map((track) => track.id);
+    if (sendRemoteCommand("play-track", {
+      albumId: firstAlbum?.id ?? null,
+      trackId: firstTrack.id,
+      isShuffle: false,
+      queueTrackIds,
+    })) return;
+
+    setPlaybackAlbumId(firstAlbum?.id ?? null);
+    setPlaybackPlaylistId(playlist.id);
+    setPlaybackQueueTrackIds(queueTrackIds);
+    setCurrentTrack(firstTrack);
+    playerBarRef.current?.resetPosition();
+    setIsPlaying(Boolean(firstTrack));
+  }, [albums]);
+
+  async function createEmptyPlaylist(name = t("playlists.defaultName")) {
+    const playlistName = name.trim();
+    if (!playlistName) {
+      setLibraryInfo({ key: "status.emptyPlaylistName" });
+      return;
+    }
+
+    try {
+      if (!hasRealBackend) {
+        const playlistId = `mock-playlist-${Date.now()}`;
+        setPlaylists((currentPlaylists) => [
+          ...currentPlaylists,
+          {
+            id: playlistId,
+            name: playlistName,
+            filePath: "",
+            artworkPath: null,
+            missingTrackPaths: [],
+            trackCount: 0,
+            tracks: [],
+          },
+        ]);
+        setSelectedPlaylistId(playlistId);
+        setLibraryInfo({ key: "status.playlistSaved" });
+        return;
+      }
+
+      const previousPlaylistIds = new Set(playlists.map((playlist) => playlist.id));
+      const snapshot = await createPlaylist(playlistName);
+      applyLibrarySnapshot(snapshot, { resetPlayback: false });
+      setSelectedPlaylistId(
+        snapshot.playlists.find((playlist) => !previousPlaylistIds.has(playlist.id))?.id ??
+          snapshot.playlists[snapshot.playlists.length - 1]?.id ??
+          null,
+      );
+      notifyLibraryChanged();
+      setLibraryInfo({ key: "status.playlistSaved" });
+    } catch (error) {
+      setLibraryInfo(toI18nError(error));
+    }
+  }
+
+  async function addTrackToSelectedPlaylist(track: Track, playlist: Playlist) {
+    try {
+      if (!hasRealBackend) {
+        setPlaylists((currentPlaylists) =>
+          currentPlaylists.map((currentPlaylist) => {
+            if (currentPlaylist.id !== playlist.id || currentPlaylist.tracks.some((playlistTrack) => playlistTrack.id === track.id)) {
+              return currentPlaylist;
+            }
+            const tracks = [...currentPlaylist.tracks, track];
+            return {
+              ...currentPlaylist,
+              trackCount: tracks.length,
+              tracks,
+            };
+          }),
+        );
+        setLibraryInfo({ key: "status.playlistTrackAdded" });
+        return;
+      }
+
+      const snapshot = await addTrackToPlaylist(playlist.id, track.id);
+      applyLibrarySnapshot(snapshot, { resetPlayback: false });
+      notifyLibraryChanged();
+      setLibraryInfo({ key: "status.playlistTrackAdded" });
+    } catch (error) {
+      setLibraryInfo(toI18nError(error));
+    }
+  }
+
+  async function addTracksToSelectedPlaylist(tracks: Track[], playlist: Playlist) {
+    const trackIds = tracks.map((track) => track.id);
+    if (trackIds.length === 0) return;
+
+    try {
+      if (!hasRealBackend) {
+        setPlaylists((currentPlaylists) =>
+          currentPlaylists.map((currentPlaylist) => {
+            if (currentPlaylist.id !== playlist.id) return currentPlaylist;
+            const existingIds = new Set(currentPlaylist.tracks.map((track) => String(track.id)));
+            const nextTracks = [
+              ...currentPlaylist.tracks,
+              ...tracks.filter((track) => !existingIds.has(String(track.id))),
+            ];
+            return { ...currentPlaylist, trackCount: nextTracks.length, tracks: nextTracks };
+          }),
+        );
+        setLibraryInfo({ key: "status.playlistTrackAdded" });
+        return;
+      }
+
+      const snapshot = await addTracksToPlaylist(playlist.id, trackIds);
+      applyLibrarySnapshot(snapshot, { resetPlayback: false });
+      setSelectedPlaylistId(playlist.id);
+      notifyLibraryChanged();
+      setLibraryInfo({ key: "status.playlistTrackAdded" });
+    } catch (error) {
+      setLibraryInfo(toI18nError(error));
+    }
+  }
+
+  async function renameSelectedPlaylist(playlist: Playlist, name: string) {
+    const playlistName = name.trim();
+    if (!playlistName) {
+      setLibraryInfo({ key: "status.emptyPlaylistName" });
+      return;
+    }
+
+    try {
+      if (!hasRealBackend) {
+        setPlaylists((currentPlaylists) =>
+          currentPlaylists.map((currentPlaylist) =>
+            currentPlaylist.id === playlist.id ? { ...currentPlaylist, name: playlistName } : currentPlaylist,
+          ),
+        );
+        setLibraryInfo({ key: "status.playlistSaved" });
+        return;
+      }
+
+      const snapshot = await renamePlaylist(playlist.id, playlistName);
+      applyLibrarySnapshot(snapshot, { resetPlayback: false });
+      setSelectedPlaylistId(playlist.id);
+      notifyLibraryChanged();
+      setLibraryInfo({ key: "status.playlistSaved" });
+    } catch (error) {
+      setLibraryInfo(toI18nError(error));
+    }
+  }
+
+  async function deleteSelectedPlaylist(playlist: Playlist) {
+    try {
+      if (!hasRealBackend) {
+        setPlaylists((currentPlaylists) => currentPlaylists.filter((currentPlaylist) => currentPlaylist.id !== playlist.id));
+        setSelectedPlaylistId(null);
+        setPlaybackPlaylistId((playlistId) => (playlistId === playlist.id ? null : playlistId));
+        setLibraryInfo({ key: "status.playlistDeleted" });
+        return;
+      }
+
+      const snapshot = await deletePlaylist(playlist.id);
+      applyLibrarySnapshot(snapshot, { resetPlayback: false });
+      setSelectedPlaylistId(null);
+      setPlaybackPlaylistId((playlistId) => (playlistId === playlist.id ? null : playlistId));
+      notifyLibraryChanged();
+      setLibraryInfo({ key: "status.playlistDeleted" });
+    } catch (error) {
+      setLibraryInfo(toI18nError(error));
+    }
+  }
+
+  async function removeTrackFromSelectedPlaylist(playlist: Playlist, trackIndex: number) {
+    try {
+      if (!hasRealBackend) {
+        setPlaylists((currentPlaylists) =>
+          currentPlaylists.map((currentPlaylist) => {
+            if (currentPlaylist.id !== playlist.id) return currentPlaylist;
+            const tracks = currentPlaylist.tracks.filter((_, index) => index !== trackIndex);
+            return { ...currentPlaylist, trackCount: tracks.length, tracks };
+          }),
+        );
+        setLibraryInfo({ key: "status.playlistTrackRemoved" });
+        return;
+      }
+
+      const snapshot = await removePlaylistTrack(playlist.id, trackIndex);
+      applyLibrarySnapshot(snapshot, { resetPlayback: false });
+      setSelectedPlaylistId(playlist.id);
+      notifyLibraryChanged();
+      setLibraryInfo({ key: "status.playlistTrackRemoved" });
+    } catch (error) {
+      setLibraryInfo(toI18nError(error));
+    }
+  }
+
+  async function reorderTrackInSelectedPlaylist(playlist: Playlist, fromIndex: number, toIndex: number) {
+    try {
+      if (!hasRealBackend) {
+        setPlaylists((currentPlaylists) =>
+          currentPlaylists.map((currentPlaylist) => {
+            if (currentPlaylist.id !== playlist.id) return currentPlaylist;
+            const tracks = [...currentPlaylist.tracks];
+            const [track] = tracks.splice(fromIndex, 1);
+            if (!track) return currentPlaylist;
+            tracks.splice(toIndex, 0, track);
+            return { ...currentPlaylist, tracks };
+          }),
+        );
+        setLibraryInfo({ key: "status.playlistSaved" });
+        return;
+      }
+
+      const snapshot = await reorderPlaylistTrack(playlist.id, fromIndex, toIndex);
+      applyLibrarySnapshot(snapshot, { resetPlayback: false });
+      setSelectedPlaylistId(playlist.id);
+      notifyLibraryChanged();
+      setLibraryInfo({ key: "status.playlistSaved" });
+    } catch (error) {
+      setLibraryInfo(toI18nError(error));
+    }
+  }
+
+  async function reloadPlaylists() {
+    try {
+      const snapshot = hasRealBackend ? await loadLibrarySnapshot() : { albums, playlists, lastScanPath: libraryPath || null, databasePath: "" };
+      applyLibrarySnapshot(snapshot, { resetPlayback: false });
+      notifyLibraryChanged();
+    } catch (error) {
+      setLibraryInfo(toI18nError(error));
+    }
+  }
+
+  function openAlbumFromPlaylist(album: Album) {
+    setAlbumViewMode("large");
+    selectAlbum(album);
+  }
+
+  function openPlaylistAddTracks() {
+    setAlbumViewMode("large");
+    setSelectedPlaylistId(null);
+  }
 
   const playQueuedTrack = useCallback((track: Track) => {
     const queueTrackIds = queue.map((track) => track.id);
@@ -943,6 +1307,7 @@ export function useAppController() {
     if (sendRemoteCommand("play-track", { albumId, trackId: track.id, isShuffle, queueTrackIds })) return;
 
     setPlaybackAlbumId(albumId);
+    setPlaybackPlaylistId(null);
     setPlaybackQueueTrackIds(queueTrackIds);
     setCurrentTrack(track);
     playerBarRef.current?.resetPosition();
@@ -1515,6 +1880,55 @@ export function useAppController() {
     }
   }
 
+  async function choosePlaylistArtwork(playlist: Playlist) {
+    if (isSavingPlaylistArtwork) return;
+
+    if (!isTauriRuntime) {
+      setLibraryInfo({ key: "trackDetail.artworkDesktopOnly" });
+      return;
+    }
+
+    try {
+      const selectedPath = await openDialog({
+        filters: [
+          {
+            name: "Images",
+            extensions: ["jpg", "jpeg", "png", "gif", "bmp", "tif", "tiff"],
+          },
+        ],
+        multiple: false,
+      });
+
+      if (typeof selectedPath !== "string") return;
+
+      setIsSavingPlaylistArtwork(true);
+      setLibraryInfo(null);
+
+      if (!hasRealBackend) {
+        setPlaylists((currentPlaylists) =>
+          currentPlaylists.map((currentPlaylist) =>
+            currentPlaylist.id === playlist.id
+              ? { ...currentPlaylist, artworkPath: selectedPath }
+              : currentPlaylist,
+          ),
+        );
+        setLibraryInfo({ key: "tags.artworkSaved" });
+        return;
+      }
+
+      const result = await updatePlaylistArtwork(playlist.id, selectedPath);
+      const snapshot = await loadLibrarySnapshot();
+      applyLibrarySnapshot(snapshot, { resetPlayback: false });
+      setSelectedPlaylistId(result.playlistId);
+      notifyLibraryChanged();
+      setLibraryInfo({ key: "tags.artworkSaved" });
+    } catch (error) {
+      setLibraryInfo(toI18nError(error));
+    } finally {
+      setIsSavingPlaylistArtwork(false);
+    }
+  }
+
   async function saveTrackArtwork() {
     if (!detailTrack || !detailAlbum || isSavingArtwork) return;
 
@@ -1552,6 +1966,7 @@ export function useAppController() {
 
     setSelectedAlbumId(album.id);
     setPlaybackAlbumId(album.id);
+    setPlaybackPlaylistId(null);
     setPlaybackQueueTrackIds(nextQueue.map((track) => track.id));
     setCurrentTrack(firstTrack);
     playerBarRef.current?.resetPosition();
@@ -1566,6 +1981,7 @@ export function useAppController() {
     const nextQueue = commandQueue.length > 0 ? commandQueue : album ? getAlbumQueueTracks(album, shouldShuffle, track) : [track];
 
     setPlaybackAlbumId(album?.id ?? albumId);
+    setPlaybackPlaylistId(null);
     setPlaybackQueueTrackIds(nextQueue.map((track) => track.id));
     setCurrentTrack(track);
     playerBarRef.current?.resetPosition();
@@ -1687,6 +2103,8 @@ export function useAppController() {
 
     const cachedPacket = remoteAudioAnalysisPacketsByTrackRef.current.get(track.id);
     if (cachedPacket) {
+      remoteAudioAnalysisPacketsByTrackRef.current.delete(track.id);
+      remoteAudioAnalysisPacketsByTrackRef.current.set(track.id, cachedPacket);
       audioAnalysisPacketRef.current = rebaseAudioAnalysisPacketPlaybackTime(
         cachedPacket,
         isTauriRuntime
@@ -1695,6 +2113,7 @@ export function useAppController() {
         performance.now(),
       );
       loadedRemoteAudioAnalysisTrackIdRef.current = track.id;
+      purgeRemoteAudioAnalysisPackets(track.id);
       return;
     }
 
@@ -1768,6 +2187,7 @@ export function useAppController() {
       );
       if (completePacket) {
         remoteAudioAnalysisPacketsByTrackRef.current.set(track.id, completePacket);
+        purgeRemoteAudioAnalysisPackets(track.id);
         audioAnalysisPacketRef.current = completePacket;
         loadedRemoteAudioAnalysisTrackIdRef.current = track.id;
       }
@@ -1838,6 +2258,7 @@ export function useAppController() {
       audioAnalysisPacketRef.current = null;
       remoteAudioAnalysisLoadStateRef.current = null;
       loadedRemoteAudioAnalysisTrackIdRef.current = null;
+      clearRemoteAudioAnalysisPacketCache();
       return;
     }
 
@@ -1932,6 +2353,8 @@ export function useAppController() {
     albumTagMessage,
     albumViewMode,
     albumsPanelRef,
+    addTracksToSelectedPlaylist,
+    addTrackToSelectedPlaylist,
     applyRemotePlayerState,
     artworkDraftPath,
     artworkPreviewSrc,
@@ -1945,10 +2368,12 @@ export function useAppController() {
     changeShuffle,
     changeTrackDetailTab,
     chooseArtwork,
+    choosePlaylistArtwork,
     closeTrackDetail,
     currentLyrics,
     currentTrack,
     cycleRepeatMode,
+    deleteSelectedPlaylist,
     detailAlbum,
     detailArtworkSrc,
     detailLyrics,
@@ -1978,6 +2403,7 @@ export function useAppController() {
     isPlaying,
     isSavingAlbumTags,
     isSavingArtwork,
+    isSavingPlaylistArtwork,
     isSavingTrackTags,
     isSavingTrackUserState,
     isScanning,
@@ -1994,6 +2420,8 @@ export function useAppController() {
     mcpUrl,
     moveTrackLongPress,
     openSelectedAlbumArtworkEditor,
+    openAlbumFromPlaylist,
+    openPlaylistAddTracks,
     openTrackDetail,
     openTrackLyrics,
     overscrollAlbumPanelPointer,
@@ -2002,17 +2430,24 @@ export function useAppController() {
     playAlbum,
     playNextTrack,
     playPlayback,
+    playPlaylist,
     playPreviousTrack,
     playQueuedTrack,
     playTrack,
     playbackAlbum,
     playbackError,
+    playbackPlaylist: playlists.find((playlist) => playlist.id === playbackPlaylistId) ?? null,
     playerBarRef,
+    playlists,
     query,
     queue,
     remoteAccess,
     remotePlaybackClockRef,
+    reloadPlaylists,
+    removeTrackFromSelectedPlaylist,
+    renameSelectedPlaylist,
     repeatMode,
+    reorderTrackInSelectedPlaylist,
     saveAlbumTags,
     saveTrackArtwork,
     saveTrackTags,
@@ -2022,8 +2457,13 @@ export function useAppController() {
     selectAlbum,
     selectedAlbum,
     selectedAlbumTrackEntries,
+    selectedPlaylist,
+    selectedPlaylistId,
+    selectedPlaylistTrackEntries,
     selectedTrackId,
     selectTrack,
+    selectPlaylist,
+    createEmptyPlaylist,
     setAlbumListMode,
     setAlbumSortDirection,
     setAlbumSortMode,

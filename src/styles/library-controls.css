@@ -33,7 +33,7 @@ h2 {
 
 .view-mode-buttons {
   display: inline-grid;
-  grid-template-columns: repeat(3, 40px);
+  grid-template-columns: repeat(4, 40px);
   gap: 6px;
   width: max-content;
   padding: 4px;
@@ -244,4 +244,3 @@ h2 {
 .info-text {
   font-size: 0.92rem;
 }
-

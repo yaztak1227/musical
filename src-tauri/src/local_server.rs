@@ -5,7 +5,10 @@ use crate::{
     app_settings::{self, AppSettings},
     audio_analysis,
     library::{
-        self, AlbumTagUpdateRequest, TrackArtworkUpdateRequest, TrackTagUpdateRequest,
+        self, AddTrackToPlaylistRequest, AddTracksToPlaylistRequest, AlbumTagUpdateRequest,
+        CreatePlaylistFromAlbumRequest, CreatePlaylistRequest, DeletePlaylistRequest,
+        PlaylistArtworkUpdateRequest, RemovePlaylistTrackRequest, RenamePlaylistRequest,
+        ReorderPlaylistTrackRequest, TrackArtworkUpdateRequest, TrackTagUpdateRequest,
         TrackUserStateUpdateRequest,
     },
 };
@@ -52,6 +55,11 @@ struct TrackTagRequestBody {
 #[derive(Debug, Deserialize)]
 struct TrackArtworkRequestBody {
     request: TrackArtworkUpdateRequest,
+}
+
+#[derive(Debug, Deserialize)]
+struct PlaylistArtworkRequestBody {
+    request: PlaylistArtworkUpdateRequest,
 }
 
 #[derive(Debug, Deserialize)]
@@ -422,6 +430,48 @@ fn route_request(
                 request_body.and_then(|body| scan_music_folder(&app, &body.folder_path)),
             )
         }
+        ("POST", "/api/create_playlist") => {
+            let request_body = parse_json::<CreatePlaylistRequest>(&request.body);
+            result_response(request_body.and_then(|body| library::create_playlist(&app, body)))
+        }
+        ("POST", "/api/add_track_to_playlist") => {
+            let request_body = parse_json::<AddTrackToPlaylistRequest>(&request.body);
+            result_response(
+                request_body.and_then(|body| library::add_track_to_playlist(&app, body)),
+            )
+        }
+        ("POST", "/api/add_tracks_to_playlist") => {
+            let request_body = parse_json::<AddTracksToPlaylistRequest>(&request.body);
+            result_response(
+                request_body.and_then(|body| library::add_tracks_to_playlist(&app, body)),
+            )
+        }
+        ("POST", "/api/rename_playlist") => {
+            let request_body = parse_json::<RenamePlaylistRequest>(&request.body);
+            result_response(request_body.and_then(|body| library::rename_playlist(&app, body)))
+        }
+        ("POST", "/api/delete_playlist") => {
+            let request_body = parse_json::<DeletePlaylistRequest>(&request.body);
+            result_response(request_body.and_then(|body| library::delete_playlist(&app, body)))
+        }
+        ("POST", "/api/remove_playlist_track") => {
+            let request_body = parse_json::<RemovePlaylistTrackRequest>(&request.body);
+            result_response(
+                request_body.and_then(|body| library::remove_playlist_track(&app, body)),
+            )
+        }
+        ("POST", "/api/reorder_playlist_track") => {
+            let request_body = parse_json::<ReorderPlaylistTrackRequest>(&request.body);
+            result_response(
+                request_body.and_then(|body| library::reorder_playlist_track(&app, body)),
+            )
+        }
+        ("POST", "/api/create_playlist_from_album") => {
+            let request_body = parse_json::<CreatePlaylistFromAlbumRequest>(&request.body);
+            result_response(
+                request_body.and_then(|body| library::create_playlist_from_album(&app, body)),
+            )
+        }
         ("POST", "/api/update_album_tags") => {
             let request_body = parse_json::<AlbumTagRequestBody>(&request.body);
             result_response(
@@ -438,6 +488,12 @@ fn route_request(
             let request_body = parse_json::<TrackArtworkRequestBody>(&request.body);
             result_response(
                 request_body.and_then(|body| library::update_track_artwork(&app, body.request)),
+            )
+        }
+        ("POST", "/api/update_playlist_artwork") => {
+            let request_body = parse_json::<PlaylistArtworkRequestBody>(&request.body);
+            result_response(
+                request_body.and_then(|body| library::update_playlist_artwork(&app, body.request)),
             )
         }
         ("POST", "/api/update_track_user_state") => {
@@ -903,6 +959,19 @@ fn mcp_tools() -> Value {
             }
         },
         {
+            "name": "update_playlist_artwork",
+            "title": "Update Playlist Artwork",
+            "description": "Copy artwork from a local image path next to the playlist file.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "playlistId": { "type": "string" },
+                    "artworkPath": { "type": "string" }
+                },
+                "required": ["playlistId", "artworkPath"]
+            }
+        },
+        {
             "name": "update_track_user_state",
             "title": "Update Track User State",
             "description": "Set Musical-only favorite and rating for a track.",
@@ -1056,6 +1125,27 @@ fn call_mcp_tool(
             let refresh_command = enqueue_remote_command(remote_state, "refresh-library", None)?;
             json!({ "scan": result, "refreshCommand": refresh_command })
         }
+        "create_playlist" => {
+            let request = serde_json::from_value::<CreatePlaylistRequest>(arguments)
+                .map_err(|error| error.to_string())?;
+            let result = library::create_playlist(app, request)?;
+            let refresh_command = enqueue_remote_command(remote_state, "refresh-library", None)?;
+            json!({ "snapshot": result, "refreshCommand": refresh_command })
+        }
+        "add_track_to_playlist" => {
+            let request = serde_json::from_value::<AddTrackToPlaylistRequest>(arguments)
+                .map_err(|error| error.to_string())?;
+            let result = library::add_track_to_playlist(app, request)?;
+            let refresh_command = enqueue_remote_command(remote_state, "refresh-library", None)?;
+            json!({ "snapshot": result, "refreshCommand": refresh_command })
+        }
+        "create_playlist_from_album" => {
+            let request = serde_json::from_value::<CreatePlaylistFromAlbumRequest>(arguments)
+                .map_err(|error| error.to_string())?;
+            let result = library::create_playlist_from_album(app, request)?;
+            let refresh_command = enqueue_remote_command(remote_state, "refresh-library", None)?;
+            json!({ "snapshot": result, "refreshCommand": refresh_command })
+        }
         "update_album_tags" => {
             let request = serde_json::from_value::<AlbumTagUpdateRequest>(arguments)
                 .map_err(|error| error.to_string())?;
@@ -1074,6 +1164,13 @@ fn call_mcp_tool(
             let request = serde_json::from_value::<TrackArtworkUpdateRequest>(arguments)
                 .map_err(|error| error.to_string())?;
             let result = library::update_track_artwork(app, request)?;
+            let refresh_command = enqueue_remote_command(remote_state, "refresh-library", None)?;
+            json!({ "update": result, "refreshCommand": refresh_command })
+        }
+        "update_playlist_artwork" => {
+            let request = serde_json::from_value::<PlaylistArtworkUpdateRequest>(arguments)
+                .map_err(|error| error.to_string())?;
+            let result = library::update_playlist_artwork(app, request)?;
             let refresh_command = enqueue_remote_command(remote_state, "refresh-library", None)?;
             json!({ "update": result, "refreshCommand": refresh_command })
         }

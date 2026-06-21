@@ -5,9 +5,13 @@ mod library;
 mod local_server;
 
 use library::{
-    AlbumTagUpdateRequest, AlbumTagUpdateResult, LibrarySnapshot, ScanSummary,
-    TrackArtworkUpdateRequest, TrackArtworkUpdateResult, TrackTagUpdateRequest,
-    TrackTagUpdateResult, TrackUserStateUpdateRequest, TrackUserStateUpdateResult,
+    AddTrackToPlaylistRequest, AddTracksToPlaylistRequest, AlbumTagUpdateRequest,
+    AlbumTagUpdateResult, CreatePlaylistFromAlbumRequest, CreatePlaylistRequest,
+    DeletePlaylistRequest, LibrarySnapshot, PlaylistArtworkUpdateRequest,
+    PlaylistArtworkUpdateResult, RemovePlaylistTrackRequest, RenamePlaylistRequest,
+    ReorderPlaylistTrackRequest, ScanSummary, TrackArtworkUpdateRequest, TrackArtworkUpdateResult,
+    TrackTagUpdateRequest, TrackTagUpdateResult, TrackUserStateUpdateRequest,
+    TrackUserStateUpdateResult,
 };
 use log::{error, info, LevelFilter};
 
@@ -32,6 +36,96 @@ fn scan_music_folder(app: tauri::AppHandle, folder_path: String) -> Result<ScanS
 }
 
 #[tauri::command]
+fn create_playlist(app: tauri::AppHandle, name: String) -> Result<LibrarySnapshot, String> {
+    library::create_playlist(&app, CreatePlaylistRequest { name })
+}
+
+#[tauri::command]
+fn add_track_to_playlist(
+    app: tauri::AppHandle,
+    playlist_id: String,
+    track_id: String,
+) -> Result<LibrarySnapshot, String> {
+    library::add_track_to_playlist(
+        &app,
+        AddTrackToPlaylistRequest {
+            playlist_id,
+            track_id,
+        },
+    )
+}
+
+#[tauri::command]
+fn add_tracks_to_playlist(
+    app: tauri::AppHandle,
+    playlist_id: String,
+    track_ids: Vec<String>,
+) -> Result<LibrarySnapshot, String> {
+    library::add_tracks_to_playlist(
+        &app,
+        AddTracksToPlaylistRequest {
+            playlist_id,
+            track_ids,
+        },
+    )
+}
+
+#[tauri::command]
+fn rename_playlist(
+    app: tauri::AppHandle,
+    playlist_id: String,
+    name: String,
+) -> Result<LibrarySnapshot, String> {
+    library::rename_playlist(&app, RenamePlaylistRequest { playlist_id, name })
+}
+
+#[tauri::command]
+fn delete_playlist(app: tauri::AppHandle, playlist_id: String) -> Result<LibrarySnapshot, String> {
+    library::delete_playlist(&app, DeletePlaylistRequest { playlist_id })
+}
+
+#[tauri::command]
+fn remove_playlist_track(
+    app: tauri::AppHandle,
+    playlist_id: String,
+    track_index: usize,
+) -> Result<LibrarySnapshot, String> {
+    library::remove_playlist_track(
+        &app,
+        RemovePlaylistTrackRequest {
+            playlist_id,
+            track_index,
+        },
+    )
+}
+
+#[tauri::command]
+fn reorder_playlist_track(
+    app: tauri::AppHandle,
+    playlist_id: String,
+    from_index: usize,
+    to_index: usize,
+) -> Result<LibrarySnapshot, String> {
+    library::reorder_playlist_track(
+        &app,
+        ReorderPlaylistTrackRequest {
+            playlist_id,
+            from_index,
+            to_index,
+        },
+    )
+}
+
+#[tauri::command]
+fn create_playlist_from_album(
+    app: tauri::AppHandle,
+    album_id: String,
+    name: String,
+) -> Result<LibrarySnapshot, String> {
+    library::create_playlist_from_album(&app, CreatePlaylistFromAlbumRequest { album_id, name })
+}
+
+#[tauri::command]
 fn update_album_tags(
     app: tauri::AppHandle,
     request: AlbumTagUpdateRequest,
@@ -53,6 +147,14 @@ fn update_track_artwork(
     request: TrackArtworkUpdateRequest,
 ) -> Result<TrackArtworkUpdateResult, String> {
     library::update_track_artwork(&app, request)
+}
+
+#[tauri::command]
+fn update_playlist_artwork(
+    app: tauri::AppHandle,
+    request: PlaylistArtworkUpdateRequest,
+) -> Result<PlaylistArtworkUpdateResult, String> {
+    library::update_playlist_artwork(&app, request)
 }
 
 #[tauri::command]
@@ -108,11 +210,20 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            add_track_to_playlist,
+            add_tracks_to_playlist,
             app_status,
+            create_playlist,
+            create_playlist_from_album,
+            delete_playlist,
             library_snapshot,
+            remove_playlist_track,
+            rename_playlist,
+            reorder_playlist_track,
             scan_music_folder,
             track_lyrics,
             update_album_tags,
+            update_playlist_artwork,
             update_track_artwork,
             update_track_tags,
             update_track_user_state

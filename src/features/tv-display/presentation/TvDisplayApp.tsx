@@ -98,7 +98,7 @@ export function TvDisplayApp({ snapshot = mockTvSessionSnapshot }: TvDisplayAppP
       try {
         const librarySnapshot = await fetchJson<LibrarySnapshot>(librarySnapshotPath(libraryId));
         if (!isActive) return;
-        const nextAlbums = librarySnapshot.albums.filter((album) => album.tracks.length > 0);
+        const nextAlbums = makeTvCollections(librarySnapshot, t);
         setAlbums(nextAlbums);
         setSelectedAlbumIndex((index) => clampIndex(index, nextAlbums.length));
         setFocusedAlbumIndex((index) => clampIndex(index, nextAlbums.length));
@@ -687,6 +687,24 @@ function librarySnapshotPath(libraryId: string | null) {
   if (!libraryId) return "/api/library_snapshot";
   const query = new URLSearchParams({ libraryId });
   return `/api/library_snapshot?${query.toString()}`;
+}
+
+function makeTvCollections(snapshot: LibrarySnapshot, t: (key: string) => string): Album[] {
+  const albums = snapshot.albums.filter((album) => album.tracks.length > 0);
+  const playlistAlbums = snapshot.playlists
+    .filter((playlist) => playlist.tracks.length > 0)
+    .map((playlist) => ({
+      id: `playlist:${playlist.id}`,
+      groupKey: `playlist:${playlist.id}`,
+      title: playlist.name,
+      artist: t("view.playlists"),
+      year: null,
+      yearLabel: null,
+      genre: null,
+      artworkPath: playlist.artworkPath ?? null,
+      tracks: playlist.tracks,
+    }));
+  return [...playlistAlbums, ...albums];
 }
 
 function makePlayerState(

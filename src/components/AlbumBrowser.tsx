@@ -9,7 +9,7 @@ import {
   useRef,
   useState,
 } from "react";
-import { ArrowDownAZ, ArrowUpAZ, ListMusic, Maximize2, Minimize2, Pause, Play, ScrollText, Search, SlidersHorizontal } from "lucide-react";
+import { ArrowDownAZ, ArrowUpAZ, ListMusic, Maximize2, Minimize2, Pause, Play, Plus, ScrollText, Search, SlidersHorizontal } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -17,11 +17,11 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Toggle } from "@/components/ui/toggle";
 import type { TranslationKey } from "@/i18n";
-import type { Album, EntityId, Track } from "@/types/audio";
+import type { Album, EntityId, Playlist, Track } from "@/types/audio";
 import type { AlbumListMode, AlbumSortDirection, AlbumSortMode, AlbumViewMode } from "@/types/app";
 import { AlbumCard, AlbumCardFactory } from "@/components/AlbumCard";
 import { formatTrackDuration } from "@/lib/formatUtils";
-import { localizeLibraryText } from "@/lib/libraryUtils";
+import { getPlaylistArtworkSrc, localizeLibraryText } from "@/lib/libraryUtils";
 import { prepareMarquee } from "@/lib/marqueeUtils";
 import { logRenderDiagnostic } from "@/lib/renderDiagnostics";
 
@@ -38,16 +38,21 @@ type AlbumBrowserProps = {
   panelRef: RefObject<HTMLElement | null>;
   lyricsOnly: boolean;
   playbackAlbumId: EntityId | null;
+  playlists: Playlist[];
   query: string;
   selectedAlbumId: EntityId | null;
+  selectedPlaylistId: EntityId | null;
   t: TFunction;
   onPausePlayback: () => void;
+  onCreatePlaylist: (name: string) => void;
   onPlayAlbum: (album: Album, options?: { selectAlbum?: boolean }) => void;
+  onPlayPlaylist: (playlist: Playlist) => void;
   onQueryChange: (query: string) => void;
   onLyricsOnlyChange: (lyricsOnly: boolean) => void;
   onListModeChange: (listMode: AlbumListMode) => void;
   onOpenTrackLyrics: (track: Track) => void;
   onSelectAlbum: (album: Album) => void;
+  onSelectPlaylist: (playlist: Playlist) => void;
   onPlayTrack: (track: Track, albumId: EntityId) => void;
   onSortDirectionChange: (sortDirection: AlbumSortDirection) => void;
   onSortModeChange: (sortMode: AlbumSortMode) => void;
@@ -80,16 +85,21 @@ function AlbumBrowserComponent({
   panelRef,
   lyricsOnly,
   playbackAlbumId,
+  playlists,
   query,
   selectedAlbumId,
+  selectedPlaylistId,
   t,
   onPausePlayback,
+  onCreatePlaylist,
   onPlayAlbum,
+  onPlayPlaylist,
   onQueryChange,
   onLyricsOnlyChange,
   onListModeChange,
   onOpenTrackLyrics,
   onSelectAlbum,
+  onSelectPlaylist,
   onPlayTrack,
   onSortDirectionChange,
   onSortModeChange,
@@ -100,6 +110,7 @@ function AlbumBrowserComponent({
   const programmaticScrollRef = useRef(false);
   const programmaticScrollEndTimeoutRef = useRef<number | null>(null);
   const [isFilterPanelOpen, setIsFilterPanelOpen] = useState(false);
+  const [newPlaylistName, setNewPlaylistName] = useState("");
   const [scrollIndexItems, setScrollIndexItems] = useState<AlbumScrollIndexItem[]>([]);
   const [activeScrollIndex, setActiveScrollIndex] = useState(0);
   renderCountRef.current += 1;
@@ -113,6 +124,19 @@ function AlbumBrowserComponent({
       ),
     [albums, lyricsOnly],
   );
+  const filteredPlaylists = useMemo(() => {
+    const normalizedQuery = query.trim().toLocaleLowerCase();
+    if (!normalizedQuery) return playlists;
+    return playlists.filter((playlist) => {
+      const playlistText = [
+        playlist.name,
+        ...playlist.tracks.flatMap((track) => [track.title, track.artist, track.filePath ?? ""]),
+      ]
+        .join(" ")
+        .toLocaleLowerCase();
+      return playlistText.includes(normalizedQuery);
+    });
+  }, [playlists, query]);
   const nextSortDirection = albumSortDirection === "asc" ? "desc" : "asc";
   const sortDirectionLabel =
     albumSortDirection === "asc" ? t("sort.ascending") : t("sort.descending");
@@ -127,6 +151,16 @@ function AlbumBrowserComponent({
     if (albumSortMode === "artist") return getScrollIndexLabel(localizeLibraryText(track.artist, t));
     if (albumSortMode === "year") return getScrollIndexLabel(String(album.yearLabel ?? album.year ?? t("library.fallbackYear")), { collapseNumbers: false });
     return getScrollIndexLabel(localizeLibraryText(track.title, t));
+  }
+
+  function getPlaylistScrollIndexLabel(playlist: Playlist) {
+    return getScrollIndexLabel(playlist.name);
+  }
+
+  function submitNewPlaylist() {
+    const name = newPlaylistName.trim() || t("playlists.defaultName");
+    onCreatePlaylist(name);
+    setNewPlaylistName("");
   }
 
   function getVisibleAlbumRowIndex() {
@@ -230,7 +264,7 @@ function AlbumBrowserComponent({
 
   useLayoutEffect(() => {
     rebuildScrollIndex();
-  }, [albumListMode, albumSortMode, albumViewMode, albums, t, trackRows.length]);
+  }, [albumListMode, albumSortMode, albumViewMode, albums, filteredPlaylists, t, trackRows.length]);
 
   useEffect(() => {
     const scrollElement = albumListRef.current;
@@ -239,7 +273,7 @@ function AlbumBrowserComponent({
     const resizeObserver = new ResizeObserver(() => rebuildScrollIndex());
     resizeObserver.observe(scrollElement);
     return () => resizeObserver.disconnect();
-  }, [albumListMode, albumSortMode, albumViewMode, albums, t, trackRows.length]);
+  }, [albumListMode, albumSortMode, albumViewMode, albums, filteredPlaylists, t, trackRows.length]);
 
   useEffect(() => {
     syncActiveScrollIndex();
@@ -258,6 +292,7 @@ function AlbumBrowserComponent({
       albums: albums.length,
       albumViewMode,
       lyricsOnly,
+      playlists: playlists.length,
       query,
       render: renderCountRef.current,
       selectedAlbumId,
@@ -268,7 +303,35 @@ function AlbumBrowserComponent({
     <section className="albums-panel" aria-label={t("library.albumListLabel")} data-scroll-index-mode={albumSortMode} ref={panelRef}>
       <div className="albums-panel-header">
         <div className="albums-title">
-          <Badge variant="secondary">{t("albums.count", { count: albums.length })}</Badge>
+          <Badge variant="secondary">
+            {albumViewMode === "playlist" ? t("playlists.count", { count: filteredPlaylists.length }) : t("albums.count", { count: albums.length })}
+          </Badge>
+          {albumViewMode === "playlist" ? (
+            <form
+              className="playlist-create-form"
+              onSubmit={(event) => {
+                event.preventDefault();
+                submitNewPlaylist();
+              }}
+            >
+              <Input
+                aria-label={t("playlists.namePrompt")}
+                onChange={(event) => setNewPlaylistName(event.target.value)}
+                placeholder={t("playlists.defaultName")}
+                value={newPlaylistName}
+              />
+              <Button
+                aria-label={t("playlists.create")}
+                className="playlist-create-button"
+                title={t("playlists.create")}
+                type="submit"
+                variant="outline"
+              >
+                <Plus aria-hidden="true" />
+                <span>{t("playlists.create")}</span>
+              </Button>
+            </form>
+          ) : null}
           <Button
             aria-expanded={isFilterPanelOpen}
             aria-label={t("filters.toggle")}
@@ -352,6 +415,10 @@ function AlbumBrowserComponent({
                   <ListMusic />
                   <span className="sr-only">{t("view.list")}</span>
                 </TabsTrigger>
+                <TabsTrigger value="playlist" aria-label={t("view.playlists")} title={t("view.playlists")}>
+                  <ListMusic />
+                  <span className="sr-only">{t("view.playlists")}</span>
+                </TabsTrigger>
               </TabsList>
             </Tabs>
           </div>
@@ -363,7 +430,76 @@ function AlbumBrowserComponent({
         onScroll={syncActiveScrollIndex}
         ref={albumListRef}
       >
-        {albumViewMode === "list" ? (
+        {albumViewMode === "playlist" ? (
+          <div className="album-grid large playlist-grid">
+            {filteredPlaylists.length === 0 ? (
+              <div className="empty-state">{t("playlists.empty")}</div>
+            ) : (
+              filteredPlaylists.map((playlist) => {
+                const playlistArtworkSrc = getPlaylistArtworkSrc(playlist);
+
+                return (
+                  <Button
+                    className={[
+                      "album-card playlist-card",
+                      playlist.id === selectedPlaylistId ? "active" : "",
+                    ]
+                      .filter(Boolean)
+                      .join(" ")}
+                    data-scroll-index-id={`playlist-${playlist.id}`}
+                    data-scroll-index-label={getPlaylistScrollIndexLabel(playlist)}
+                    key={playlist.id}
+                    onFocus={prepareMarquee}
+                    onMouseEnter={prepareMarquee}
+                    onClick={() => onSelectPlaylist(playlist)}
+                    title={playlist.name}
+                    type="button"
+                    variant="outline"
+                  >
+                    <span className="album-cover-wrap playlist-cover-wrap">
+                      {playlistArtworkSrc ? (
+                        <img alt={t("playlists.artworkAlt", { playlist: playlist.name })} src={playlistArtworkSrc} />
+                      ) : (
+                        <span className="album-placeholder playlist-placeholder" aria-hidden="true">
+                          <ListMusic aria-hidden="true" />
+                        </span>
+                      )}
+                      <span
+                        aria-label={t("playlists.play", { playlist: playlist.name })}
+                        className="album-hover-play musical-ripple-button"
+                        aria-disabled={playlist.tracks.length === 0}
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          if (playlist.tracks.length === 0) return;
+                          onPlayPlaylist(playlist);
+                        }}
+                        onKeyDown={(event) => {
+                          if (event.key === "Enter" || event.key === " ") {
+                            event.preventDefault();
+                            event.stopPropagation();
+                            if (playlist.tracks.length === 0) return;
+                            onPlayPlaylist(playlist);
+                          }
+                        }}
+                        role="button"
+                        tabIndex={0}
+                        title={t("playlists.play", { playlist: playlist.name })}
+                      >
+                        <Play aria-hidden="true" />
+                      </span>
+                    </span>
+                    <span className="album-card-title marquee-wrap">
+                      <span className="marquee-text">{playlist.name}</span>
+                    </span>
+                    <small className="album-card-meta">
+                      {t("playlists.trackCount", { count: playlist.trackCount })}
+                    </small>
+                  </Button>
+                );
+              })
+            )}
+          </div>
+        ) : albumViewMode === "list" ? (
           albums.length === 0 ? (
             <div className="empty-state">{t("library.emptySearch")}</div>
           ) : albumListMode === "album" ? (

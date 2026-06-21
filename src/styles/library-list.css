@@ -430,6 +430,18 @@ button.album-card {
   font-weight: 800;
 }
 
+.playlist-placeholder svg {
+  width: 34%;
+  height: 34%;
+  min-width: 32px;
+  min-height: 32px;
+}
+
+.playlist-card .album-hover-play {
+  color: var(--primary-foreground);
+  background: var(--primary);
+}
+
 .album-grid.large .album-placeholder,
 .placeholder-art {
   background:

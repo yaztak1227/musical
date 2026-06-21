@@ -1,5 +1,5 @@
-import type { CSSProperties, PointerEvent, RefObject, TouchEvent } from "react";
-import { Check, Heart, Pencil, Play, Save, ScrollText, Star, X } from "lucide-react";
+import { useState, type CSSProperties, type PointerEvent, type RefObject, type TouchEvent } from "react";
+import { Check, Heart, Pencil, Play, Plus, Save, ScrollText, Star, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Separator } from "@/components/ui/separator";
@@ -8,7 +8,7 @@ import { getArtworkSrc, localizeLibraryText } from "@/lib/libraryUtils";
 import { prepareMarquee } from "@/lib/marqueeUtils";
 import type { AlbumTagDraft } from "@/lib/tagEditing";
 import type { I18nMessage, TFunction } from "@/types/app";
-import type { Album, EntityId, Track } from "@/types/audio";
+import type { Album, EntityId, Playlist, Track } from "@/types/audio";
 
 type TrackDetailTab = "info" | "lyrics" | "artwork";
 
@@ -42,6 +42,8 @@ type SelectedAlbumPanelProps = {
   onMoveTrackLongPress: (event: PointerEvent<HTMLButtonElement>, track: Track) => void;
   onOpenSelectedAlbumArtworkEditor: () => void;
   onOpenTrackDetail: (track: Track, tab?: TrackDetailTab) => void;
+  onAddTrackToPlaylist: (track: Track, playlist: Playlist) => void;
+  onAddTracksToPlaylist: (tracks: Track[], playlist: Playlist) => void;
   onPlayTrack: (track: Track, albumId: EntityId) => void;
   onSaveAlbumTags: () => void;
   onSelectTrack: (track: Track) => void;
@@ -49,6 +51,7 @@ type SelectedAlbumPanelProps = {
   onStartTrackLongPress: (event: PointerEvent<HTMLButtonElement>, track: Track) => void;
   selectedAlbum: Album | null;
   selectedTrackId: EntityId | null;
+  playlists: Playlist[];
   t: TFunction;
   trackEntries: LibraryTrackEntry[];
 };
@@ -77,6 +80,8 @@ export function SelectedAlbumPanel({
   onMoveTrackLongPress,
   onOpenSelectedAlbumArtworkEditor,
   onOpenTrackDetail,
+  onAddTrackToPlaylist,
+  onAddTracksToPlaylist,
   onPlayTrack,
   onSaveAlbumTags,
   onSelectTrack,
@@ -84,9 +89,12 @@ export function SelectedAlbumPanel({
   onStartTrackLongPress,
   selectedAlbum,
   selectedTrackId,
+  playlists,
   t,
   trackEntries,
 }: SelectedAlbumPanelProps) {
+  const [isAlbumPlaylistMenuOpen, setIsAlbumPlaylistMenuOpen] = useState(false);
+  const [playlistMenuTrackId, setPlaylistMenuTrackId] = useState<EntityId | null>(null);
   const selectedAlbumArtworkSrc = selectedAlbum ? getArtworkSrc(selectedAlbum) : "";
   const hasAlbumSaveSuccess =
     albumTagMessage?.key === "tags.saved" || albumTagMessage?.key === "tags.partialSaved" || albumTagMessage?.key === "tags.mockSaved";
@@ -234,6 +242,47 @@ export function SelectedAlbumPanel({
                 </button>
                 <p>{localizeLibraryText(selectedAlbum.artist, t)}</p>
                 {selectedAlbum.genre ? <p className="album-genre">{selectedAlbum.genre}</p> : null}
+                <div className="album-playlist-add-wrap">
+                  <Button
+                    aria-expanded={isAlbumPlaylistMenuOpen}
+                    aria-label={t("playlists.addAlbumTracks", { album: localizeLibraryText(selectedAlbum.title, t) })}
+                    disabled={playlists.length === 0 || selectedAlbum.tracks.length === 0}
+                    onClick={() => setIsAlbumPlaylistMenuOpen((value) => !value)}
+                    title={playlists.length === 0 ? t("playlists.noPlaylists") : t("playlists.addAlbumTracks", { album: localizeLibraryText(selectedAlbum.title, t) })}
+                    type="button"
+                    variant="outline"
+                  >
+                    <Plus aria-hidden="true" />
+                    <span>{t("playlists.addAllTracks")}</span>
+                  </Button>
+                  {isAlbumPlaylistMenuOpen ? (
+                    <div className="track-playlist-menu album-playlist-menu" role="menu" aria-label={t("playlists.chooseDestination")}>
+                      {playlists.map((playlist) => {
+                        const existingTrackIds = new Set(playlist.tracks.map((playlistTrack) => String(playlistTrack.id)));
+                        const newTrackCount = selectedAlbum.tracks.filter((track) => !existingTrackIds.has(String(track.id))).length;
+                        return (
+                          <button
+                            disabled={newTrackCount === 0}
+                            key={playlist.id}
+                            onClick={() => {
+                              onAddTracksToPlaylist(selectedAlbum.tracks, playlist);
+                              setIsAlbumPlaylistMenuOpen(false);
+                            }}
+                            role="menuitem"
+                            type="button"
+                          >
+                            <span>{playlist.name}</span>
+                            <small>
+                              {newTrackCount === 0
+                                ? t("playlists.alreadyAdded")
+                                : t("playlists.newTrackCount", { count: newTrackCount })}
+                            </small>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  ) : null}
+                </div>
               </>
             )}
             {albumTagMessage ? (
@@ -332,7 +381,44 @@ export function SelectedAlbumPanel({
                       </span>
                     ) : null}
                   </span>
-                  <small>{formatTrackDuration(track)}</small>
+                  <span className="track-row-actions">
+                    <small>{formatTrackDuration(track)}</small>
+                    <span className="track-playlist-add-wrap">
+                      <button
+                        aria-expanded={playlistMenuTrackId === track.id}
+                        aria-label={t("playlists.addTrack", { track: localizeLibraryText(track.title, t) })}
+                        className="track-playlist-add-button"
+                        disabled={playlists.length === 0}
+                        onClick={() => setPlaylistMenuTrackId((currentTrackId) => (currentTrackId === track.id ? null : track.id))}
+                        title={playlists.length === 0 ? t("playlists.noPlaylists") : t("playlists.addTrack", { track: localizeLibraryText(track.title, t) })}
+                        type="button"
+                      >
+                        <Plus aria-hidden="true" />
+                      </button>
+                      {playlistMenuTrackId === track.id ? (
+                        <div className="track-playlist-menu" role="menu" aria-label={t("playlists.chooseDestination")}>
+                          {playlists.map((playlist) => {
+                            const isAlreadyAdded = playlist.tracks.some((playlistTrack) => playlistTrack.id === track.id);
+                            return (
+                              <button
+                                disabled={isAlreadyAdded}
+                                key={playlist.id}
+                                onClick={() => {
+                                  onAddTrackToPlaylist(track, playlist);
+                                  setPlaylistMenuTrackId(null);
+                                }}
+                                role="menuitem"
+                                type="button"
+                              >
+                                <span>{playlist.name}</span>
+                                <small>{isAlreadyAdded ? t("playlists.alreadyAdded") : t("playlists.trackCount", { count: playlist.trackCount })}</small>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      ) : null}
+                    </span>
+                  </span>
                 </li>
               );
             })}

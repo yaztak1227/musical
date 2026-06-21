@@ -180,12 +180,38 @@ function drawBars(context: CanvasRenderingContext2D, bars: Float32Array, width: 
     gradient.addColorStop(1, "hsla(332, 78%, 64%, 0.34)");
     context.fillStyle = gradient;
     context.shadowColor = `hsla(${hue}, 88%, 62%, 0.24)`;
-    context.beginPath();
-    context.roundRect(x, y, barWidth, barHeight, Math.min(999, barWidth / 2));
+    addRoundedRectPath(context, x, y, barWidth, barHeight, Math.min(999, barWidth / 2));
     context.fill();
   }
 
   context.restore();
+}
+
+function addRoundedRectPath(
+  context: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  width: number,
+  height: number,
+  radius: number,
+) {
+  context.beginPath();
+  if (typeof context.roundRect === "function") {
+    context.roundRect(x, y, width, height, radius);
+    return;
+  }
+
+  const safeRadius = Math.min(radius, width / 2, height / 2);
+  context.moveTo(x + safeRadius, y);
+  context.lineTo(x + width - safeRadius, y);
+  context.quadraticCurveTo(x + width, y, x + width, y + safeRadius);
+  context.lineTo(x + width, y + height - safeRadius);
+  context.quadraticCurveTo(x + width, y + height, x + width - safeRadius, y + height);
+  context.lineTo(x + safeRadius, y + height);
+  context.quadraticCurveTo(x, y + height, x, y + height - safeRadius);
+  context.lineTo(x, y + safeRadius);
+  context.quadraticCurveTo(x, y, x + safeRadius, y);
+  context.closePath();
 }
 
 function clamp01(value: number) {

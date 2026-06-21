@@ -24,6 +24,7 @@ export const remoteAudioAnalysisConfig = {
   chunkDurationSeconds: 30,
   durationPaddingSeconds: 2,
   fallbackDurationSeconds: 15 * 60,
+  maxCachedPackets: 5,
 } as const;
 
 export const remotePlaybackConfig = {
