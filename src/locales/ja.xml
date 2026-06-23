@@ -231,6 +231,8 @@
   <message key="tvDisplay.audioError">この音声ストリームを再生できませんでした。</message>
   <message key="tvDisplay.nextTrack">次</message>
   <message key="tvDisplay.albums">アルバム</message>
+  <message key="tvDisplay.playlists">プレイリスト</message>
+  <message key="tvDisplay.collectionType">ライブラリ種別</message>
   <message key="tvDisplay.tracks">曲</message>
   <message key="tvDisplay.selectedTrack">選択中</message>
   <message key="tvDisplay.libraryError">ライブラリを読み込めませんでした。</message>
@@ -238,6 +240,14 @@
   <message key="tvDisplay.queue">次に再生</message>
   <message key="tvDisplay.visualizer">ビジュアライザ</message>
   <message key="tvDisplay.memoryUsage">メモリ</message>
+  <message key="tvDisplay.sessionConnecting">TVセッションに接続中...</message>
+  <message key="tvDisplay.sessionConnected">TVセッションに接続しました</message>
+  <message key="tvDisplay.sessionDisconnected">TVセッションが切断されました</message>
+  <message key="tvDisplay.sessionError">TVセッションに接続できませんでした</message>
+  <message key="tvDisplay.noLyrics">この曲の歌詞はありません。</message>
+  <message key="tvDisplay.queueCount">{count}曲</message>
+  <message key="tvDisplay.queueEmpty">キューは空です。</message>
+  <message key="tvDisplay.chooseCandidate">リモコンで選択</message>
   <message key="status.noLibraryScanned">ライブラリはまだスキャンされていません。</message>
   <message key="status.webMockMode">Web モードではモックアルバムを使用しています。</message>
   <message key="status.loadedAlbums">{count} 件のアルバムを {databasePath} から読み込みました</message>

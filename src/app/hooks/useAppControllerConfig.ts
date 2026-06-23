@@ -1,0 +1,29 @@
+import {
+  appInteractionConfig,
+  audioAnalysisConfig,
+  remoteAudioAnalysisConfig,
+  remotePlaybackConfig,
+} from "../../config/appConfig";
+
+export const {
+  albumPanelDragTolerance,
+  albumPanelSwipeThreshold,
+  trackLongPressDelayMs,
+  trackLongPressMoveTolerance,
+} = appInteractionConfig;
+export const audioAnalysisSampleIntervalMs: number = audioAnalysisConfig.sampleIntervalMs;
+
+export const {
+  chunkDurationSeconds: remoteAudioAnalysisChunkDurationSeconds,
+  durationPaddingSeconds: remoteAudioAnalysisDurationPaddingSeconds,
+  fallbackDurationSeconds: remoteAudioAnalysisFallbackDurationSeconds,
+  maxCachedPackets: remoteAudioAnalysisMaxCachedPackets,
+} = remoteAudioAnalysisConfig;
+export const {
+  clockSnapThresholdSeconds: remotePlaybackClockSnapThresholdSeconds,
+  libraryCommandPollIntervalMs,
+  playerCommandPollIntervalMs,
+  playerStateSyncIntervalMs: remotePlayerStateSyncIntervalMs,
+  stateTransitDelayMaxSeconds: remotePlayerStateTransitDelayMaxSeconds,
+  stalePlayerStateToleranceSeconds: staleRemotePlayerStateToleranceSeconds,
+} = remotePlaybackConfig;

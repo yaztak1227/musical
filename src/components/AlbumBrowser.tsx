@@ -9,7 +9,7 @@ import {
   useRef,
   useState,
 } from "react";
-import { ArrowDownAZ, ArrowUpAZ, ListMusic, Maximize2, Minimize2, Pause, Play, Plus, ScrollText, Search, SlidersHorizontal } from "lucide-react";
+import { ArrowDownAZ, ArrowUpAZ, ListMusic, Maximize2, Minimize2, Pause, Play, Plus, ScrollText, Search, SlidersHorizontal, SquareLibrary } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -412,7 +412,7 @@ function AlbumBrowserComponent({
                   <span className="sr-only">{t("view.smallIcons")}</span>
                 </TabsTrigger>
                 <TabsTrigger value="list" aria-label={t("view.list")} title={t("view.list")}>
-                  <ListMusic />
+                  <SquareLibrary />
                   <span className="sr-only">{t("view.list")}</span>
                 </TabsTrigger>
                 <TabsTrigger value="playlist" aria-label={t("view.playlists")} title={t("view.playlists")}>

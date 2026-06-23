@@ -231,6 +231,8 @@
   <message key="tvDisplay.audioError">Could not play this audio stream.</message>
   <message key="tvDisplay.nextTrack">Next</message>
   <message key="tvDisplay.albums">Albums</message>
+  <message key="tvDisplay.playlists">Playlists</message>
+  <message key="tvDisplay.collectionType">Library section</message>
   <message key="tvDisplay.tracks">Tracks</message>
   <message key="tvDisplay.selectedTrack">Selected</message>
   <message key="tvDisplay.libraryError">Could not load the library.</message>
@@ -238,6 +240,14 @@
   <message key="tvDisplay.queue">Up next</message>
   <message key="tvDisplay.visualizer">Visualizer</message>
   <message key="tvDisplay.memoryUsage">Memory</message>
+  <message key="tvDisplay.sessionConnecting">Connecting to TV session...</message>
+  <message key="tvDisplay.sessionConnected">TV session connected</message>
+  <message key="tvDisplay.sessionDisconnected">TV session disconnected</message>
+  <message key="tvDisplay.sessionError">TV session connection failed</message>
+  <message key="tvDisplay.noLyrics">No lyrics for this track.</message>
+  <message key="tvDisplay.queueCount">{count} tracks</message>
+  <message key="tvDisplay.queueEmpty">The queue is empty.</message>
+  <message key="tvDisplay.chooseCandidate">Choose with the remote</message>
   <message key="status.noLibraryScanned">No library scanned yet.</message>
   <message key="status.webMockMode">Web mode is using mock albums.</message>
   <message key="status.loadedAlbums">{count} albums loaded from {databasePath}</message>

@@ -12,10 +12,12 @@ use crate::{
         TrackUserStateUpdateRequest,
     },
 };
+use base64::{engine::general_purpose, Engine as _};
 use include_dir::{include_dir, Dir};
 use log::{error, info, warn};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
+use sha1::{Digest, Sha1};
 use std::{
     collections::{HashMap, HashSet, VecDeque},
     fs::File,
@@ -24,7 +26,7 @@ use std::{
     path::Path,
     sync::{Arc, Condvar, LockResult, Mutex, MutexGuard},
     thread,
-    time::{SystemTime, UNIX_EPOCH},
+    time::{Duration, SystemTime, UNIX_EPOCH},
 };
 use tauri::AppHandle;
 
@@ -138,6 +140,62 @@ struct QueuedRemotePlayerCommand {
     payload: Option<Value>,
 }
 
+#[derive(Debug, Deserialize, Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+struct TvPlayerEventBody {
+    session_id: Option<String>,
+    event: Value,
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+struct DisplayDevice {
+    id: String,
+    display_name: String,
+    aliases: Vec<String>,
+    kind: String,
+    room: Option<String>,
+    online: bool,
+    last_used_at: Option<String>,
+    metadata: Option<Value>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct RegisterDisplayDeviceBody {
+    device: DisplayDevice,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ResolveDisplayDeviceBody {
+    query: String,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct DisplayDeviceResolution {
+    device: DisplayDevice,
+    score: f64,
+    reason: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct FireTvLaunchBody {
+    device_id: Option<String>,
+    display_url: Option<String>,
+    session_id: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct FireTvVoiceCommandBody {
+    utterance: String,
+    device_query: Option<String>,
+    display_url: Option<String>,
+}
+
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct RemotePlayerCommandsResponse {
@@ -154,6 +212,8 @@ struct RemoteServerState {
     commands: VecDeque<QueuedRemotePlayerCommand>,
     active_track_analysis_loads: HashSet<String>,
     active_track_analysis_prefetches: HashSet<String>,
+    display_devices: HashMap<String, DisplayDevice>,
+    last_tv_player_event: Option<TvPlayerEventBody>,
 }
 
 fn apply_remote_command_to_player_state(
@@ -266,6 +326,16 @@ fn handle_connection(
         .map(|address| address.ip().is_loopback())
         .unwrap_or(false);
     let request = read_request(&mut stream, is_local)?;
+    if is_websocket_request(&request) && request.path.starts_with("/tv/sessions/") {
+        if !request.is_local && !is_local_access_enabled(&remote_state) {
+            stream
+                .write_all(&text_response(403, "remote access is private"))
+                .map_err(|error| error.to_string())?;
+            let _ = stream.shutdown(Shutdown::Write);
+            return Ok(());
+        }
+        return handle_tv_session_websocket(stream, request, app, remote_state);
+    }
     let response = route_request(request, app, remote_state);
     for chunk in response.chunks(RESPONSE_WRITE_CHUNK_SIZE) {
         stream.write_all(chunk).map_err(|error| error.to_string())?;
@@ -405,6 +475,37 @@ fn route_request(
         }
         ("GET", "/api/app_status") => json_response(200, &"Musical desktop bridge is ready"),
         ("GET", "/api/tv/libraries") => result_response(load_tv_libraries(&app)),
+        ("GET", "/api/tv/devices") => result_response(list_display_devices(&remote_state)),
+        ("POST", "/api/tv/devices") => {
+            let request_body = parse_json::<RegisterDisplayDeviceBody>(&request.body);
+            result_response(
+                request_body.and_then(|body| register_display_device(&remote_state, body.device)),
+            )
+        }
+        ("POST", "/api/tv/devices/resolve") => {
+            let request_body = parse_json::<ResolveDisplayDeviceBody>(&request.body);
+            result_response(
+                request_body.and_then(|body| resolve_display_device(&remote_state, &body.query)),
+            )
+        }
+        ("POST", "/api/tv/dial_launch") => {
+            let request_body = parse_json::<FireTvLaunchBody>(&request.body);
+            result_response(
+                request_body.and_then(|body| prepare_fire_tv_launch(&remote_state, body)),
+            )
+        }
+        ("POST", "/api/tv/voice_command") => {
+            let request_body = parse_json::<FireTvVoiceCommandBody>(&request.body);
+            result_response(
+                request_body.and_then(|body| enqueue_fire_tv_voice_command(&remote_state, body)),
+            )
+        }
+        ("POST", "/api/tv/player_event") => {
+            let request_body = parse_json::<TvPlayerEventBody>(&request.body);
+            result_response(
+                request_body.and_then(|body| record_tv_player_event(&remote_state, body)),
+            )
+        }
         ("GET", "/api/library_snapshot") => {
             let library_id =
                 query_param(&request.query, "libraryId").filter(|value| !value.trim().is_empty());
@@ -1518,6 +1619,426 @@ fn prefetch_track_analysis(
     let duration = (duration_seconds.max(1) as f64) + 2.0;
     get_or_analyze_track_once(app, remote_state, track_id, &file_path, duration)?;
     Ok(())
+}
+
+fn is_websocket_request(request: &Request) -> bool {
+    request
+        .headers
+        .get("upgrade")
+        .map(|value| value.eq_ignore_ascii_case("websocket"))
+        .unwrap_or(false)
+        && request
+            .headers
+            .get("connection")
+            .map(|value| value.to_ascii_lowercase().contains("upgrade"))
+            .unwrap_or(false)
+}
+
+fn handle_tv_session_websocket(
+    mut stream: TcpStream,
+    request: Request,
+    app: AppHandle,
+    remote_state: SharedRemoteServerState,
+) -> Result<(), String> {
+    let websocket_key = request
+        .headers
+        .get("sec-websocket-key")
+        .ok_or_else(|| "missing websocket key".to_owned())?;
+    let accept_key = websocket_accept_key(websocket_key);
+    let handshake = format!(
+        "HTTP/1.1 101 Switching Protocols\r\n\
+         Upgrade: websocket\r\n\
+         Connection: Upgrade\r\n\
+         Sec-WebSocket-Accept: {accept_key}\r\n\r\n",
+    );
+    stream
+        .write_all(handshake.as_bytes())
+        .map_err(|error| error.to_string())?;
+
+    let session_id = request
+        .path
+        .trim_start_matches("/tv/sessions/")
+        .split('/')
+        .next()
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or("default")
+        .to_owned();
+    let snapshot = tv_session_snapshot(&app)?;
+    write_websocket_text(
+        &mut stream,
+        &tv_envelope(
+            &session_id,
+            json!({ "type": "session_ready", "sessionId": session_id }),
+        ),
+    )?;
+    write_websocket_text(
+        &mut stream,
+        &tv_envelope(
+            &session_id,
+            json!({ "type": "session_snapshot", "snapshot": snapshot }),
+        ),
+    )?;
+
+    stream
+        .set_read_timeout(Some(Duration::from_secs(30)))
+        .map_err(|error| error.to_string())?;
+    loop {
+        match read_websocket_frame(&mut stream) {
+            Ok(Some(WebSocketFrame::Text(text))) => {
+                handle_tv_client_message(&remote_state, &session_id, &text)?;
+            }
+            Ok(Some(WebSocketFrame::Ping(payload))) => {
+                write_websocket_frame(&mut stream, 0xA, &payload)?;
+            }
+            Ok(Some(WebSocketFrame::Close)) | Ok(None) => break,
+            Ok(Some(WebSocketFrame::Other)) => {}
+            Err(error) if error.contains("timed out") || error.contains("WouldBlock") => {
+                write_websocket_frame(&mut stream, 0x9, b"")?;
+            }
+            Err(error) => return Err(error),
+        }
+    }
+    Ok(())
+}
+
+fn websocket_accept_key(key: &str) -> String {
+    let mut hasher = Sha1::new();
+    hasher.update(key.trim().as_bytes());
+    hasher.update(b"258EAFA5-E914-47DA-95CA-C5AB0DC85B11");
+    general_purpose::STANDARD.encode(hasher.finalize())
+}
+
+enum WebSocketFrame {
+    Text(String),
+    Ping(Vec<u8>),
+    Close,
+    Other,
+}
+
+fn read_websocket_frame(stream: &mut TcpStream) -> Result<Option<WebSocketFrame>, String> {
+    let mut header = [0_u8; 2];
+    match stream.read_exact(&mut header) {
+        Ok(()) => {}
+        Err(error) if error.kind() == std::io::ErrorKind::UnexpectedEof => return Ok(None),
+        Err(error) => return Err(error.to_string()),
+    }
+
+    let opcode = header[0] & 0x0F;
+    let masked = (header[1] & 0x80) != 0;
+    let mut length = u64::from(header[1] & 0x7F);
+    if length == 126 {
+        let mut bytes = [0_u8; 2];
+        stream
+            .read_exact(&mut bytes)
+            .map_err(|error| error.to_string())?;
+        length = u64::from(u16::from_be_bytes(bytes));
+    } else if length == 127 {
+        let mut bytes = [0_u8; 8];
+        stream
+            .read_exact(&mut bytes)
+            .map_err(|error| error.to_string())?;
+        length = u64::from_be_bytes(bytes);
+    }
+    if length > 1024 * 1024 {
+        return Err("websocket frame is too large".to_owned());
+    }
+
+    let mut mask = [0_u8; 4];
+    if masked {
+        stream
+            .read_exact(&mut mask)
+            .map_err(|error| error.to_string())?;
+    }
+    let mut payload = vec![0_u8; length as usize];
+    stream
+        .read_exact(&mut payload)
+        .map_err(|error| error.to_string())?;
+    if masked {
+        for (index, byte) in payload.iter_mut().enumerate() {
+            *byte ^= mask[index % 4];
+        }
+    }
+
+    Ok(Some(match opcode {
+        0x1 => WebSocketFrame::Text(String::from_utf8_lossy(&payload).into_owned()),
+        0x8 => WebSocketFrame::Close,
+        0x9 => WebSocketFrame::Ping(payload),
+        _ => WebSocketFrame::Other,
+    }))
+}
+
+fn write_websocket_text(stream: &mut TcpStream, value: &Value) -> Result<(), String> {
+    let text = serde_json::to_vec(value).map_err(|error| error.to_string())?;
+    write_websocket_frame(stream, 0x1, &text)
+}
+
+fn write_websocket_frame(stream: &mut TcpStream, opcode: u8, payload: &[u8]) -> Result<(), String> {
+    let mut frame = vec![0x80 | opcode];
+    if payload.len() < 126 {
+        frame.push(payload.len() as u8);
+    } else if payload.len() <= u16::MAX as usize {
+        frame.push(126);
+        frame.extend_from_slice(&(payload.len() as u16).to_be_bytes());
+    } else {
+        frame.push(127);
+        frame.extend_from_slice(&(payload.len() as u64).to_be_bytes());
+    }
+    frame.extend_from_slice(payload);
+    stream.write_all(&frame).map_err(|error| error.to_string())
+}
+
+fn handle_tv_client_message(
+    remote_state: &SharedRemoteServerState,
+    session_id: &str,
+    text: &str,
+) -> Result<(), String> {
+    let value = serde_json::from_str::<Value>(text).map_err(|error| error.to_string())?;
+    if value.get("type").and_then(Value::as_str) == Some("player_event") {
+        let event = value.get("event").cloned().unwrap_or(Value::Null);
+        record_tv_player_event(
+            remote_state,
+            TvPlayerEventBody {
+                session_id: Some(session_id.to_owned()),
+                event,
+            },
+        )?;
+    }
+    Ok(())
+}
+
+fn tv_envelope(session_id: &str, message: Value) -> Value {
+    json!({
+        "id": format!("tv-{}-{}", session_id, current_unix_time_ms() as u64),
+        "sessionId": session_id,
+        "sentAt": current_iso_like_timestamp(),
+        "message": message,
+    })
+}
+
+fn tv_session_snapshot(app: &AppHandle) -> Result<Value, String> {
+    let snapshot = library::load_snapshot(app)?;
+    let first_album = snapshot.albums.first();
+    let first_track = first_album.and_then(|album| album.tracks.first());
+    let track_id = first_track.map(|track| track.id.clone());
+    let lyrics = track_id
+        .as_deref()
+        .and_then(|id| library::load_track_lyrics(app, id).ok().flatten());
+    let lyrics_lines = lyrics
+        .as_deref()
+        .map(parse_plain_lyrics)
+        .unwrap_or_default();
+    let queue_items = first_album
+        .map(|album| {
+            album
+                .tracks
+                .iter()
+                .map(|track| {
+                    json!({
+                        "trackId": track.id,
+                        "title": track.title,
+                        "artist": track.artist,
+                        "album": album.title,
+                        "artworkUrl": album.artwork_path,
+                        "isCurrent": Some(&track.id) == track_id.as_ref(),
+                    })
+                })
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+
+    Ok(json!({
+        "player": {
+            "trackId": track_id,
+            "title": first_track.map(|track| track.title.as_str()).unwrap_or("Musical"),
+            "artist": first_track.map(|track| track.artist.as_str()).unwrap_or(""),
+            "album": first_album.map(|album| album.title.as_str()).unwrap_or(""),
+            "artworkUrl": first_album.and_then(|album| album.artwork_path.as_deref()),
+            "audioUrl": first_track.map(|track| format!("/api/media?path={}", url_encode(&track.file_path))),
+            "isPlaying": false,
+            "durationSeconds": first_track.map(|track| track.duration_seconds).unwrap_or(0),
+            "positionSeconds": 0,
+            "updatedAt": current_iso_like_timestamp(),
+        },
+        "lyrics": track_id.as_ref().map(|id| json!({
+            "trackId": id,
+            "mode": "plain",
+            "lines": lyrics_lines,
+        })),
+        "queue": {
+            "currentTrackId": track_id,
+            "items": queue_items,
+        },
+    }))
+}
+
+fn parse_plain_lyrics(lyrics: &str) -> Vec<Value> {
+    lyrics
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .enumerate()
+        .map(|(index, text)| json!({ "id": format!("line-{index}"), "text": text }))
+        .collect()
+}
+
+fn current_iso_like_timestamp() -> String {
+    format!("{}Z", (current_unix_time_ms() / 1000.0) as u64)
+}
+
+fn list_display_devices(
+    remote_state: &SharedRemoteServerState,
+) -> Result<HashMap<String, Vec<DisplayDevice>>, String> {
+    let state = remote_state.lock().map_err(|error| error.to_string())?;
+    Ok(HashMap::from([(
+        "devices".to_owned(),
+        state.display_devices.values().cloned().collect(),
+    )]))
+}
+
+fn register_display_device(
+    remote_state: &SharedRemoteServerState,
+    mut device: DisplayDevice,
+) -> Result<DisplayDevice, String> {
+    if device.id.trim().is_empty() {
+        return Err("missing device id".to_owned());
+    }
+    if device.kind.trim().is_empty() {
+        device.kind = "firetv".to_owned();
+    }
+    device.last_used_at = Some(current_iso_like_timestamp());
+    let mut state = remote_state.lock().map_err(|error| error.to_string())?;
+    state
+        .display_devices
+        .insert(device.id.clone(), device.clone());
+    Ok(device)
+}
+
+fn resolve_display_device(
+    remote_state: &SharedRemoteServerState,
+    query: &str,
+) -> Result<HashMap<String, Vec<DisplayDeviceResolution>>, String> {
+    let normalized_query = normalize_search_text(query);
+    let state = remote_state.lock().map_err(|error| error.to_string())?;
+    let mut matches = state
+        .display_devices
+        .values()
+        .filter_map(|device| score_display_device(device, &normalized_query))
+        .collect::<Vec<_>>();
+    matches.sort_by(|first, second| {
+        second
+            .score
+            .partial_cmp(&first.score)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
+    Ok(HashMap::from([("matches".to_owned(), matches)]))
+}
+
+fn score_display_device(
+    device: &DisplayDevice,
+    normalized_query: &str,
+) -> Option<DisplayDeviceResolution> {
+    let name = normalize_search_text(&device.display_name);
+    if normalized_query.is_empty() {
+        return None;
+    }
+    if name == normalized_query {
+        return Some(DisplayDeviceResolution {
+            device: device.clone(),
+            score: 1.0,
+            reason: "displayName".to_owned(),
+        });
+    }
+    for alias in &device.aliases {
+        let normalized_alias = normalize_search_text(alias);
+        if normalized_alias == normalized_query {
+            return Some(DisplayDeviceResolution {
+                device: device.clone(),
+                score: 0.92,
+                reason: "alias".to_owned(),
+            });
+        }
+    }
+    let haystack = std::iter::once(name)
+        .chain(
+            device
+                .aliases
+                .iter()
+                .map(|alias| normalize_search_text(alias)),
+        )
+        .chain(device.room.iter().map(|room| normalize_search_text(room)))
+        .collect::<Vec<_>>()
+        .join(" ");
+    if haystack.contains(normalized_query) {
+        let availability = if device.online { 0.08 } else { 0.0 };
+        return Some(DisplayDeviceResolution {
+            device: device.clone(),
+            score: 0.72 + availability,
+            reason: "partial".to_owned(),
+        });
+    }
+    None
+}
+
+fn normalize_search_text(value: &str) -> String {
+    value
+        .trim()
+        .to_lowercase()
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+fn prepare_fire_tv_launch(
+    remote_state: &SharedRemoteServerState,
+    body: FireTvLaunchBody,
+) -> Result<Value, String> {
+    let display_url = body
+        .display_url
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or_else(|| format!("http://{LOCAL_SERVER_ADDR}/tv"));
+    let command = enqueue_remote_command(
+        remote_state,
+        "firetv-launch",
+        Some(json!({
+            "deviceId": body.device_id,
+            "displayUrl": display_url,
+            "sessionId": body.session_id,
+            "deepLink": format!("musical-firetv://display?url={}", url_encode(&display_url)),
+        })),
+    )?;
+    Ok(json!({ "launch": command }))
+}
+
+fn enqueue_fire_tv_voice_command(
+    remote_state: &SharedRemoteServerState,
+    body: FireTvVoiceCommandBody,
+) -> Result<Value, String> {
+    let matches = if let Some(device_query) = body.device_query.as_deref() {
+        resolve_display_device(remote_state, device_query)?
+            .remove("matches")
+            .unwrap_or_default()
+    } else {
+        Vec::new()
+    };
+    let command = enqueue_remote_command(
+        remote_state,
+        "firetv-voice-command",
+        Some(json!({
+            "utterance": body.utterance,
+            "displayUrl": body.display_url,
+            "deviceMatches": matches,
+        })),
+    )?;
+    Ok(json!({ "command": command }))
+}
+
+fn record_tv_player_event(
+    remote_state: &SharedRemoteServerState,
+    body: TvPlayerEventBody,
+) -> Result<Value, String> {
+    let mut state = remote_state.lock().map_err(|error| error.to_string())?;
+    state.last_tv_player_event = Some(body.clone());
+    Ok(json!({ "recorded": true, "event": body }))
 }
 
 fn lan_ipv4_address() -> Option<String> {

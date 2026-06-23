@@ -131,120 +131,38 @@ import { updateTrackArtwork } from "../../features/tag-editing/application/updat
 import { updateTrackTags } from "../../features/tag-editing/application/updateTrackTags";
 import { updateTrackUserState } from "../../features/tag-editing/application/updateTrackUserState";
 import {
+  albumPanelDragTolerance,
+  albumPanelSwipeThreshold,
+  audioAnalysisSampleIntervalMs,
+  libraryCommandPollIntervalMs,
+  playerCommandPollIntervalMs,
+  remoteAudioAnalysisChunkDurationSeconds,
+  remoteAudioAnalysisDurationPaddingSeconds,
+  remoteAudioAnalysisFallbackDurationSeconds,
+  remoteAudioAnalysisMaxCachedPackets,
+  remotePlaybackClockSnapThresholdSeconds,
+  remotePlayerStateSyncIntervalMs,
+  remotePlayerStateTransitDelayMaxSeconds,
+  staleRemotePlayerStateToleranceSeconds,
+  trackLongPressDelayMs,
+  trackLongPressMoveTolerance,
+} from "./useAppControllerConfig";
+import type {
+  AlbumPanelDragStart,
+  BackgroundAnalysisStatusPayload,
+  LibraryLoadProgressPayload,
+  LibraryScanProgressPayload,
+  RemoteAudioAnalysisLoadState,
+  RemotePlayerStateSnapshot,
+  SuppressedTrackClick,
+  TrackLongPressState,
+} from "./useAppControllerTypes";
+import { areEntityIdArraysEqual, getHeapTotalUsageMb, waitForNextPaint } from "./useAppControllerUtils";
+import {
   hasAlbumTagChanges as getHasAlbumTagChanges,
   hasTrackTagChanges as getHasTrackTagChanges,
   parseOptionalYear,
 } from "../../features/tag-editing/domain/tagValidation";
-import {
-  appInteractionConfig,
-  audioAnalysisConfig,
-  remoteAudioAnalysisConfig,
-  remotePlaybackConfig,
-} from "../../config/appConfig";
-
-const {
-  albumPanelDragTolerance,
-  albumPanelSwipeThreshold,
-  trackLongPressDelayMs,
-  trackLongPressMoveTolerance,
-} = appInteractionConfig;
-const audioAnalysisSampleIntervalMs: number = audioAnalysisConfig.sampleIntervalMs;
-
-const {
-  chunkDurationSeconds: remoteAudioAnalysisChunkDurationSeconds,
-  durationPaddingSeconds: remoteAudioAnalysisDurationPaddingSeconds,
-  fallbackDurationSeconds: remoteAudioAnalysisFallbackDurationSeconds,
-  maxCachedPackets: remoteAudioAnalysisMaxCachedPackets,
-} = remoteAudioAnalysisConfig;
-const {
-  clockSnapThresholdSeconds: remotePlaybackClockSnapThresholdSeconds,
-  libraryCommandPollIntervalMs,
-  playerCommandPollIntervalMs,
-  playerStateSyncIntervalMs: remotePlayerStateSyncIntervalMs,
-  stateTransitDelayMaxSeconds: remotePlayerStateTransitDelayMaxSeconds,
-  stalePlayerStateToleranceSeconds: staleRemotePlayerStateToleranceSeconds,
-} = remotePlaybackConfig;
-type AlbumPanelDragStart = {
-  hasDragged: boolean;
-  isCollapsed: boolean;
-  pointerY: number;
-  scrollTop: number;
-};
-
-type TrackLongPressState = {
-  pointerX: number;
-  pointerY: number;
-  timerId: number;
-  trackId: EntityId;
-};
-
-type SuppressedTrackClick = {
-  timerId: number;
-  trackId: EntityId;
-};
-
-type RemotePlayerStateSnapshot = {
-  currentTime: number;
-  isPlaying: boolean;
-  trackId: EntityId | null;
-};
-
-type RemoteAudioAnalysisLoadState = {
-  requestId: number;
-  trackId: EntityId;
-};
-
-type BackgroundAnalysisStatusPayload = {
-  status: "started" | "completed";
-  total: number;
-  completed: number;
-  failed: number;
-};
-
-type LibraryScanProgressPayload = {
-  status: "discovering" | "reading" | "writing" | "completed";
-  libraryPath: string;
-  processed: number;
-  total: number;
-  imported: number;
-  skipped: number;
-};
-
-type LibraryLoadProgressPayload = {
-  status: "opening" | "albums" | "assets" | "completed";
-  processed: number;
-  total: number;
-  tracks: number;
-};
-
-function areEntityIdArraysEqual(first: EntityId[] | null, second: EntityId[] | null) {
-  if (first === second) return true;
-  if (!first || !second || first.length !== second.length) return false;
-
-  for (let index = 0; index < first.length; index += 1) {
-    if (first[index] !== second[index]) return false;
-  }
-
-  return true;
-}
-
-function waitForNextPaint() {
-  return new Promise<void>((resolve) => {
-    window.requestAnimationFrame(() => {
-      window.requestAnimationFrame(() => resolve());
-    });
-  });
-}
-
-function getHeapTotalUsageMb() {
-  const performanceWithMemory = performance as Performance & {
-    memory?: { totalJSHeapSize: number };
-  };
-
-  return performanceWithMemory.memory
-    ? Math.round(performanceWithMemory.memory.totalJSHeapSize / 1024 / 1024)
-    : null;
-}
 
 export function useAppController() {
   const audioRef = useRef<HTMLAudioElement | null>(null);
@@ -761,13 +679,9 @@ export function useAppController() {
 
   function applyLibrarySnapshot(snapshot: LibrarySnapshot, options: { resetPlayback: boolean }) {
     setAlbums(snapshot.albums);
-    setPlaylists(snapshot.playlists ?? []);
-    setSelectedPlaylistId((playlistId) =>
-      playlistId && snapshot.playlists?.some((playlist) => playlist.id === playlistId) ? playlistId : null,
-    );
+    applyPlaylistSnapshot(snapshot);
     clearRemoteAudioAnalysisPacketCache();
     setTrackLyricsById({});
-    setLibraryPath(snapshot.lastScanPath ?? "");
     if (options.resetPlayback) {
       const restoredSelectedAlbumId = getInitialAlbumId(snapshot.albums, storedPlaybackPreferences.selectedAlbumId);
       const restoredPlaybackAlbumId =
@@ -781,6 +695,19 @@ export function useAppController() {
         snapshot.albums.find((album) => album.id === restoredPlaybackAlbumId)?.tracks.map((track) => track.id) ?? [],
       );
     }
+    setLibraryLoadedInfo(snapshot);
+  }
+
+  function applyPlaylistSnapshot(snapshot: LibrarySnapshot) {
+    setPlaylists(snapshot.playlists ?? []);
+    setSelectedPlaylistId((playlistId) =>
+      playlistId && snapshot.playlists?.some((playlist) => playlist.id === playlistId) ? playlistId : null,
+    );
+    setLibraryPath(snapshot.lastScanPath ?? "");
+    setLibraryLoadedInfo(snapshot);
+  }
+
+  function setLibraryLoadedInfo(snapshot: LibrarySnapshot) {
     setLibraryInfo(
       snapshot.albums.length > 0
         ? { key: "status.loadedAlbums", values: { count: snapshot.albums.length, databasePath: snapshot.databasePath } }
@@ -1107,7 +1034,7 @@ export function useAppController() {
 
       const previousPlaylistIds = new Set(playlists.map((playlist) => playlist.id));
       const snapshot = await createPlaylist(playlistName);
-      applyLibrarySnapshot(snapshot, { resetPlayback: false });
+      applyPlaylistSnapshot(snapshot);
       setSelectedPlaylistId(
         snapshot.playlists.find((playlist) => !previousPlaylistIds.has(playlist.id))?.id ??
           snapshot.playlists[snapshot.playlists.length - 1]?.id ??
@@ -1141,7 +1068,7 @@ export function useAppController() {
       }
 
       const snapshot = await addTrackToPlaylist(playlist.id, track.id);
-      applyLibrarySnapshot(snapshot, { resetPlayback: false });
+      applyPlaylistSnapshot(snapshot);
       notifyLibraryChanged();
       setLibraryInfo({ key: "status.playlistTrackAdded" });
     } catch (error) {
@@ -1171,7 +1098,7 @@ export function useAppController() {
       }
 
       const snapshot = await addTracksToPlaylist(playlist.id, trackIds);
-      applyLibrarySnapshot(snapshot, { resetPlayback: false });
+      applyPlaylistSnapshot(snapshot);
       setSelectedPlaylistId(playlist.id);
       notifyLibraryChanged();
       setLibraryInfo({ key: "status.playlistTrackAdded" });
@@ -1199,7 +1126,7 @@ export function useAppController() {
       }
 
       const snapshot = await renamePlaylist(playlist.id, playlistName);
-      applyLibrarySnapshot(snapshot, { resetPlayback: false });
+      applyPlaylistSnapshot(snapshot);
       setSelectedPlaylistId(playlist.id);
       notifyLibraryChanged();
       setLibraryInfo({ key: "status.playlistSaved" });
@@ -1219,7 +1146,7 @@ export function useAppController() {
       }
 
       const snapshot = await deletePlaylist(playlist.id);
-      applyLibrarySnapshot(snapshot, { resetPlayback: false });
+      applyPlaylistSnapshot(snapshot);
       setSelectedPlaylistId(null);
       setPlaybackPlaylistId((playlistId) => (playlistId === playlist.id ? null : playlistId));
       notifyLibraryChanged();
@@ -1244,7 +1171,7 @@ export function useAppController() {
       }
 
       const snapshot = await removePlaylistTrack(playlist.id, trackIndex);
-      applyLibrarySnapshot(snapshot, { resetPlayback: false });
+      applyPlaylistSnapshot(snapshot);
       setSelectedPlaylistId(playlist.id);
       notifyLibraryChanged();
       setLibraryInfo({ key: "status.playlistTrackRemoved" });
@@ -1271,7 +1198,7 @@ export function useAppController() {
       }
 
       const snapshot = await reorderPlaylistTrack(playlist.id, fromIndex, toIndex);
-      applyLibrarySnapshot(snapshot, { resetPlayback: false });
+      applyPlaylistSnapshot(snapshot);
       setSelectedPlaylistId(playlist.id);
       notifyLibraryChanged();
       setLibraryInfo({ key: "status.playlistSaved" });
@@ -1283,7 +1210,7 @@ export function useAppController() {
   async function reloadPlaylists() {
     try {
       const snapshot = hasRealBackend ? await loadLibrarySnapshot() : { albums, playlists, lastScanPath: libraryPath || null, databasePath: "" };
-      applyLibrarySnapshot(snapshot, { resetPlayback: false });
+      applyPlaylistSnapshot(snapshot);
       notifyLibraryChanged();
     } catch (error) {
       setLibraryInfo(toI18nError(error));
@@ -1918,7 +1845,7 @@ export function useAppController() {
 
       const result = await updatePlaylistArtwork(playlist.id, selectedPath);
       const snapshot = await loadLibrarySnapshot();
-      applyLibrarySnapshot(snapshot, { resetPlayback: false });
+      applyPlaylistSnapshot(snapshot);
       setSelectedPlaylistId(result.playlistId);
       notifyLibraryChanged();
       setLibraryInfo({ key: "tags.artworkSaved" });

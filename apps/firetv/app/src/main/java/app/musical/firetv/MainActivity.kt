@@ -54,6 +54,7 @@ class MainActivity : Activity() {
     private var isExitDialogVisible = false
     private var isExitInProgress = false
     private var isWebViewDestroyed = false
+    private var isWebPageReady = false
     private val memoryDiagnosticsRunnable = object : Runnable {
         override fun run() {
             sendMemoryDiagnostics()
@@ -103,11 +104,13 @@ class MainActivity : Activity() {
             webViewClient = object : WebViewClient() {
                 override fun onPageStarted(view: WebView?, url: String?, favicon: android.graphics.Bitmap?) {
                     Log.i(TAG, "WebView page started: $url")
+                    isWebPageReady = false
                     super.onPageStarted(view, url, favicon)
                 }
 
                 override fun onPageFinished(view: WebView?, url: String?) {
                     Log.i(TAG, "WebView page finished: $url")
+                    isWebPageReady = true
                     statusMessageVisible = false
                     statusView.visibility = View.GONE
                     webBridge.remoteKey("APP_READY")
@@ -309,7 +312,7 @@ class MainActivity : Activity() {
             focusSettingsDefault()
         } else {
             webView.requestFocus()
-            webBridge.selectedTab(selectedTab)
+            if (isWebPageReady) webBridge.selectedTab(selectedTab)
         }
     }
 
@@ -379,7 +382,7 @@ class MainActivity : Activity() {
                 runOnUiThread {
                     if (!isCurrentDiscovery(generation)) return@runOnUiThread
                     applyDiscoveredServers(listOf(server), getString(R.string.discovered, explicitBaseUrl))
-                    loadDisplayUrl(displayUrlFor(server, selectedLibraryId), remember = true)
+                    loadDisplayUrl(explicitUrl, remember = true)
                 }
             }.start()
             return
@@ -509,6 +512,7 @@ class MainActivity : Activity() {
         }
         updateSettingsView()
         showStatus(getString(R.string.loading, displayUrl))
+        isWebPageReady = false
         webView.loadUrl(displayUrl)
     }
 
