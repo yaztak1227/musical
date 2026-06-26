@@ -75,8 +75,8 @@ mod tests {
     #[test]
     fn normalizes_windows_extended_drive_path() {
         assert_eq!(
-            normalize_windows_extended_path_string(r"\\?\C:\Users\takumi\Music".to_owned()),
-            r"C:\Users\takumi\Music"
+            normalize_windows_extended_path_string(r"\\?\C:\Users\you\Music".to_owned()),
+            r"C:\Users\you\Music"
         );
     }
 

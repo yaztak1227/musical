@@ -2,10 +2,11 @@ import { type CSSProperties, useCallback, useEffect, useMemo, useRef, useState }
 import { ArrowDownAZ, ArrowUpAZ, CalendarDays, Disc3, FileText, ListMusic, Pause, Play, SkipBack, SkipForward, StepBack, StepForward, UserRound } from "lucide-react";
 import { getInitialLocale, translate } from "../../../i18n";
 import type { TvAudioAnalysisFrame, TvCandidatePrompt, TvCommandResult, TvDisplayMessage, TvLyricsState, TvQueueState, TvSessionSnapshot } from "../domain/tvDisplayMessage";
-import { mockTvSessionSnapshot } from "../infrastructure/mockTvDisplayState";
+import { mockTvLibrarySnapshot, mockTvSessionSnapshot } from "../infrastructure/mockTvDisplayState";
 import type { Album, LibrarySnapshot, Playlist, Track } from "../../../types/audio";
 import type { AlbumSortDirection, AlbumSortMode } from "../../../types/app";
 import { compareAlbums, getArtworkSrc } from "../../../lib/libraryUtils";
+import { isMockDataRuntime } from "../../../lib/backend";
 import { FireTvPlayerVisualizer } from "./FireTvPlayerVisualizer";
 
 type TvDisplayAppProps = {
@@ -96,6 +97,7 @@ export function TvDisplayApp({ snapshot = mockTvSessionSnapshot }: TvDisplayAppP
   const currentTimeRef = useRef(currentTime);
   const urlParams = useMemo(() => new URLSearchParams(window.location.search), []);
   const libraryId = useMemo(() => urlParams.get("libraryId")?.trim() || null, [urlParams]);
+  const shouldUseMockLibrary = useMemo(() => isMockDataRuntime || urlParams.get("mockData") === "true", [urlParams]);
   const sessionId = useMemo(() => urlParams.get("sessionId")?.trim() || null, [urlParams]);
   const locale = useMemo(() => getInitialLocale(), []);
   const t = useCallback((key: string) => translate(locale, key as never), [locale]);
@@ -167,7 +169,9 @@ export function TvDisplayApp({ snapshot = mockTvSessionSnapshot }: TvDisplayAppP
 
     async function loadLibrary() {
       try {
-        const librarySnapshot = await fetchJson<LibrarySnapshot>(librarySnapshotPath(libraryId));
+        const librarySnapshot = shouldUseMockLibrary
+          ? mockTvLibrarySnapshot
+          : await fetchJson<LibrarySnapshot>(librarySnapshotPath(libraryId));
         if (!isActive) return;
         const nextCollections = makeTvCollections(librarySnapshot, t);
         setAlbums(nextCollections.albums);
@@ -187,12 +191,20 @@ export function TvDisplayApp({ snapshot = mockTvSessionSnapshot }: TvDisplayAppP
       isActive = false;
       window.clearInterval(timer);
     };
-  }, [libraryId, t]);
+  }, [libraryId, shouldUseMockLibrary, t]);
 
   useEffect(() => {
     setSelectedAlbumIndex((index) => clampIndex(index, collectionCount));
     setFocusedAlbumIndex((index) => clampIndex(index, collectionCount));
   }, [collectionCount]);
+
+  useEffect(() => {
+    if (collectionMode === "albums" && albums.length === 0 && playlists.length > 0) {
+      setCollectionMode("playlists");
+    } else if (collectionMode === "playlists" && playlists.length === 0 && albums.length > 0) {
+      setCollectionMode("albums");
+    }
+  }, [albums.length, collectionMode, playlists.length]);
 
   useEffect(() => {
     const trackCount = selectedAlbum?.tracks.length ?? 0;

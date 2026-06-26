@@ -1,4 +1,5 @@
 import type { TvSessionSnapshot } from "../domain/tvDisplayMessage";
+import type { LibrarySnapshot } from "../../../types/audio";
 
 const now = new Date().toISOString();
 
@@ -67,4 +68,42 @@ export const mockTvSessionSnapshot: TvSessionSnapshot = {
     })),
     isComplete: false,
   },
+};
+
+export const mockTvLibrarySnapshot: LibrarySnapshot = {
+  albums: [],
+  databasePath: "mock.sqlite3",
+  lastScanPath: "/music",
+  playlists: [
+    {
+      id: "playlist-road-set",
+      name: "Road Set",
+      filePath: "/music/.musical/playlist/road-set.mplaylist",
+      artworkPath: null,
+      missingTrackPaths: [],
+      trackCount: 2,
+      tracks: [
+        {
+          id: "station-lights",
+          title: "Station Lights",
+          artist: "Transit Ensemble",
+          durationSeconds: 202,
+          filePath: "/music/station-lights.mp3",
+          hasLyrics: false,
+          isFavorite: false,
+          rating: null,
+        },
+        {
+          id: "last-train-home",
+          title: "Last Train Home",
+          artist: "Transit Ensemble",
+          durationSeconds: 191,
+          filePath: "/music/last-train-home.mp3",
+          hasLyrics: false,
+          isFavorite: false,
+          rating: null,
+        },
+      ],
+    },
+  ],
 };

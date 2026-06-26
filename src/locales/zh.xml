@@ -12,7 +12,7 @@
   <message key="theme.amber">琥珀</message>
   <message key="theme.mono">单色</message>
   <message key="scan.folderLabel">音乐文件夹</message>
-  <message key="scan.folderPlaceholder">/Users/takumi/Music</message>
+  <message key="scan.folderPlaceholder">~/Music</message>
   <message key="scan.selectLibrary">Select library</message>
   <message key="scan.openLibrarySettings">Open library settings</message>
   <message key="scan.libraryDialogLabel">Library settings</message>
@@ -182,6 +182,7 @@
   <message key="player.visualizerSpectrum">Spectrum</message>
   <message key="player.visualizerCircle">Circle</message>
   <message key="player.chibiMode">Chibi character mode</message>
+  <message key="player.orchestraMode">Q 版管弦乐模式</message>
   <message key="player.playbackError">无法播放此曲目：{message}</message>
   <message key="tvDisplay.nowPlaying">Now playing</message>
   <message key="tvDisplay.playingOnTv">Playing on Fire TV</message>

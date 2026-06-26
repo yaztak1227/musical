@@ -12,7 +12,7 @@
   <message key="theme.amber">アンバー</message>
   <message key="theme.mono">モノ</message>
   <message key="scan.folderLabel">音楽フォルダ</message>
-  <message key="scan.folderPlaceholder">/Users/takumi/Music</message>
+  <message key="scan.folderPlaceholder">~/Music</message>
   <message key="scan.selectLibrary">ライブラリを選択</message>
   <message key="scan.openLibrarySettings">ライブラリ設定を開く</message>
   <message key="scan.libraryDialogLabel">ライブラリ設定</message>
@@ -215,6 +215,7 @@
   <message key="player.visualizerSpectrum">スペクトラム</message>
   <message key="player.visualizerCircle">サークル</message>
   <message key="player.chibiMode">ちびキャラモード</message>
+  <message key="player.orchestraMode">ちびキャラオーケストラモード</message>
   <message key="player.playbackError">この曲を再生できませんでした: {message}</message>
   <message key="tvDisplay.nowPlaying">再生中</message>
   <message key="tvDisplay.playingOnTv">Fire TVで再生中</message>

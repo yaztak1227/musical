@@ -104,11 +104,11 @@ npm run test:e2e:ui
 
 ## 主なファイル
 
-- [src/App.tsx](/Users/takumi/git/musical/src/App.tsx)
-- [src/App.css](/Users/takumi/git/musical/src/App.css)
-- [src/components/AlbumBrowser.tsx](/Users/takumi/git/musical/src/components/AlbumBrowser.tsx)
-- [src/lib/tagEditing.ts](/Users/takumi/git/musical/src/lib/tagEditing.ts)
-- [src-tauri/src/lib.rs](/Users/takumi/git/musical/src-tauri/src/lib.rs)
-- [src-tauri/src/library.rs](/Users/takumi/git/musical/src-tauri/src/library.rs)
-- [src-tauri/Cargo.toml](/Users/takumi/git/musical/src-tauri/Cargo.toml)
-- [playwright.config.ts](/Users/takumi/git/musical/playwright.config.ts)
+- [src/App.tsx](src/App.tsx)
+- [src/App.css](src/App.css)
+- [src/components/AlbumBrowser.tsx](src/components/AlbumBrowser.tsx)
+- [src/lib/tagEditing.ts](src/lib/tagEditing.ts)
+- [src-tauri/src/lib.rs](src-tauri/src/lib.rs)
+- [src-tauri/src/library.rs](src-tauri/src/library.rs)
+- [src-tauri/Cargo.toml](src-tauri/Cargo.toml)
+- [playwright.config.ts](playwright.config.ts)

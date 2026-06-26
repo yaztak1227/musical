@@ -63,12 +63,7 @@ import { getMcpSettings, setMcpEnabled } from "../../lib/mcpSettings";
 import { type LibrarySidebarSection, type LibrarySidebarSectionState } from "../../components/LibrarySidebar";
 import { type PlayerBarHandle } from "../../components/PlayerBar";
 import {
-  makeAudioAnalysisPacketFromFrames,
   makeAudioAnalysisPacketFromSegment,
-  mergeRemoteAudioAnalysisFrames,
-  rebaseAudioAnalysisPacketPlaybackTime,
-  type RemoteAudioAnalysisFrameEntry,
-  type RemoteAudioAnalysisPacket,
 } from "../../features/remote-player/domain/audioAnalysisPacket";
 import {
   estimateRemotePlaybackTime,
@@ -76,13 +71,6 @@ import {
   type RemotePlaybackClock,
   type RemotePlayerTiming,
 } from "../../features/remote-player/domain/remotePlaybackClock";
-import {
-  getCommandBoolean,
-  getCommandEntityId,
-  getCommandEntityIdArray,
-  getCommandNumber,
-  getCommandRepeatMode,
-} from "../../features/remote-player/domain/remoteCommand";
 import {
   getStoredLibraryMenuOpen,
   getStoredLibrarySidebarSectionState,
@@ -122,7 +110,6 @@ import { updateMediaSessionMetadata } from "../../features/playback/infrastructu
 import {
   getRemotePlayerCommands,
   getRemotePlayerState,
-  getRemoteTrackAnalysisSegment,
   publishRemotePlayerState,
   sendRemotePlayerCommand,
 } from "../../features/remote-player/infrastructure/remotePlayerRepository";
@@ -136,10 +123,6 @@ import {
   audioAnalysisSampleIntervalMs,
   libraryCommandPollIntervalMs,
   playerCommandPollIntervalMs,
-  remoteAudioAnalysisChunkDurationSeconds,
-  remoteAudioAnalysisDurationPaddingSeconds,
-  remoteAudioAnalysisFallbackDurationSeconds,
-  remoteAudioAnalysisMaxCachedPackets,
   remotePlaybackClockSnapThresholdSeconds,
   remotePlayerStateSyncIntervalMs,
   remotePlayerStateTransitDelayMaxSeconds,
@@ -152,12 +135,13 @@ import type {
   BackgroundAnalysisStatusPayload,
   LibraryLoadProgressPayload,
   LibraryScanProgressPayload,
-  RemoteAudioAnalysisLoadState,
   RemotePlayerStateSnapshot,
   SuppressedTrackClick,
   TrackLongPressState,
 } from "./useAppControllerTypes";
-import { areEntityIdArraysEqual, getHeapTotalUsageMb, waitForNextPaint } from "./useAppControllerUtils";
+import { areEntityIdArraysEqual, waitForNextPaint } from "./useAppControllerUtils";
+import { dispatchRemotePlayerCommand } from "./remotePlayerCommandDispatcher";
+import { getTrackAnalysisRequestDuration, useRemoteAudioAnalysisCache } from "./useRemoteAudioAnalysisCache";
 import {
   hasAlbumTagChanges as getHasAlbumTagChanges,
   hasTrackTagChanges as getHasTrackTagChanges,
@@ -174,10 +158,6 @@ export function useAppController() {
   const suppressedTrackClickRef = useRef<SuppressedTrackClick | null>(null);
   const lastLibraryCommandIdRef = useRef(0);
   const lastRemoteCommandIdRef = useRef(0);
-  const remoteAudioAnalysisLoadStateRef = useRef<RemoteAudioAnalysisLoadState | null>(null);
-  const remoteAudioAnalysisPacketsByTrackRef = useRef(new Map<EntityId, RemoteAudioAnalysisPacket>());
-  const activeRemoteAudioAnalysisWarmupsRef = useRef(new Set<EntityId>());
-  const loadedRemoteAudioAnalysisTrackIdRef = useRef<EntityId | null>(null);
   const lastRemotePlayerStateRef = useRef<RemotePlayerStateSnapshot | null>(null);
   const remoteSyncRequestIdRef = useRef(0);
   const remotePlaybackClockRef = useRef<RemotePlaybackClock | null>(null);
@@ -221,7 +201,6 @@ export function useAppController() {
   });
   const [isPlaying, setIsPlaying] = useState(false);
   const [audioSourceKey, setAudioSourceKey] = useState<string | null>(null);
-  const audioAnalysisPacketRef = useRef<RemoteAudioAnalysisPacket | null>(null);
   const [isScanning, setIsScanning] = useState(false);
   const [isShuffle, setIsShuffle] = useState(storedPlaybackPreferences.isShuffle);
   const [repeatMode, setRepeatMode] = useState<RepeatMode>(storedPlaybackPreferences.repeatMode);
@@ -436,7 +415,7 @@ export function useAppController() {
     if (!audio) return;
 
     const nextAudioSourceKey = loadTrackAudioSource(audio, currentTrack, isTauriRuntime);
-    audioAnalysisPacketRef.current = null;
+    clearAudioAnalysisPacket();
     if (nextAudioSourceKey) setAudioSourceKey(nextAudioSourceKey);
 
     return () => {
@@ -478,77 +457,6 @@ export function useAppController() {
     return () => window.clearInterval(timer);
   }, [audioSourceKey, isPlaying, isTauriRuntime]);
 
-  function clearAudioAnalysisPacket() {
-    audioAnalysisPacketRef.current = null;
-  }
-
-  function getRemoteAudioAnalysisRetainedTrackIds(trackId: EntityId | null = null) {
-    const retainedTrackIds = new Set<EntityId>();
-    if (trackId != null) retainedTrackIds.add(trackId);
-    if (currentTrack?.id != null) retainedTrackIds.add(currentTrack.id);
-    if (loadedRemoteAudioAnalysisTrackIdRef.current != null) {
-      retainedTrackIds.add(loadedRemoteAudioAnalysisTrackIdRef.current);
-    }
-    if (remotePlaybackClockRef.current?.trackId != null) {
-      retainedTrackIds.add(remotePlaybackClockRef.current.trackId);
-    }
-
-    const anchorTrackIndex =
-      currentTrackIndex >= 0
-        ? currentTrackIndex
-        : trackId != null
-          ? queue.findIndex((track) => track.id === trackId)
-          : -1;
-    if (anchorTrackIndex >= 0) {
-      const lastRetainedQueueIndex = Math.min(queue.length - 1, anchorTrackIndex + 1);
-      for (let index = Math.max(0, anchorTrackIndex - 1); index <= lastRetainedQueueIndex; index += 1) {
-        retainedTrackIds.add(queue[index].id);
-      }
-    }
-
-    return retainedTrackIds;
-  }
-
-  function logRemoteAudioAnalysisCacheDiagnostic(label: string, purgedTrackIds: EntityId[]) {
-    const payload = {
-      audioAnalysisPacketsCached: remoteAudioAnalysisPacketsByTrackRef.current.size,
-      jsHeapTotalMb: getHeapTotalUsageMb(),
-      jsHeapUsedMb: getHeapUsageMb(),
-      purgedAudioAnalysisPackets: purgedTrackIds.length,
-      purgedTrackIds,
-    };
-    logRenderDiagnostic(label, payload);
-    console.debug(`[remote-audio-analysis] ${label} ${JSON.stringify(payload)}`);
-  }
-
-  function purgeRemoteAudioAnalysisPackets(retainTrackId: EntityId | null = null) {
-    const packetsByTrack = remoteAudioAnalysisPacketsByTrackRef.current;
-    if (packetsByTrack.size <= remoteAudioAnalysisMaxCachedPackets) return;
-
-    const retainedTrackIds = getRemoteAudioAnalysisRetainedTrackIds(retainTrackId);
-    const purgedTrackIds: EntityId[] = [];
-    while (packetsByTrack.size > remoteAudioAnalysisMaxCachedPackets) {
-      const purgeTrackId =
-        [...packetsByTrack.keys()].find((trackId) => !retainedTrackIds.has(trackId)) ??
-        packetsByTrack.keys().next().value;
-      if (purgeTrackId == null) break;
-      packetsByTrack.delete(purgeTrackId);
-      purgedTrackIds.push(purgeTrackId);
-    }
-
-    if (purgedTrackIds.length === 0) return;
-    logRemoteAudioAnalysisCacheDiagnostic("Remote audio analysis cache purged", purgedTrackIds);
-  }
-
-  function clearRemoteAudioAnalysisPacketCache() {
-    const packetsByTrack = remoteAudioAnalysisPacketsByTrackRef.current;
-    if (packetsByTrack.size === 0) return;
-
-    const purgedTrackIds = [...packetsByTrack.keys()];
-    packetsByTrack.clear();
-    logRemoteAudioAnalysisCacheDiagnostic("Remote audio analysis cache cleared", purgedTrackIds);
-  }
-
   const filteredAlbums = useMemo(
     () => filterAndSortAlbums(albums, query, albumSortMode, albumSortDirection, t, lyricsOnly),
     [albumSortDirection, albumSortMode, albums, lyricsOnly, query, t],
@@ -578,6 +486,20 @@ export function useAppController() {
     .filter((track): track is Track => Boolean(track));
   const queue = playbackQueueTracks.length > 0 ? playbackQueueTracks : playbackAlbum?.tracks ?? [];
   const currentTrackIndex = currentTrack ? queue.findIndex((track) => track.id === currentTrack.id) : -1;
+  const {
+    audioAnalysisPacketRef,
+    clearAudioAnalysisPacket,
+    clearRemoteAudioAnalysisPacketCache,
+    loadTrackAnalysis,
+    resetAudioAnalysisLoad,
+    warmTrackAnalysisCache,
+  } = useRemoteAudioAnalysisCache({
+    currentTrack,
+    currentTrackIndex,
+    playerBarRef,
+    queue,
+    remotePlaybackClockRef,
+  });
   playbackResolutionRef.current = {
     currentTrackIndex,
     isShuffle,
@@ -777,9 +699,7 @@ export function useAppController() {
     const syncedCurrentTime = shouldKeepEstimatedTime ? estimatedTime : correctedStateTime;
 
     if (previousClock?.trackId !== state.currentTrackId) {
-      audioAnalysisPacketRef.current = null;
-      remoteAudioAnalysisLoadStateRef.current = null;
-      loadedRemoteAudioAnalysisTrackIdRef.current = null;
+      resetAudioAnalysisLoad();
     }
     lastRemotePlayerStateRef.current = {
       currentTime: state.currentTime,
@@ -820,7 +740,7 @@ export function useAppController() {
       trackId: state.currentTrackId,
     };
     if (!state.currentTrackId || !state.isPlaying) {
-      audioAnalysisPacketRef.current = null;
+      clearAudioAnalysisPacket();
     }
     playerBarRef.current?.seekTo(syncedCurrentTime, "remote-sync");
     if (Math.abs((playerBarRef.current?.getVolume() ?? 0.85) - state.volume) > 0.001) {
@@ -1884,107 +1804,36 @@ export function useAppController() {
     }
   }
 
-  function playRemoteAlbum(album: Album, command: QueuedRemotePlayerCommand) {
-    const commandQueueTrackIds = getCommandEntityIdArray(command, "queueTrackIds");
-    const commandQueue = commandQueueTrackIds ? findTracksByIds(commandQueueTrackIds) : [];
-    const shouldShuffle = getCommandBoolean(command, "isShuffle") ?? isShuffle;
-    const nextQueue = commandQueue.length > 0 ? commandQueue : getAlbumQueueTracks(album, shouldShuffle);
-    const firstTrack = nextQueue[0] ?? null;
-
-    setSelectedAlbumId(album.id);
-    setPlaybackAlbumId(album.id);
-    setPlaybackPlaylistId(null);
-    setPlaybackQueueTrackIds(nextQueue.map((track) => track.id));
-    setCurrentTrack(firstTrack);
-    playerBarRef.current?.resetPosition();
-    setIsPlaying(Boolean(firstTrack));
-  }
-
-  function playRemoteTrack(track: Track, albumId: EntityId | null, command: QueuedRemotePlayerCommand) {
-    const album = albums.find((album) => album.id === albumId) ?? findAlbumByTrackId(track.id);
-    const commandQueueTrackIds = getCommandEntityIdArray(command, "queueTrackIds");
-    const commandQueue = commandQueueTrackIds ? findTracksByIds(commandQueueTrackIds) : [];
-    const shouldShuffle = getCommandBoolean(command, "isShuffle") ?? isShuffle;
-    const nextQueue = commandQueue.length > 0 ? commandQueue : album ? getAlbumQueueTracks(album, shouldShuffle, track) : [track];
-
-    setPlaybackAlbumId(album?.id ?? albumId);
-    setPlaybackPlaylistId(null);
-    setPlaybackQueueTrackIds(nextQueue.map((track) => track.id));
-    setCurrentTrack(track);
-    playerBarRef.current?.resetPosition();
-    setIsPlaying(true);
-  }
-
   const handleRemoteCommand = useEffectEvent((command: QueuedRemotePlayerCommand) => {
-    switch (command.commandType) {
-      case "cycle-repeat":
-        setRepeatMode(getCommandRepeatMode(command) ?? getNextRepeatMode(repeatMode));
-        break;
-      case "next":
-        playNextTrack();
-        break;
-      case "pause":
-        pausePlayback();
-        break;
-      case "play":
-        playPlayback();
-        break;
-      case "play-album": {
-        const albumId = getCommandEntityId(command, "albumId");
-        const album = albums.find((album) => album.id === albumId);
-        if (album) playRemoteAlbum(album, command);
-        break;
-      }
-      case "play-track": {
-        const trackId = getCommandEntityId(command, "trackId");
-        const albumId = getCommandEntityId(command, "albumId") ?? findAlbumByTrackId(trackId)?.id ?? null;
-        const track = findTrackById(trackId);
-        if (track) playRemoteTrack(track, albumId, command);
-        break;
-      }
-      case "previous":
-        playPreviousTrack();
-        break;
-      case "refresh-library":
-        void refreshLibrary();
-        break;
-      case "seek": {
-        const time = getCommandNumber(command, "time");
-        if (time !== null) seekTo(time);
-        break;
-      }
-      case "select-album": {
-        const albumId = getCommandEntityId(command, "albumId");
-        const album = albums.find((album) => album.id === albumId);
-        if (album) selectAlbum(album);
-        break;
-      }
-      case "select-track": {
-        const trackId = getCommandEntityId(command, "trackId");
-        const track = findTrackById(trackId);
-        if (track) selectTrack(track);
-        break;
-      }
-      case "set-volume": {
-        const volume = getCommandNumber(command, "volume");
-        if (volume !== null) setVolume(volume);
-        break;
-      }
-      case "toggle-mute":
-        toggleMute();
-        break;
-      case "toggle-playback":
-        togglePlayback();
-        break;
-      case "toggle-shuffle":
-        changeShuffle(getCommandBoolean(command, "isShuffle") ?? !isShuffle, "remote-sync");
-        break;
-      case "volume-step": {
-        const delta = getCommandNumber(command, "delta");
-        if (delta !== null) stepVolume(delta);
-        break;
-      }
-    }
+    dispatchRemotePlayerCommand(command, {
+      albums,
+      changeShuffle,
+      findAlbumByTrackId,
+      findTrackById,
+      findTracksByIds,
+      isShuffle,
+      pausePlayback,
+      playNextTrack,
+      playPlayback,
+      playPreviousTrack,
+      refreshLibrary,
+      repeatMode,
+      resetPlayerPosition: () => playerBarRef.current?.resetPosition(),
+      seekTo,
+      selectAlbum,
+      selectTrack,
+      setCurrentTrack,
+      setIsPlaying,
+      setPlaybackAlbumId,
+      setPlaybackPlaylistId,
+      setPlaybackQueueTrackIds,
+      setRepeatMode,
+      setSelectedAlbumId,
+      setVolume,
+      stepVolume,
+      toggleMute,
+      togglePlayback,
+    });
   });
 
   const publishCurrentRemotePlayerState = useEffectEvent(() => {
@@ -2021,126 +1870,6 @@ export function useAppController() {
       })
       .catch((error: unknown) => {
         if (requestId === remoteSyncRequestIdRef.current) setPlaybackError(String(error));
-      });
-  });
-
-  const loadTrackAnalysis = useEffectEvent((track: Track) => {
-    const clock = remotePlaybackClockRef.current;
-    if (isBrowserBackendRuntime && clock && clock.trackId !== track.id) return;
-
-    const cachedPacket = remoteAudioAnalysisPacketsByTrackRef.current.get(track.id);
-    if (cachedPacket) {
-      remoteAudioAnalysisPacketsByTrackRef.current.delete(track.id);
-      remoteAudioAnalysisPacketsByTrackRef.current.set(track.id, cachedPacket);
-      audioAnalysisPacketRef.current = rebaseAudioAnalysisPacketPlaybackTime(
-        cachedPacket,
-        isTauriRuntime
-          ? playerBarRef.current?.getCurrentTime() ?? 0
-          : estimateRemotePlaybackTime(remotePlaybackClockRef.current, performance.now()),
-        performance.now(),
-      );
-      loadedRemoteAudioAnalysisTrackIdRef.current = track.id;
-      purgeRemoteAudioAnalysisPackets(track.id);
-      return;
-    }
-
-    if (remoteAudioAnalysisLoadStateRef.current?.trackId === track.id) return;
-
-    const duration = Math.max(
-      remoteAudioAnalysisFallbackDurationSeconds,
-      (track.durationSeconds ?? 0) + remoteAudioAnalysisDurationPaddingSeconds,
-    );
-    const requestId = (remoteAudioAnalysisLoadStateRef.current?.requestId ?? 0) + 1;
-    const chunkCount = Math.max(1, Math.ceil(duration / remoteAudioAnalysisChunkDurationSeconds));
-    remoteAudioAnalysisLoadStateRef.current = { requestId, trackId: track.id };
-    loadedRemoteAudioAnalysisTrackIdRef.current = null;
-
-    void (async () => {
-      let frames: RemoteAudioAnalysisFrameEntry[] = [];
-      let frameIntervalMs = audioAnalysisSampleIntervalMs;
-
-      for (let chunkIndex = 0; chunkIndex < chunkCount; chunkIndex += 1) {
-        if (
-          remoteAudioAnalysisLoadStateRef.current?.requestId !== requestId ||
-          (isBrowserBackendRuntime && remotePlaybackClockRef.current && remotePlaybackClockRef.current.trackId !== track.id)
-        ) {
-          return;
-        }
-
-        const from = chunkIndex * remoteAudioAnalysisChunkDurationSeconds;
-        const chunkDuration = Math.min(remoteAudioAnalysisChunkDurationSeconds, duration - from);
-        const segment = await getRemoteTrackAnalysisSegment(track.id, from, chunkDuration, duration);
-        if (
-          segment.trackId !== track.id ||
-          remoteAudioAnalysisLoadStateRef.current?.requestId !== requestId ||
-          (isBrowserBackendRuntime && remotePlaybackClockRef.current && remotePlaybackClockRef.current.trackId !== track.id)
-        ) {
-          return;
-        }
-
-        frameIntervalMs = segment.frameIntervalMs;
-        frames = mergeRemoteAudioAnalysisFrames(frames, segment.frames, audioAnalysisSampleIntervalMs);
-        const partialPacket = makeAudioAnalysisPacketFromFrames(
-          track.id,
-          frames,
-          frameIntervalMs,
-          isTauriRuntime
-            ? playerBarRef.current?.getCurrentTime() ?? 0
-            : estimateRemotePlaybackTime(remotePlaybackClockRef.current, performance.now()),
-          audioAnalysisSampleIntervalMs,
-          performance.now(),
-        );
-        if (partialPacket) audioAnalysisPacketRef.current = partialPacket;
-
-        if (segment.isComplete) break;
-      }
-
-      if (
-        remoteAudioAnalysisLoadStateRef.current?.requestId !== requestId ||
-        (isBrowserBackendRuntime && remotePlaybackClockRef.current && remotePlaybackClockRef.current.trackId !== track.id)
-      ) {
-        return;
-      }
-
-      const completePacket = makeAudioAnalysisPacketFromFrames(
-        track.id,
-        frames,
-        frameIntervalMs,
-        isTauriRuntime
-          ? playerBarRef.current?.getCurrentTime() ?? 0
-          : estimateRemotePlaybackTime(remotePlaybackClockRef.current, performance.now()),
-        audioAnalysisSampleIntervalMs,
-        performance.now(),
-      );
-      if (completePacket) {
-        remoteAudioAnalysisPacketsByTrackRef.current.set(track.id, completePacket);
-        purgeRemoteAudioAnalysisPackets(track.id);
-        audioAnalysisPacketRef.current = completePacket;
-        loadedRemoteAudioAnalysisTrackIdRef.current = track.id;
-      }
-      remoteAudioAnalysisLoadStateRef.current = null;
-    })().catch(() => {
-      if (remoteAudioAnalysisLoadStateRef.current?.requestId === requestId) {
-        remoteAudioAnalysisLoadStateRef.current = null;
-      }
-      // Partial analysis is intentionally not cached unless every chunk completes.
-    });
-  });
-
-  const warmTrackAnalysisCache = useEffectEvent((track: Track | null) => {
-    if (!track || activeRemoteAudioAnalysisWarmupsRef.current.has(track.id)) return;
-
-    const duration = Math.max(
-      remoteAudioAnalysisFallbackDurationSeconds,
-      (track.durationSeconds ?? 0) + remoteAudioAnalysisDurationPaddingSeconds,
-    );
-    activeRemoteAudioAnalysisWarmupsRef.current.add(track.id);
-    void getRemoteTrackAnalysisSegment(track.id, 0, duration, duration)
-      .catch(() => {
-        // Cache warmup is best-effort; playback and browser sync should keep running.
-      })
-      .finally(() => {
-        activeRemoteAudioAnalysisWarmupsRef.current.delete(track.id);
       });
   });
 
@@ -2182,9 +1911,7 @@ export function useAppController() {
   useEffect(() => {
     if (!isBrowserBackendRuntime && !isTauriRuntime) return;
     if (!currentTrack || !isPlaying) {
-      audioAnalysisPacketRef.current = null;
-      remoteAudioAnalysisLoadStateRef.current = null;
-      loadedRemoteAudioAnalysisTrackIdRef.current = null;
+      resetAudioAnalysisLoad();
       clearRemoteAudioAnalysisPacketCache();
       return;
     }
@@ -2203,14 +1930,11 @@ export function useAppController() {
 
   useEffect(() => {
     if (!isMockDataRuntime || !isPlaying || !currentTrack) {
-      if (isMockDataRuntime) audioAnalysisPacketRef.current = null;
+      if (isMockDataRuntime) clearAudioAnalysisPacket();
       return;
     }
 
-    const duration = Math.max(
-      remoteAudioAnalysisFallbackDurationSeconds,
-      (currentTrack.durationSeconds ?? 0) + remoteAudioAnalysisDurationPaddingSeconds,
-    );
+    const duration = getTrackAnalysisRequestDuration(currentTrack);
     const segment = getMockAudioAnalysisSegment(currentTrack.id, 0, duration);
     const nextPacket = makeAudioAnalysisPacketFromSegment(
       segment,

@@ -1,4 +1,4 @@
-import { type CSSProperties, type RefObject, useEffect, useRef, useState } from "react";
+import { type CSSProperties, type MouseEvent, type PointerEvent, type RefObject, useEffect, useRef, useState } from "react";
 import { ChevronLeft, ChevronRight, CircleDot, Pause, Play, RadioTower, Sparkles, Waves, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import chibiCatHoodieBoyHandsDownSrc from "@/assets/chibi-cat-hoodie-boy-hands-down.png";
@@ -49,6 +49,26 @@ import chibiStarIdolHammerCollapsedSrc from "@/assets/generated/chibi_sprites/by
 import chibiStarIdolHammerImpactSrc from "@/assets/generated/chibi_sprites/by_character/chibi-star-idol/impact.png";
 import chibiStarIdolHammerRaisedSrc from "@/assets/generated/chibi_sprites/by_character/chibi-star-idol/raised.png";
 import chibiStarIdolHammerSwingSrc from "@/assets/generated/chibi_sprites/by_character/chibi-star-idol/swing.png";
+import orchestraHoldingBackgroundSrc from "@/assets/generated/orchestra_visualizer/backgrounds/holding-background.png";
+import orchestraPlayingBackgroundSrc from "@/assets/generated/orchestra_visualizer/backgrounds/playing-background.png";
+import orchestraHoldingCelloSrc from "@/assets/generated/orchestra_visualizer/characters/holding/02-cello.png";
+import orchestraHoldingClarinetSrc from "@/assets/generated/orchestra_visualizer/characters/holding/04-clarinet.png";
+import orchestraHoldingFluteSrc from "@/assets/generated/orchestra_visualizer/characters/holding/03-flute.png";
+import orchestraHoldingFrenchHornSrc from "@/assets/generated/orchestra_visualizer/characters/holding/07-french_horn.png";
+import orchestraHoldingHarpSrc from "@/assets/generated/orchestra_visualizer/characters/holding/09-harp.png";
+import orchestraHoldingTimpaniSrc from "@/assets/generated/orchestra_visualizer/characters/holding/08-timpani.png";
+import orchestraHoldingTromboneSrc from "@/assets/generated/orchestra_visualizer/characters/holding/06-trombone.png";
+import orchestraHoldingTrumpetSrc from "@/assets/generated/orchestra_visualizer/characters/holding/05-trumpet.png";
+import orchestraHoldingViolinSrc from "@/assets/generated/orchestra_visualizer/characters/holding/01-violin.png";
+import orchestraPlayingCelloSrc from "@/assets/generated/orchestra_visualizer/characters/playing/02-cello.png";
+import orchestraPlayingClarinetSrc from "@/assets/generated/orchestra_visualizer/characters/playing/04-clarinet.png";
+import orchestraPlayingFluteSrc from "@/assets/generated/orchestra_visualizer/characters/playing/03-flute.png";
+import orchestraPlayingFrenchHornSrc from "@/assets/generated/orchestra_visualizer/characters/playing/07-french_horn.png";
+import orchestraPlayingHarpSrc from "@/assets/generated/orchestra_visualizer/characters/playing/09-harp.png";
+import orchestraPlayingTimpaniSrc from "@/assets/generated/orchestra_visualizer/characters/playing/08-timpani.png";
+import orchestraPlayingTromboneSrc from "@/assets/generated/orchestra_visualizer/characters/playing/06-trombone.png";
+import orchestraPlayingTrumpetSrc from "@/assets/generated/orchestra_visualizer/characters/playing/05-trumpet.png";
+import orchestraPlayingViolinSrc from "@/assets/generated/orchestra_visualizer/characters/playing/01-violin.png";
 import surfPuchiBoyPaddlingSrc from "@/assets/surf-puchi-boy-paddling.png";
 import surfPuchiBoyStandingSrc from "@/assets/surf-puchi-boy-standing.png";
 import surfPuchiGirlPaddlingSrc from "@/assets/surf-puchi-girl-paddling.png";
@@ -92,6 +112,22 @@ type ChibiSpectrumMotionState = {
 type ChibiCircleMotionState = {
   upWeights: Float32Array;
 };
+type OrchestraVisualizerPose = "holding" | "playing";
+type OrchestraCharacterImages = Record<OrchestraVisualizerPose, HTMLImageElement | null>;
+type OrchestraCharacterSource = Record<OrchestraVisualizerPose, string> & {
+  band: number;
+  baseScale: number;
+  floorX: number;
+  floorY: number;
+};
+type OrchestraVisualizerImages = {
+  backgrounds: OrchestraCharacterImages;
+  characters: OrchestraCharacterImages[];
+};
+type OrchestraVisualizerMotionState = {
+  energyWeights: Float32Array;
+  playingWeights: Float32Array;
+};
 
 type RemoteAudioAnalysisPacket = {
   currentTimeAtReceived: number;
@@ -131,6 +167,7 @@ const visualizerCanvasMaxScale = 1.35;
 const remoteVisualizerCanvasMaxScale = 1;
 const spectrumBarCount = 48;
 const chibiModeStorageKey = "musical.visualizerChibiMode";
+const chibiToggleDoubleTapMs = 320;
 
 const surfPuchiSources: Record<SurfPuchiGender, Record<SurfPuchiPose, string>> = {
   boy: {
@@ -163,6 +200,18 @@ const chibiSpectrumSources: ChibiSpectrumSource[] = [
   { raised: chibiSpacePilotBoyHammerRaisedSrc, swing: chibiSpacePilotBoyHammerSwingSrc, impact: chibiSpacePilotBoyHammerImpactSrc, collapsed: chibiSpacePilotBoyHammerCollapsedSrc },
   { raised: chibiPastryChefGirlHammerRaisedSrc, swing: chibiPastryChefGirlHammerSwingSrc, impact: chibiPastryChefGirlHammerImpactSrc, collapsed: chibiPastryChefGirlHammerCollapsedSrc },
   { raised: chibiMarchingBandBoyHammerRaisedSrc, swing: chibiMarchingBandBoyHammerSwingSrc, impact: chibiMarchingBandBoyHammerImpactSrc, collapsed: chibiMarchingBandBoyHammerCollapsedSrc },
+];
+
+const orchestraCharacterSources: OrchestraCharacterSource[] = [
+  { holding: orchestraHoldingTromboneSrc, playing: orchestraPlayingTromboneSrc, band: 0, floorX: 0.17, floorY: 0.78, baseScale: 1 },
+  { holding: orchestraHoldingFrenchHornSrc, playing: orchestraPlayingFrenchHornSrc, band: 1, floorX: 0.31, floorY: 0.82, baseScale: 0.98 },
+  { holding: orchestraHoldingTimpaniSrc, playing: orchestraPlayingTimpaniSrc, band: 2, floorX: 0.51, floorY: 0.82, baseScale: 1.06 },
+  { holding: orchestraHoldingHarpSrc, playing: orchestraPlayingHarpSrc, band: 3, floorX: 0.77, floorY: 0.82, baseScale: 1.1 },
+  { holding: orchestraHoldingViolinSrc, playing: orchestraPlayingViolinSrc, band: 4, floorX: 0.17, floorY: 0.51, baseScale: 0.88 },
+  { holding: orchestraHoldingCelloSrc, playing: orchestraPlayingCelloSrc, band: 5, floorX: 0.34, floorY: 0.52, baseScale: 0.92 },
+  { holding: orchestraHoldingFluteSrc, playing: orchestraPlayingFluteSrc, band: 6, floorX: 0.52, floorY: 0.51, baseScale: 0.9 },
+  { holding: orchestraHoldingClarinetSrc, playing: orchestraPlayingClarinetSrc, band: 7, floorX: 0.66, floorY: 0.52, baseScale: 0.88 },
+  { holding: orchestraHoldingTrumpetSrc, playing: orchestraPlayingTrumpetSrc, band: 8, floorX: 0.81, floorY: 0.51, baseScale: 0.9 },
 ];
 
 function drawIdleSpectrum(context: CanvasRenderingContext2D, width: number, height: number) {
@@ -652,6 +701,120 @@ function drawChibiSpectrumPose(
   context.restore();
 }
 
+function drawCoverImage(context: CanvasRenderingContext2D, image: HTMLImageElement | null, width: number, height: number) {
+  if (!image?.complete || image.naturalWidth <= 0 || image.naturalHeight <= 0) return false;
+
+  const imageRatio = image.naturalWidth / image.naturalHeight;
+  const canvasRatio = width / height;
+  const drawWidth = imageRatio > canvasRatio ? height * imageRatio : width;
+  const drawHeight = imageRatio > canvasRatio ? height : width / imageRatio;
+  const drawX = (width - drawWidth) / 2;
+  const drawY = (height - drawHeight) / 2;
+
+  context.drawImage(image, drawX, drawY, drawWidth, drawHeight);
+  return true;
+}
+
+function drawOrchestraVisualizer(
+  context: CanvasRenderingContext2D,
+  values: Uint8Array,
+  width: number,
+  height: number,
+  time: number,
+  images: OrchestraVisualizerImages,
+  motion: OrchestraVisualizerMotionState,
+) {
+  const average = values.reduce((total, value) => total + value, 0) / Math.max(1, values.length) / 255;
+  const backgroundBlend = Math.min(1, Math.max(0, (average - 0.08) / 0.24));
+
+  context.save();
+  context.globalCompositeOperation = "source-over";
+  context.clearRect(0, 0, width, height);
+
+  if (!drawCoverImage(context, images.backgrounds.holding, width, height)) {
+    const fallbackGradient = context.createLinearGradient(0, 0, 0, height);
+    fallbackGradient.addColorStop(0, "#2b1410");
+    fallbackGradient.addColorStop(0.55, "#7a3e16");
+    fallbackGradient.addColorStop(1, "#160b09");
+    context.fillStyle = fallbackGradient;
+    context.fillRect(0, 0, width, height);
+  }
+  if (backgroundBlend > 0.01 && images.backgrounds.playing?.complete) {
+    context.globalAlpha = backgroundBlend * 0.72;
+    drawCoverImage(context, images.backgrounds.playing, width, height);
+    context.globalAlpha = 1;
+  }
+
+  context.fillStyle = `rgba(255, 226, 147, ${0.08 + average * 0.18})`;
+  context.beginPath();
+  context.ellipse(width * 0.5, height * 0.76, width * 0.46, height * 0.16, 0, 0, Math.PI * 2);
+  context.fill();
+
+  const sortedCharacters = orchestraCharacterSources
+    .map((source, index) => ({ source, index }))
+    .sort((first, second) => first.source.floorY - second.source.floorY);
+
+  sortedCharacters.forEach(({ source, index }) => {
+    const bandStats = getChibiSpectrumBandStats(values, source.band, orchestraCharacterSources.length);
+    const currentEnergy = motion.energyWeights[index] ?? 0;
+    const nextEnergy = currentEnergy + (bandStats.texture - currentEnergy) * (bandStats.texture > currentEnergy ? 0.22 : 0.08);
+    motion.energyWeights[index] = nextEnergy;
+
+    const targetPlaying = Math.min(1, Math.max(0, (nextEnergy - 0.12) / 0.22));
+    const currentPlaying = motion.playingWeights[index] ?? 0;
+    const nextPlaying = currentPlaying + (targetPlaying - currentPlaying) * (targetPlaying > currentPlaying ? 0.24 : 0.1);
+    motion.playingWeights[index] = nextPlaying;
+
+    const x = width * source.floorX;
+    const floorY = height * source.floorY;
+    const spriteHeight = Math.max(122, Math.min(height * 0.35, width * 0.2)) * source.baseScale * (1 + nextEnergy * 0.08);
+    const bob = Math.sin(time * (0.0024 + index * 0.00018) + index * 0.7) * height * 0.008 * nextPlaying;
+    const sway = Math.sin(time * (0.0018 + index * 0.00013) + index) * 0.035 * nextPlaying;
+    const alpha = 0.98;
+
+    drawOrchestraCharacter(context, images.characters[index]?.holding ?? null, x, floorY + bob, spriteHeight, sway * 0.35, alpha * (1 - nextPlaying));
+    drawOrchestraCharacter(context, images.characters[index]?.playing ?? null, x, floorY + bob - spriteHeight * 0.014 * nextPlaying, spriteHeight * (1 + nextPlaying * 0.035), sway, alpha * nextPlaying);
+  });
+
+  context.globalCompositeOperation = "lighter";
+  for (let index = 0; index < 18; index += 1) {
+    const value = (values[Math.floor((index / 18) * values.length)] ?? 0) / 255;
+    if (value < 0.08) continue;
+    const x = width * (0.16 + (index / 17) * 0.68);
+    const y = height * (0.24 + Math.sin(time * 0.0007 + index) * 0.08);
+    context.fillStyle = `rgba(255, 230, 142, ${0.12 + value * 0.24})`;
+    context.beginPath();
+    context.arc(x, y, 1.4 + value * 4.6, 0, Math.PI * 2);
+    context.fill();
+  }
+
+  context.restore();
+}
+
+function drawOrchestraCharacter(
+  context: CanvasRenderingContext2D,
+  image: HTMLImageElement | null,
+  x: number,
+  floorY: number,
+  spriteHeight: number,
+  rotation: number,
+  alpha: number,
+) {
+  if (!image?.complete || image.naturalWidth <= 0 || image.naturalHeight <= 0 || alpha <= 0.01) return;
+
+  const spriteWidth = spriteHeight * (image.naturalWidth / image.naturalHeight);
+  context.save();
+  context.translate(x, floorY);
+  context.rotate(rotation);
+  context.globalCompositeOperation = "source-over";
+  context.globalAlpha = alpha;
+  context.shadowColor = "rgba(0, 0, 0, 0.34)";
+  context.shadowBlur = 16;
+  context.shadowOffsetY = 8;
+  context.drawImage(image, -spriteWidth / 2, -spriteHeight, spriteWidth, spriteHeight);
+  context.restore();
+}
+
 function drawWaveSurfer(
   context: CanvasRenderingContext2D,
   surfacePoints: Array<{ x: number; y: number }>,
@@ -890,6 +1053,10 @@ export function PlayerVisualizerOverlay({
   const surfPuchiMotionRef = useRef<SurfPuchiMotionState>({ standingWeight: 0, targetPose: "paddling" });
   const chibiImagesRef = useRef<ChibiCharacterImages[]>(chibiCharacterSources.map(() => ({ down: null, up: null })));
   const chibiSpectrumImagesRef = useRef<ChibiSpectrumImages[]>(chibiSpectrumSources.map(() => ({ raised: null, swing: null, impact: null, collapsed: null })));
+  const orchestraImagesRef = useRef<OrchestraVisualizerImages>({
+    backgrounds: { holding: null, playing: null },
+    characters: orchestraCharacterSources.map(() => ({ holding: null, playing: null })),
+  });
   const chibiSpectrumMotionRef = useRef<ChibiSpectrumMotionState>({
     collapsedUntil: new Float64Array(chibiSpectrumSources.length),
     fatigueScores: new Float64Array(chibiSpectrumSources.length),
@@ -901,9 +1068,17 @@ export function PlayerVisualizerOverlay({
     previousTextures: new Float64Array(chibiSpectrumSources.length),
   });
   const chibiCircleMotionRef = useRef<ChibiCircleMotionState>({ upWeights: new Float32Array(chibiCharacterSources.length) });
+  const orchestraMotionRef = useRef<OrchestraVisualizerMotionState>({
+    energyWeights: new Float32Array(orchestraCharacterSources.length),
+    playingWeights: new Float32Array(orchestraCharacterSources.length),
+  });
+  const chibiSingleTapTimerRef = useRef<number | null>(null);
+  const lastChibiTouchAtRef = useRef(0);
+  const suppressNextChibiClickRef = useRef(false);
   const [hasAudioAnalysis, setHasAudioAnalysis] = useState(false);
   const [mode, setMode] = useState<VisualizerMode>("spectrum");
   const [isChibiModeEnabled, setIsChibiModeEnabled] = useState(() => window.localStorage.getItem(chibiModeStorageKey) === "true");
+  const [isOrchestraModeEnabled, setIsOrchestraModeEnabled] = useState(false);
   const [surfPuchiGender] = useState<SurfPuchiGender>(() => (Math.random() < 0.5 ? "boy" : "girl"));
   const [characterImageVersion, setCharacterImageVersion] = useState(0);
   const albumTitle = currentAlbum ? localizeLibraryText(currentAlbum.title, t) : "";
@@ -915,6 +1090,52 @@ export function PlayerVisualizerOverlay({
   const overlayStyle = artworkSrc
     ? ({ "--visualizer-artwork": `url("${artworkSrc.replace(/"/g, '\\"')}")` } as CSSProperties)
     : undefined;
+  const activateOrchestraMode = () => {
+    if (chibiSingleTapTimerRef.current !== null) {
+      window.clearTimeout(chibiSingleTapTimerRef.current);
+      chibiSingleTapTimerRef.current = null;
+    }
+    setMode("spectrum");
+    setIsOrchestraModeEnabled((value) => !value);
+  };
+  const handleChibiToggleClick = (event: MouseEvent<HTMLButtonElement>) => {
+    if (suppressNextChibiClickRef.current || event.detail > 1) {
+      suppressNextChibiClickRef.current = false;
+      event.preventDefault();
+      if (chibiSingleTapTimerRef.current !== null) {
+        window.clearTimeout(chibiSingleTapTimerRef.current);
+        chibiSingleTapTimerRef.current = null;
+      }
+      return;
+    }
+
+    if (chibiSingleTapTimerRef.current !== null) {
+      window.clearTimeout(chibiSingleTapTimerRef.current);
+    }
+    chibiSingleTapTimerRef.current = window.setTimeout(() => {
+      chibiSingleTapTimerRef.current = null;
+      setIsOrchestraModeEnabled(false);
+      setIsChibiModeEnabled((value) => !value);
+    }, chibiToggleDoubleTapMs);
+  };
+  const handleChibiToggleDoubleClick = (event: MouseEvent<HTMLButtonElement>) => {
+    event.preventDefault();
+    activateOrchestraMode();
+  };
+  const handleChibiTogglePointerUp = (event: PointerEvent<HTMLButtonElement>) => {
+    if (event.pointerType !== "touch") return;
+
+    const now = performance.now();
+    if (now - lastChibiTouchAtRef.current <= chibiToggleDoubleTapMs) {
+      suppressNextChibiClickRef.current = true;
+      activateOrchestraMode();
+      lastChibiTouchAtRef.current = 0;
+      return;
+    }
+
+    lastChibiTouchAtRef.current = now;
+  };
+
   useEffect(() => {
     function closeOnEscape(event: KeyboardEvent) {
       if (event.key === "Escape") onClose();
@@ -927,6 +1148,12 @@ export function PlayerVisualizerOverlay({
   useEffect(() => {
     window.localStorage.setItem(chibiModeStorageKey, String(isChibiModeEnabled));
   }, [isChibiModeEnabled]);
+
+  useEffect(() => () => {
+    if (chibiSingleTapTimerRef.current !== null) {
+      window.clearTimeout(chibiSingleTapTimerRef.current);
+    }
+  }, []);
 
   useEffect(() => {
     let isCancelled = false;
@@ -981,6 +1208,48 @@ export function PlayerVisualizerOverlay({
           if (isCancelled) return;
           nextImages[index] = { ...nextImages[index], [pose]: image };
           chibiSpectrumImagesRef.current = nextImages.map((item) => ({ ...item }));
+          setCharacterImageVersion((version) => version + 1);
+        };
+        image.src = src;
+      });
+    });
+
+    return () => {
+      isCancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    let isCancelled = false;
+    const nextImages: OrchestraVisualizerImages = {
+      backgrounds: { holding: null, playing: null },
+      characters: orchestraCharacterSources.map(() => ({ holding: null, playing: null })),
+    };
+
+    (Object.entries({ holding: orchestraHoldingBackgroundSrc, playing: orchestraPlayingBackgroundSrc }) as Array<[OrchestraVisualizerPose, string]>).forEach(([pose, src]) => {
+      const image = new Image();
+      image.onload = () => {
+        if (isCancelled) return;
+        nextImages.backgrounds = { ...nextImages.backgrounds, [pose]: image };
+        orchestraImagesRef.current = {
+          backgrounds: { ...nextImages.backgrounds },
+          characters: nextImages.characters.map((item) => ({ ...item })),
+        };
+        setCharacterImageVersion((version) => version + 1);
+      };
+      image.src = src;
+    });
+
+    orchestraCharacterSources.forEach((source, index) => {
+      (Object.entries({ holding: source.holding, playing: source.playing }) as Array<[OrchestraVisualizerPose, string]>).forEach(([pose, src]) => {
+        const image = new Image();
+        image.onload = () => {
+          if (isCancelled) return;
+          nextImages.characters[index] = { ...nextImages.characters[index], [pose]: image };
+          orchestraImagesRef.current = {
+            backgrounds: { ...nextImages.backgrounds },
+            characters: nextImages.characters.map((item) => ({ ...item })),
+          };
           setCharacterImageVersion((version) => version + 1);
         };
         image.src = src;
@@ -1061,7 +1330,10 @@ export function PlayerVisualizerOverlay({
       canvasElement.height = Math.max(1, Math.floor(rect.height * scale));
       drawingContext.setTransform(scale, 0, 0, scale, 0, 0);
       drawingContext.clearRect(0, 0, rect.width, rect.height);
-      if (isChibiModeEnabled && mode === "wave") {
+      if (isOrchestraModeEnabled) {
+        visualFrequencyValues.fill(0);
+        drawOrchestraVisualizer(drawingContext, visualFrequencyValues, rect.width, rect.height, performance.now(), orchestraImagesRef.current, orchestraMotionRef.current);
+      } else if (isChibiModeEnabled && mode === "wave") {
         visualFrequencyValues.fill(0);
         drawWave(drawingContext, visualFrequencyValues, rect.width, rect.height, performance.now(), surfPuchiImagesRef.current, surfPuchiMotionRef.current, true);
       } else if (isChibiModeEnabled && mode === "circle") {
@@ -1118,6 +1390,8 @@ export function PlayerVisualizerOverlay({
         } else {
           drawCircle(drawingContext, drawableFrequencyValues, rect.width, rect.height, time);
         }
+      } else if (isOrchestraModeEnabled) {
+        drawOrchestraVisualizer(drawingContext, drawableFrequencyValues, rect.width, rect.height, time, orchestraImagesRef.current, orchestraMotionRef.current);
       } else {
         drawSpectrum(
           drawingContext,
@@ -1140,7 +1414,7 @@ export function PlayerVisualizerOverlay({
       window.cancelAnimationFrame(animationFrame);
       resizeObserver.disconnect();
     };
-  }, [audioAnalysisPacketRef, characterImageVersion, isChibiModeEnabled, isVisualizerLive, mode, preferRemoteAudioAnalysis, remotePlaybackClockRef]);
+  }, [audioAnalysisPacketRef, characterImageVersion, isChibiModeEnabled, isOrchestraModeEnabled, isVisualizerLive, mode, preferRemoteAudioAnalysis, remotePlaybackClockRef]);
 
   return (
     <section aria-label={t("player.visualizerLabel")} aria-modal="true" className="player-visualizer-overlay" role="dialog" style={overlayStyle}>
@@ -1221,26 +1495,28 @@ export function PlayerVisualizerOverlay({
       <div className="visualizer-controls" aria-label={t("player.label")}>
         <div className="visualizer-controls-dock">
           <Button
-            aria-label={t("player.chibiMode")}
-            aria-pressed={isChibiModeEnabled}
-            className={isChibiModeEnabled ? "visualizer-chibi-toggle icon-button active" : "visualizer-chibi-toggle icon-button"}
-            onClick={() => setIsChibiModeEnabled((value) => !value)}
-            title={t("player.chibiMode")}
+            aria-label={isOrchestraModeEnabled ? t("player.orchestraMode") : t("player.chibiMode")}
+            aria-pressed={isChibiModeEnabled || isOrchestraModeEnabled}
+            className={isChibiModeEnabled || isOrchestraModeEnabled ? "visualizer-chibi-toggle icon-button active" : "visualizer-chibi-toggle icon-button"}
+            onClick={handleChibiToggleClick}
+            onDoubleClick={handleChibiToggleDoubleClick}
+            onPointerUp={handleChibiTogglePointerUp}
+            title={isOrchestraModeEnabled ? t("player.orchestraMode") : t("player.chibiMode")}
             type="button"
             variant="outline"
           >
             <Sparkles aria-hidden="true" />
           </Button>
           <div className="visualizer-mode-switch" aria-label={t("player.visualizerMode")} role="group">
-            <Button className={mode === "wave" ? "visualizer-mode-button active" : "visualizer-mode-button"} onClick={() => setMode("wave")} type="button" variant="outline">
+            <Button className={mode === "wave" ? "visualizer-mode-button active" : "visualizer-mode-button"} onClick={() => { setIsOrchestraModeEnabled(false); setMode("wave"); }} type="button" variant="outline">
               <Waves />
               {t("player.visualizerWave")}
             </Button>
-            <Button className={mode === "spectrum" ? "visualizer-mode-button active" : "visualizer-mode-button"} onClick={() => setMode("spectrum")} type="button" variant="outline">
+            <Button className={mode === "spectrum" ? "visualizer-mode-button active" : "visualizer-mode-button"} onClick={() => { setIsOrchestraModeEnabled(false); setMode("spectrum"); }} type="button" variant="outline">
               <RadioTower />
               {t("player.visualizerSpectrum")}
             </Button>
-            <Button className={mode === "circle" ? "visualizer-mode-button active" : "visualizer-mode-button"} onClick={() => setMode("circle")} type="button" variant="outline">
+            <Button className={mode === "circle" ? "visualizer-mode-button active" : "visualizer-mode-button"} onClick={() => { setIsOrchestraModeEnabled(false); setMode("circle"); }} type="button" variant="outline">
               <CircleDot />
               {t("player.visualizerCircle")}
             </Button>

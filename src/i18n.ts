@@ -222,6 +222,7 @@ export const translationKeys = [
   "player.visualizerSpectrum",
   "player.visualizerCircle",
   "player.chibiMode",
+  "player.orchestraMode",
   "player.playbackError",
   "tvDisplay.nowPlaying",
   "tvDisplay.playingOnTv",

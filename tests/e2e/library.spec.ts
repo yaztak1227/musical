@@ -172,57 +172,15 @@ test("creates an empty playlist", async ({ page }) => {
 
 test("shows playlists as playable collections on the TV display", async ({ page }) => {
   await page.addInitScript(() => window.localStorage.setItem("musical.locale", "en"));
-  await page.route("**/api/library_snapshot", async (route) => {
-    await route.fulfill({
-      contentType: "application/json",
-      body: JSON.stringify({
-        albums: [],
-        databasePath: "mock.sqlite3",
-        lastScanPath: "/music",
-        playlists: [
-          {
-            id: "playlist-road-set",
-            name: "Road Set",
-            filePath: "/music/.musical/playlist/road-set.mplaylist",
-            artworkPath: null,
-            missingTrackPaths: [],
-            trackCount: 2,
-            tracks: [
-              {
-                id: "station-lights",
-                title: "Station Lights",
-                artist: "Transit Ensemble",
-                durationSeconds: 202,
-                filePath: "/music/station-lights.mp3",
-                hasLyrics: false,
-                isFavorite: false,
-                rating: null,
-              },
-              {
-                id: "last-train-home",
-                title: "Last Train Home",
-                artist: "Transit Ensemble",
-                durationSeconds: 191,
-                filePath: "/music/last-train-home.mp3",
-                hasLyrics: false,
-                isFavorite: false,
-                rating: null,
-              },
-            ],
-          },
-        ],
-      }),
-    });
-  });
 
-  await page.goto("/tv?tab=albums");
-  await expect(page.getByLabel("Albums")).toContainText("Road Set");
-  await expect(page.getByLabel("Albums")).toContainText("Playlists");
+  await page.goto("/tv?tab=albums&mockData=true");
+  await expect(page.getByLabel("Playlists", { exact: true })).toContainText("Road Set");
+  await expect(page.getByLabel("Playlists", { exact: true })).toContainText("1 playlists");
 
   await page.getByRole("button", { name: /Road Set/ }).click();
   await page.evaluate(() => window.dispatchEvent(new CustomEvent("musical-firetv-tab", { detail: { tab: "player" } })));
   await expect(page.getByRole("region", { name: "Now playing" })).toContainText("Station Lights");
-  await expect(page.getByLabel("Up next")).toContainText("Last Train Home");
+  await expect(page.getByRole("complementary", { name: "Up next" })).toContainText("Last Train Home");
 });
 
 test("restores playback preferences", async ({ page }) => {

@@ -21,7 +21,7 @@ Required local toolchain:
 The local Android SDK is expected at:
 
 ```txt
-/Users/takumi/Library/Android/sdk
+/Users/you/Library/Android/sdk
 ```
 
 If Android Studio or Gradle does not find it automatically, create `local.properties` from the example:

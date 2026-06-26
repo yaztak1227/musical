@@ -7,6 +7,7 @@ use crate::{
     },
     app_settings,
 };
+use log::debug;
 use rusqlite::{params, Connection, Error as SqliteError, ErrorCode, OpenFlags, OptionalExtension};
 use rustfft::{num_complex::Complex, FftPlanner};
 use serde::{Deserialize, Serialize};
@@ -142,12 +143,25 @@ pub fn get_cached_track_analysis(
     let _cache_guard = audio_analysis_cache_lock()
         .lock()
         .map_err(|error| error.to_string())?;
-    match open_existing_cache_database(app)? {
+    let result = match open_existing_cache_database(app)? {
         Some(connection) => {
             load_cached_track_analysis(&connection, &cache_key, min_duration_seconds)
         }
         None => Ok(None),
+    }?;
+    match &result {
+        Some(analysis) => debug!(
+            "audio analysis cache hit track_id={} frames={} min_duration={:.2}s",
+            track_id,
+            analysis.frames.len(),
+            min_duration_seconds,
+        ),
+        None => debug!(
+            "audio analysis cache miss track_id={} min_duration={:.2}s",
+            track_id, min_duration_seconds,
+        ),
     }
+    Ok(result)
 }
 
 pub fn analyze_track_file_segment(
@@ -526,6 +540,12 @@ fn save_cached_track_analysis(
             frames_blob,
         ],
     )?;
+    debug!(
+        "audio analysis cache saved track_id={} frames={} analyzed_duration_ms={:.0}",
+        cache_key.track_id,
+        analysis.frames.len(),
+        analyzed_duration_ms,
+    );
     Ok(())
 }
 
