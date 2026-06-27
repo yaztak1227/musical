@@ -1,0 +1,210 @@
+{
+  "backgrounds": {
+    "holding": "backgrounds/holding-background.png",
+    "playing": "backgrounds/playing-background.png"
+  },
+  "spritesheets": {
+    "holdingSource": "spritesheets/holding-spritesheet-green.png",
+    "playingSource": "spritesheets/playing-spritesheet-green.png"
+  },
+  "characters": [
+    {
+      "id": "violin",
+      "instrument": "violin",
+      "state": "holding",
+      "file": "characters/holding/01-violin.png",
+      "size": [
+        320,
+        514
+      ],
+      "gridIndex": 0
+    },
+    {
+      "id": "cello",
+      "instrument": "cello",
+      "state": "holding",
+      "file": "characters/holding/02-cello.png",
+      "size": [
+        396,
+        511
+      ],
+      "gridIndex": 1
+    },
+    {
+      "id": "flute",
+      "instrument": "flute",
+      "state": "holding",
+      "file": "characters/holding/03-flute.png",
+      "size": [
+        376,
+        506
+      ],
+      "gridIndex": 2
+    },
+    {
+      "id": "clarinet",
+      "instrument": "clarinet",
+      "state": "holding",
+      "file": "characters/holding/04-clarinet.png",
+      "size": [
+        319,
+        507
+      ],
+      "gridIndex": 3
+    },
+    {
+      "id": "trumpet",
+      "instrument": "trumpet",
+      "state": "holding",
+      "file": "characters/holding/05-trumpet.png",
+      "size": [
+        366,
+        506
+      ],
+      "gridIndex": 4
+    },
+    {
+      "id": "trombone",
+      "instrument": "trombone",
+      "state": "holding",
+      "file": "characters/holding/06-trombone.png",
+      "size": [
+        362,
+        499
+      ],
+      "gridIndex": 5
+    },
+    {
+      "id": "french_horn",
+      "instrument": "french horn",
+      "state": "holding",
+      "file": "characters/holding/07-french_horn.png",
+      "size": [
+        677,
+        1086
+      ],
+      "gridIndex": 6
+    },
+    {
+      "id": "timpani",
+      "instrument": "timpani",
+      "state": "holding",
+      "file": "characters/holding/08-timpani.png",
+      "size": [
+        1069,
+        996
+      ],
+      "gridIndex": 7
+    },
+    {
+      "id": "harp",
+      "instrument": "harp",
+      "state": "holding",
+      "file": "characters/holding/09-harp.png",
+      "size": [
+        973,
+        1132
+      ],
+      "gridIndex": 8
+    },
+    {
+      "id": "violin",
+      "instrument": "violin",
+      "state": "playing",
+      "file": "characters/playing/01-violin.png",
+      "size": [
+        433,
+        509
+      ],
+      "gridIndex": 0
+    },
+    {
+      "id": "cello",
+      "instrument": "cello",
+      "state": "playing",
+      "file": "characters/playing/02-cello.png",
+      "size": [
+        428,
+        506
+      ],
+      "gridIndex": 1
+    },
+    {
+      "id": "flute",
+      "instrument": "flute",
+      "state": "playing",
+      "file": "characters/playing/03-flute.png",
+      "size": [
+        426,
+        506
+      ],
+      "gridIndex": 2
+    },
+    {
+      "id": "clarinet",
+      "instrument": "clarinet",
+      "state": "playing",
+      "file": "characters/playing/04-clarinet.png",
+      "size": [
+        321,
+        499
+      ],
+      "gridIndex": 3
+    },
+    {
+      "id": "trumpet",
+      "instrument": "trumpet",
+      "state": "playing",
+      "file": "characters/playing/05-trumpet.png",
+      "size": [
+        393,
+        499
+      ],
+      "gridIndex": 4
+    },
+    {
+      "id": "trombone",
+      "instrument": "trombone",
+      "state": "playing",
+      "file": "characters/playing/06-trombone.png",
+      "size": [
+        495,
+        498
+      ],
+      "gridIndex": 5
+    },
+    {
+      "id": "french_horn",
+      "instrument": "french horn",
+      "state": "playing",
+      "file": "characters/playing/07-french_horn.png",
+      "size": [
+        791,
+        1299
+      ],
+      "gridIndex": 6
+    },
+    {
+      "id": "timpani",
+      "instrument": "timpani",
+      "state": "playing",
+      "file": "characters/playing/08-timpani.png",
+      "size": [
+        1119,
+        1080
+      ],
+      "gridIndex": 7
+    },
+    {
+      "id": "harp",
+      "instrument": "harp",
+      "state": "playing",
+      "file": "characters/playing/09-harp.png",
+      "size": [
+        1024,
+        1128
+      ],
+      "gridIndex": 8
+    }
+  ]
+}

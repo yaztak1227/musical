@@ -20,6 +20,7 @@ apps/firetv/app/build
 apps/firetv/local.properties
 tasklist/*
 unused_assets/
+.codebase-memory/
 *.local
 .codex/config.toml
 

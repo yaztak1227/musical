@@ -59,6 +59,8 @@ Fire TV App
 - Receives launch parameters such as host URL and session id.
 - Bridges Fire TV remote key input into the TV UI.
 - Plays audio locally through WebView media APIs.
+- Disables Android WebView automatic darkening so the TV theme is controlled by
+  the app CSS rather than platform color inversion.
 - Owns play/pause/seek/volume while a Fire TV session is active.
 - Handles WebView lifecycle, reconnect, and visible error states.
 
@@ -68,6 +70,8 @@ Fire TV App
 - Connects to the local WebSocket display server.
 - Maintains local focus state and remote-key playback navigation.
 - Uses `<audio>` for local playback when the session provides an `audioUrl`.
+- Provides fallback TV theme colors for WebView engines without modern
+  `color-mix()` support.
 - Avoids Tauri, Android, and Cloud dependencies.
 
 ### Cloud Command API

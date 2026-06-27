@@ -1,0 +1,138 @@
+# Musical 機能一覧
+
+この文書は、現在の仕様書とコードをもとにした Musical の機能棚卸しです。
+将来案ではなく、現時点で実装済みまたは実装中のプロダクト面を記録します。
+
+主な参照元:
+
+- `Specs/current-platform-capabilities.md`
+- `Specs/current-platform-capabilities_JP.md`
+- `Specs/playback-sequences.md`
+- `docs/visualizer-design.ja.md`
+- `docs/firetv-display-architecture.md`
+- `docs/firetv-display-protocol.md`
+- `docs/firetv-tv-ui-design.md`
+- `src/app/AppShell.tsx`
+- `src/features/**`
+- `src-tauri/src/**`
+- `apps/firetv/app/src/main/java/app/musical/firetv/**`
+
+## 対象プラットフォーム
+
+| プラットフォーム | 役割 | 主な実行環境 |
+| --- | --- | --- |
+| デスクトップアプリ | ライブラリ管理、実音声再生、編集、ローカルサーバー提供 | Tauri on Windows / macOS / Linux |
+| ブラウザアプリ | Mock 検証、またはデスクトップローカルサーバーへのリモート操作 | Vite/React in browser |
+| Fire TV アプリ | テレビ向け再生画面、キュー、歌詞、アルバム/曲選択、ローカル TV 再生 | Android/Kotlin shell + WebView `/tv` |
+
+## ライブラリ管理
+
+- ローカル音楽フォルダを選択して再帰スキャンする。
+- スキャン済みライブラリをライブラリ配下の `.musical` データ領域に保存する。
+- 起動時に最後のライブラリを再読み込みする。
+- ファイル探索、タグ読み取り、DB 書き込み、アートワーク準備の進捗を表示する。
+- アルバム、曲、プレイリストを共通モデルで扱う。
+- 埋め込みメタデータ、曲長、歌詞有無、アートワークを読み取る。
+- 対応音声拡張子は `aac`, `aif`, `aiff`, `alac`, `ape`, `flac`, `m4a`, `m4b`, `mka`, `mp3`, `mp4`, `oga`, `ogg`, `opus`, `wav`, `wma`。
+
+## 閲覧と検索
+
+- アルバムを大アイコン、小アイコン、アルバム表、曲表、プレイリスト表示で切り替える。
+- アルバム、アーティスト、年、プレイリスト、曲名、曲アーティスト、ファイルパスを検索する。
+- アルバムをタイトル、アーティスト、年で昇順/降順ソートする。
+- 歌詞ありのアルバム/曲に絞り込む。
+- アルバム選択、曲選択、曲詳細表示を再生状態と独立して操作する。
+- 狭い画面ではアルバムパネルを縦スワイプで折りたたみ/展開する。
+
+## 再生
+
+- アルバム、曲、プレイリストを再生する。
+- 再生、一時停止、前へ、次へ、シーク、ミュート、音量、シャッフル、リピートを操作する。
+- 現在曲、再生元アルバム/プレイリスト、キュー、再生状態、音量、現在時刻を保持する。
+- 前へ操作は、再生位置が 3 秒を超えていれば同一曲の先頭へ戻り、それ以外は前のキュー項目へ移動する。
+- 曲終了時は一度停止状態を経由し、リピート/シャッフル/キュー規則に従って次の状態へ遷移する。
+- キューポップオーバーを hover または click/tap で表示する。
+- 利用可能な環境では Media Session API に再生メタデータと操作を同期する。
+
+## Player Mode とビジュアライザ
+
+- Player mode でアートワーク、ビジュアライザ、歌詞パネル、キュー、再生操作を全画面表示する。
+- ビジュアライザモードは `Wave`, `Spectrum`, `Circle` を持つ。
+- Chibi mode を切り替え、`localStorage` の `musical.visualizerChibiMode` に保存する。
+- Chibi character と chibi orchestra のビジュアルアセットを使う。
+- 再生中は remote/offline analysis frame、または Web Audio analyser fallback で描画する。
+- 停止中や解析未取得時は idle 表示に落とす。
+- シークや曲変更時は古い解析フレームをクリアし、別曲の stale frame を描画しない。
+- 解析フレームは Rust backend が生成し、ライブラリ配下の `.musical/audio_analysis.sqlite3` にキャッシュする。
+
+## 曲情報とタグ編集
+
+- アルバムタイトル、アルバムアーティスト、曲アーティスト、年、ジャンルをアルバム単位で編集する。
+- 曲タイトル、アーティスト、アルバムタイトル、年、ジャンル、トラック番号、ディスク番号を曲単位で編集する。
+- 必須項目を検証してから保存する。
+- Rust backend 経由で音声ファイルへタグ変更を書き込む。
+- 曲アートワークとプレイリストアートワークをネイティブ画像ピッカーから更新する。
+- 曲のお気に入りとレーティングを設定/解除する。
+- 保存済み歌詞を曲詳細と Player mode に表示する。
+
+## プレイリスト
+
+- 空のプレイリストを作成する。
+- 選択アルバムからプレイリストを作成する。
+- プレイリストの改名、削除、アートワーク更新を行う。
+- アルバム内の 1 曲または全曲をプレイリストへ追加する。
+- 重複追加を UI で防ぐ。
+- プレイリスト曲を削除、上下並べ替えする。
+- プレイリスト曲から元アルバムへ移動する。
+- 見つからない曲を表示し、ファイル復元後に再読み込みできる。
+
+## ローカライズと設定
+
+- メイン UI は日本語/英語を切り替える。
+- テーマは crimson, ocean, violet, forest, amber, mono を選択する。
+- locale、theme、sidebar state、library menu state、playback preferences を local storage に保存する。
+- UI 文言を通常実装で追加/変更する場合は `src/locales/en.xml` と `src/locales/ja.xml` のみを更新する。
+
+## ローカルサービスとリモート操作
+
+- Tauri 起動時にローカル HTTP サーバーを開始する。
+- `/api/*` で library snapshot、lyrics、media file、audio analysis、player state、command queue を提供する。
+- media file は HTTP byte-range に対応する。
+- LAN access が有効になるまで非ローカル HTTP client を拒否する。
+- LAN/public control URL の QR code を表示する。
+- dev mode では public dev tunnel を任意で公開する。
+- ローカル MCP endpoint を切り替える。無効時の `/mcp` は 404 を返す。
+- ブラウザバックエンドモードでは、ブラウザが再生を所有せず、デスクトップへ remote player command を送る。
+
+## Fire TV
+
+- Android/Fire TV アプリとして起動し、React `/tv` route を WebView でホストする。
+- JavaScript、DOM storage、mixed content、ユーザー gesture なし media playback を有効にする。
+- Android WebView の自動 darkening を無効化し、TV CSS の色を維持する。
+- Native top tab shell は Settings, Albums, Tracks, Player を持つ。
+- Settings で Musical desktop server を検出し、ライブラリを選択する。
+- 明示的な `display_url` intent extra または `musical-firetv://display` deep link を受け取る。
+- `/api/tv/libraries` からライブラリ一覧を取得し、選択した `libraryId` を `/tv?libraryId=...` に渡す。
+- Player では Now Playing、アートワーク backdrop、キュー、歌詞、再生操作、前後曲ヒント、メモリ診断 overlay を表示する。
+- WebView 内の `<audio>` が Fire TV local playback を所有する。
+- `/api/media`, `/api/track_lyrics`, `/api/track_analysis_bytes`, `/api/track_analysis` を使う。
+- Fire TV remote の DPAD、Enter、media keys、number keys を WebView または native shell の操作へ変換する。
+- `sessionId` がある場合は `/tv/sessions/{sessionId}` WebSocket に接続し、session snapshot や display messages を適用する。
+- `color-mix(in oklch, ...)` 非対応 WebView でも TV player の視認性を保つ fallback color を持つ。
+
+## Mock / 検証モード
+
+- `VITE_MOCK_DATA=true` で mock data runtime を起動する。
+- Mock web mode では実ファイルスキャン、実音声再生、タグ書き込み、アートワーク書き込みは行わない。
+- Mock playback と mock audio analysis により UI regression test と Player mode 検証を行う。
+- 通常の開発確認は real Tauri/local backend を使う。
+
+## 現在の主な制約
+
+- 実スキャン、ファイル再生、タグ/アートワーク書き込み、フォルダ/画像ピッカーは Tauri が必要。
+- Remote HTTP state、queued player commands、display devices、TV player events は現 app process 内 in-memory。
+- Fire TV は到達可能な desktop local server に依存する。
+- Fire TV discovery は現在 local IPv4 subnet の port `1422` を対象にする。
+- Fire TV は tag、artwork、rating、favorite、playlist、library scan settings を編集しない。
+- Fire TV WebView playback は Android WebView の codec/support behavior に依存する。
+- Production Alexa/DIAL flow は未完成で、現状は command enqueue と state 記録が中心。

@@ -19,6 +19,8 @@ Musical is designed first as a desktop app, with a wide library view for browsin
 - Search by album, artist, or year
 - Switch between large icons, small icons, album list, and track list views
 - Play, pause, skip, seek, adjust volume, shuffle, and repeat
+- Open a Fire TV companion display for couch-friendly playback, queue, and lyrics controls
+- Switch the player visualizer into chibi character and chibi orchestra modes
 - Edit album and track tags such as title, artist, year, and genre
 - View lyrics saved in tracks
 - Review and replace album artwork
@@ -64,6 +66,16 @@ Start playback from an album or individual track. The player at the bottom of th
 Player mode expands the current song into a visualizer with artwork, queue controls, transport controls, and synced access to saved lyrics.
 
 ![Player visualizer with lyrics](docs/images/musical-en-visualizer.png)
+
+The visualizer can also switch into chibi character mode, with animated characters reacting to the music.
+
+![Chibi visualizer mode](docs/images/musical-chibi-visualizer.png)
+
+## Fire TV Display
+
+Musical includes a Fire TV companion app that opens a TV-optimized display for the current player, queue, lyrics, albums, and tracks. The Fire TV app can discover the desktop server on the same LAN, or you can launch it with a development URL when testing in an emulator.
+
+![Musical Fire TV player](docs/images/musical-firetv-player.png)
 
 ## View And Edit Track Details
 

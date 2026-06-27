@@ -1129,6 +1129,98 @@
   }
 }
 
+@supports not (color: color-mix(in oklch, white, black)) {
+  .tv-display-shell {
+    --app-on-player: #fff7f4;
+    --app-player: #5a151a;
+    --app-player-strong: #3a0e12;
+    --primary: #b01222;
+    --foreground: #16090c;
+    color: #fff7f4;
+    background: linear-gradient(90deg, #3a0e12, #5a151a 58%, #2f0d12);
+  }
+
+  .tv-player-surface::after {
+    background:
+      linear-gradient(90deg, rgba(58, 14, 18, 0.96), rgba(90, 21, 26, 0.88)),
+      var(--tv-player-artwork-bg, none) center / cover no-repeat;
+  }
+
+  .tv-artwork-frame,
+  .tv-panel,
+  .tv-candidate-prompt,
+  .tv-candidate-list button {
+    border-color: rgba(255, 247, 244, 0.48);
+    background: rgba(58, 14, 18, 0.74);
+  }
+
+  .tv-track-copy h1,
+  .tv-adjacent-tracks strong,
+  .tv-memory-diagnostics strong,
+  .tv-panel h3,
+  .tv-candidate-list strong {
+    color: #fff7f4;
+  }
+
+  .tv-kicker,
+  .tv-artist,
+  .tv-album,
+  .tv-panel h2,
+  .tv-candidate-list span,
+  .tv-candidate-list small,
+  .tv-session-status,
+  .tv-player-times,
+  .tv-player-status,
+  .tv-adjacent-tracks span,
+  .tv-next-track {
+    color: rgba(255, 247, 244, 0.72);
+  }
+
+  .tv-progress,
+  .tv-side-panel-tabs,
+  .tv-memory-diagnostics {
+    border-color: rgba(255, 247, 244, 0.18);
+    background: rgba(255, 247, 244, 0.22);
+  }
+
+  .tv-progress span,
+  .tv-album-sort-direction {
+    background: #fff7f4;
+  }
+
+  .tv-transport-controls button,
+  .tv-side-panel-tabs button,
+  .tv-adjacent-tracks button,
+  .tv-collection-tabs button,
+  .tv-album-sort-rail button {
+    border-color: rgba(255, 247, 244, 0.46);
+    color: #fff7f4;
+    background: rgba(58, 14, 18, 0.45);
+  }
+
+  .tv-transport-controls .tv-play-control,
+  .tv-transport-controls .tv-play-control.is-focused {
+    color: #b01222;
+    background: #fff7f4;
+  }
+
+  .tv-side-panel-tabs button.is-selected,
+  .tv-collection-tabs button.is-selected,
+  .tv-album-sort-rail button.is-selected,
+  .tv-transport-controls button.is-focused,
+  .tv-adjacent-tracks button:hover,
+  .tv-adjacent-tracks button:focus-visible,
+  .tv-candidate-list button.is-focused {
+    border-color: #fff7f4;
+    color: #fff7f4;
+    background: rgba(255, 247, 244, 0.18);
+  }
+
+  .tv-player-status.is-error {
+    color: #ffd27a;
+  }
+}
+
 @media (max-height: 560px) and (min-width: 701px) {
   .tv-display-shell {
     height: 100dvh;

@@ -53,6 +53,26 @@ remote input is handled natively or bridged into the WebView.
 - Avoid hover-only interactions.
 - Keep motion calm and performance-aware.
 
+## Color And WebView Compatibility
+
+The Fire TV player surface uses modern CSS color functions where available, but
+must remain readable on Android WebView builds that do not support
+`color-mix(in oklch, ...)`.
+
+Compatibility rules:
+
+- The Android shell disables WebView automatic darkening, using
+  `isAlgorithmicDarkeningAllowed = false` on Android 13+ and `FORCE_DARK_OFF`
+  on Android 10-12.
+- The TV route includes explicit fallback colors under
+  `@supports not (color: color-mix(in oklch, white, black))`.
+- Fallback colors should preserve the same information hierarchy as the modern
+  theme: high-contrast player text, readable muted metadata, visible panels,
+  distinct selected/focused buttons, and clear error text.
+- New TV UI colors should be checked in both modern desktop browsers and Fire TV
+  WebView/emulator paths so forced dark mode or unsupported color functions do
+  not invert or wash out the player surface.
+
 ## Tab Bar
 
 Tab navigation is optimized for a Fire TV remote:

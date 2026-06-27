@@ -9,6 +9,12 @@ shows the native Settings tab with libraries from
 `http://<LAN-IP>:1422/tv?libraryId=<ID>` and stores that URL and library id for
 the next launch.
 
+![Musical Fire TV player](../../docs/images/musical-firetv-player.png)
+
+The TV display exposes remote-friendly tabs for Settings, Albums, Tracks, and
+Player. Use an Android emulator or Fire TV device to verify navigation,
+playback controls, queue, lyrics, and LAN discovery behavior.
+
 ## Build
 
 Required local toolchain:
