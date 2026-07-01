@@ -1,7 +1,8 @@
 use super::{
     display_album_artist, display_album_year, find_audio_files, load_playlist_file_best_effort,
     parse_m3u_playlist, parse_pls_playlist, persist_album_tag_update, repair_mojibake,
-    update_playlist_artwork_file, ExistingAlbum, PlaylistArtworkUpdateRequest, PlaylistFile,
+    strip_windows_drive_prefix, update_playlist_artwork_file, ExistingAlbum,
+    PlaylistArtworkUpdateRequest, PlaylistFile,
 };
 use rusqlite::{params, Connection};
 use std::{
@@ -111,6 +112,18 @@ fn parses_m3u_and_pls_playlist_paths_relative_to_playlist_file() {
     assert_eq!(absolute.track_paths, vec!["Artist/Album/absolute.mp3"]);
 
     fs::remove_dir_all(root).expect("remove fixture directory");
+}
+
+#[test]
+fn strips_windows_drive_from_rooted_playlist_entries() {
+    assert_eq!(
+        strip_windows_drive_prefix("C:/Outside/missing.mp3"),
+        "Outside/missing.mp3"
+    );
+    assert_eq!(
+        strip_windows_drive_prefix("Artist/Album/relative.mp3"),
+        "Artist/Album/relative.mp3"
+    );
 }
 
 #[test]

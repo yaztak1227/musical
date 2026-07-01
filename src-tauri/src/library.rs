@@ -63,7 +63,7 @@ pub use playlist::{
 #[cfg(test)]
 use playlist::{
     load_playlist_file_best_effort, parse_m3u_playlist, parse_pls_playlist, read_mplaylist_file,
-    update_playlist_artwork_file,
+    strip_windows_drive_prefix, update_playlist_artwork_file,
 };
 use storage::{
     allow_asset_directory, app_database_path, artwork_cache_dir_for_root, count_albums,

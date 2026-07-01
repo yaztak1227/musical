@@ -523,6 +523,7 @@ pub(super) fn normalize_playlist_entry_path(
     entry: &str,
 ) -> String {
     let entry_path = Path::new(entry);
+    let entry_is_rooted_without_prefix = is_rooted_without_prefix(entry_path);
     let path = if entry_path.is_absolute() {
         entry_path.to_path_buf()
     } else {
@@ -532,7 +533,12 @@ pub(super) fn normalize_playlist_entry_path(
             .join(entry_path)
     };
     let normalized_path = normalize_lexical_path(&path);
-    playlist_track_path(library_root, &normalized_path.to_string_lossy())
+    let track_path = playlist_track_path(library_root, &normalized_path.to_string_lossy());
+    if entry_is_rooted_without_prefix {
+        strip_windows_drive_prefix(&track_path).to_owned()
+    } else {
+        track_path
+    }
 }
 
 pub(super) fn normalize_lexical_path(path: &Path) -> PathBuf {
@@ -547,6 +553,19 @@ pub(super) fn normalize_lexical_path(path: &Path) -> PathBuf {
         }
     }
     normalized
+}
+
+fn is_rooted_without_prefix(path: &Path) -> bool {
+    matches!(path.components().next(), Some(Component::RootDir))
+}
+
+pub(super) fn strip_windows_drive_prefix(path: &str) -> &str {
+    let bytes = path.as_bytes();
+    if bytes.len() >= 3 && bytes[1] == b':' && bytes[2] == b'/' && bytes[0].is_ascii_alphabetic() {
+        &path[3..]
+    } else {
+        path
+    }
 }
 
 pub(super) fn playlist_id_from_path(path: &Path) -> String {

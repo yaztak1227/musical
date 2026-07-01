@@ -14,6 +14,7 @@ the library snapshot so they can be displayed and played without blocking normal
 - Empty playlists disable play actions and explain that tracks must be added first.
 - Missing playlist entries are preserved as `missingTrackPaths` so users can restore files and reload the library.
 - Broken `.mplaylist` files are skipped during snapshot loading instead of failing the entire library load.
+- Rooted M3U/PLS entries such as `/Music/track.mp3` are normalized without a Windows drive prefix.
 - Fire TV `/tv` display includes non-empty playlists as playable collections before albums.
 
 ## Tests
