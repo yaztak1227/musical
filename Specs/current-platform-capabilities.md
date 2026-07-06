@@ -185,8 +185,9 @@ Desktop visualizer rendering:
   - Remote/offline analysis is preferred for the runtime.
   - An audio-analysis packet already has frames.
 - In current desktop and browser-backend usage, remote/offline analysis is
-  preferred, so the canvas uses cached/decoded analysis frames rather than
-  sampling the live `<audio>` element.
+  preferred, so cached/decoded analysis frames are used first. If those frames
+  are not available yet, the desktop renderer may fall back to sampling the live
+  `<audio>` element with Web Audio.
 - If a remote/offline analysis frame is available, the renderer interpolates
   between frame timecodes around the estimated playback time.
 - If no remote/offline frame is available and Web Audio is available, the

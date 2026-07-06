@@ -16,7 +16,9 @@ export type ArtworkCandidate = {
   artist?: string | null;
   year?: string | null;
   thumbnailPath?: string | null;
+  thumbnailRawPath?: string | null;
   previewPath?: string | null;
+  previewRawPath?: string | null;
   imageUrl?: string | null;
   pageUrl?: string | null;
   width?: number | null;

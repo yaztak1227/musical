@@ -54,6 +54,10 @@ import {
   writeCachedArtworkRelease,
   writeCachedArtworkPreviewPath,
 } from "../../lib/artworkSearch";
+import {
+  getArtworkCandidateSelectionPreview,
+  hydrateArtworkCandidatePreview as hydrateArtworkCandidatePreviewState,
+} from "../../lib/artworkCandidatePreviewState";
 import { makeAlbumTagDraft } from "../../lib/tagDraftUtils";
 import {
   getAlbumQueueTracks,
@@ -1989,23 +1993,20 @@ export function useAppController() {
     const releaseId = candidate.releaseId ?? candidate.id;
     if (!releaseId || isInspectingArtworkRelease) return;
     const cachedPreviewPath = readCachedArtworkPreviewPath(releaseId);
-    const candidatePreviewSrc =
-      cachedPreviewPath
-        ? getBackendMediaSrc(cachedPreviewPath)
-        : candidate.previewPath ?? candidate.thumbnailPath ?? "";
+    const candidatePreview = getArtworkCandidateSelectionPreview(candidate, cachedPreviewPath, getBackendMediaSrc);
 
     try {
       setIsInspectingArtworkRelease(true);
       setArtworkCandidateMessage(null);
       setSelectedArtworkCandidateId(candidate.id);
       setSelectedArtworkRelease(null);
-      setArtworkDraftPath(cachedPreviewPath ?? "");
-      setArtworkCandidatePreviewSrc(candidatePreviewSrc);
-      if (cachedPreviewPath) {
+      setArtworkDraftPath(candidatePreview.rawPath);
+      setArtworkCandidatePreviewSrc(candidatePreview.previewSrc);
+      if (candidatePreview.candidatePatch) {
         setArtworkCandidates((currentCandidates) =>
           currentCandidates.map((currentCandidate) =>
             currentCandidate.id === candidate.id
-              ? { ...currentCandidate, previewPath: candidatePreviewSrc }
+              ? { ...currentCandidate, ...candidatePreview.candidatePatch }
               : currentCandidate,
           ),
         );
@@ -2052,7 +2053,7 @@ export function useAppController() {
       setArtworkCandidates((currentCandidates) =>
         currentCandidates.map((currentCandidate) =>
           currentCandidate.id === candidate.id
-            ? { ...currentCandidate, previewPath: previewSrc }
+            ? { ...currentCandidate, previewPath: previewSrc, previewRawPath: result.previewPath }
             : currentCandidate,
         ),
       );
@@ -2066,15 +2067,7 @@ export function useAppController() {
   function hydrateArtworkCandidatePreview(candidate: ArtworkCandidate): ArtworkCandidate {
     const releaseId = candidate.releaseId ?? candidate.id;
     const cachedPreviewPath = releaseId ? readCachedArtworkPreviewPath(releaseId) : null;
-    return {
-      ...candidate,
-      thumbnailPath: candidate.thumbnailPath ? getBackendMediaSrc(candidate.thumbnailPath) : null,
-      previewPath: cachedPreviewPath
-        ? getBackendMediaSrc(cachedPreviewPath)
-        : candidate.previewPath
-          ? getBackendMediaSrc(candidate.previewPath)
-          : null,
-    };
+    return hydrateArtworkCandidatePreviewState(candidate, { cachedPreviewPath, toMediaSrc: getBackendMediaSrc });
   }
 
   function firstSearchableTrack(album: Album) {

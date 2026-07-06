@@ -161,7 +161,7 @@
   - Web Audio analyser が利用可能。
   - そのランタイムで remote/offline analysis を優先する。
   - 音声解析パケットに既にフレームがある。
-- 現在のデスクトップ/ブラウザバックエンド用途では remote/offline analysis を優先するため、canvas は live の `<audio>` 要素をサンプリングするのではなく、キャッシュ済み/デコード済み解析フレームを使う。
+- 現在のデスクトップ/ブラウザバックエンド用途では remote/offline analysis を優先するため、canvas はキャッシュ済み/デコード済み解析フレームを先に使う。解析フレームがまだ無い場合、デスクトップ renderer は Web Audio で live の `<audio>` 要素を fallback サンプリングできる。
 - remote/offline analysis フレームがある場合、推定再生時刻の周辺フレーム timecode 間を補間して描画する。
 - remote/offline フレームがなく Web Audio が利用可能な場合は、`AnalyserNode.getByteFrequencyData` をサンプリングする。
 - 周波数データは平滑化、動的拡張されたうえで、アクティブなビジュアライザモードに描画される。

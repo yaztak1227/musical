@@ -1,5 +1,7 @@
 import { defineConfig, devices } from "@playwright/test";
 
+const skipWebServer = process.env.PLAYWRIGHT_SKIP_WEB_SERVER === "true";
+
 export default defineConfig({
   testDir: "./tests/e2e",
   fullyParallel: true,
@@ -8,11 +10,15 @@ export default defineConfig({
     baseURL: "http://127.0.0.1:1420",
     trace: "on-first-retry",
   },
-  webServer: {
-    command: "VITE_MOCK_DATA=true npm run dev -- --host 127.0.0.1",
-    url: "http://127.0.0.1:1420",
-    reuseExistingServer: false,
-  },
+  ...(skipWebServer
+    ? {}
+    : {
+        webServer: {
+          command: "VITE_MOCK_DATA=true npm run dev -- --host 127.0.0.1",
+          url: "http://127.0.0.1:1420",
+          reuseExistingServer: false,
+        },
+      }),
   projects: [
     {
       name: "chromium",

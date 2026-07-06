@@ -75,6 +75,7 @@ flowchart LR
 - 検索結果一覧を表示した後、候補 release の詳細をバックグラウンドで上から直列取得し、編集中アルバムとの一致度を候補 card に表示する。
 - バックグラウンド取得した MusicBrainz release 詳細は release id ごとに LocalStorage へ保存し、再検索・候補選択時に再利用する。
 - Cover Art Archive から取得した候補 thumbnail は検索結果と一緒に返し、preview 済みの画像 path は release id ごとに LocalStorage へ保存する。同じ候補を再選択したときは再 download せずに右パネルの preview と候補 card に復元する。
+- frontend state では表示用 URL と保存用 raw path を分けて保持する。候補 thumbnail を右パネルに表示する場合も raw path を保持し、保存時は raw path を Tauri command へ渡す。
 - 一致度はアルバム名・アーティスト・曲数だけでなく、曲タイトルを正規化した重み付き文字ベクトルで算出する。曲リストが有効な場合は、曲順一致と順不同の最適対応を組み合わせ、曲リスト一致と曲数一致を強い根拠にする。
 - `Untitled` / `Untitle` / `Unknown Track` / `無題` などの仮タイトルだけで構成される曲リストは曲一致の根拠にしない。この場合も曲数一致は補助的に評価するが、アルバム名またはアーティストの手がかりがある場合にだけ加点する。
 - ユーザーが release 候補を選択した時点では MusicBrainz release 詳細と track list だけを取得し、編集中アルバムの track list と並べてアルバム名・アーティスト・曲順を確認できるようにする。
