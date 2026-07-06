@@ -31,6 +31,7 @@ const LIBRARY_SCAN_PROGRESS_EVENT: &str = "musical-library-scan-progress";
 const LIBRARY_LOAD_PROGRESS_EVENT: &str = "musical-library-load-progress";
 
 mod artwork;
+mod artwork_search;
 mod models;
 mod playlist;
 mod storage;
@@ -39,17 +40,23 @@ mod text;
 
 use artwork::{
     extract_album_artwork, make_front_cover_picture, sniff_picture_extension, stable_hash,
-    write_artwork_bytes,
+    stable_hash_bytes, write_artwork_bytes,
+};
+pub use artwork_search::{
+    inspect_artwork_release, preview_artwork_candidate, search_artwork_candidates,
 };
 pub use models::{
-    AddTrackToPlaylistRequest, AddTracksToPlaylistRequest, AlbumRecord, AlbumTagUpdateRequest,
-    AlbumTagUpdateResult, CreatePlaylistFromAlbumRequest, CreatePlaylistRequest,
-    DeletePlaylistRequest, LibraryLoadProgress, LibraryScanProgress, LibrarySnapshot,
-    PlaylistArtworkUpdateRequest, PlaylistArtworkUpdateResult, PlaylistRecord,
-    RemovePlaylistTrackRequest, RenamePlaylistRequest, ReorderPlaylistTrackRequest, ScanSummary,
-    TagWriteFailure, TrackArtworkUpdateRequest, TrackArtworkUpdateResult, TrackRecord,
-    TrackTagUpdateRequest, TrackTagUpdateResult, TrackUserStateUpdateRequest,
-    TrackUserStateUpdateResult, TvLibraryList, TvLibrarySummary,
+    AddTrackToPlaylistRequest, AddTracksToPlaylistRequest, AlbumArtworkUpdateRequest,
+    AlbumArtworkUpdateResult, AlbumRecord, AlbumTagUpdateRequest, AlbumTagUpdateResult,
+    ArtworkCandidate, ArtworkCandidatePreviewRequest, ArtworkCandidatePreviewResult,
+    ArtworkCandidateSearchRequest, ArtworkCandidateSearchResult, ArtworkReleaseInspectRequest,
+    ArtworkReleaseInspectResult, ArtworkReleaseTrack, ArtworkSearchProgress,
+    CreatePlaylistFromAlbumRequest, CreatePlaylistRequest, DeletePlaylistRequest,
+    LibraryLoadProgress, LibraryScanProgress, LibrarySnapshot, PlaylistArtworkUpdateRequest,
+    PlaylistArtworkUpdateResult, PlaylistRecord, RemovePlaylistTrackRequest, RenamePlaylistRequest,
+    ReorderPlaylistTrackRequest, ScanSummary, TagWriteFailure, TrackArtworkUpdateRequest,
+    TrackArtworkUpdateResult, TrackRecord, TrackTagUpdateRequest, TrackTagUpdateResult,
+    TrackUserStateUpdateRequest, TrackUserStateUpdateResult, TvLibraryList, TvLibrarySummary,
 };
 use models::{
     ExistingAlbum, ExistingFileState, ExistingTrack, PendingAlbum, PendingTrack, PlaylistFile,
@@ -77,7 +84,8 @@ use storage::{
 use tag_updates::persist_album_tag_update;
 use tag_updates::{load_album_for_update, load_existing_file_states};
 pub use tag_updates::{
-    update_album_tags, update_track_artwork, update_track_tags, update_track_user_state,
+    update_album_artwork, update_album_tags, update_track_artwork, update_track_tags,
+    update_track_user_state,
 };
 use text::repair_mojibake;
 

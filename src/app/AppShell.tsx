@@ -1,5 +1,6 @@
 import { lazy, Suspense } from "react";
 import { AlbumBrowser } from "../components/AlbumBrowser";
+import { ArtworkCandidateDialog } from "../components/ArtworkCandidateDialog";
 import { LibrarySettingsDialog } from "../components/LibrarySettingsDialog";
 import { LibrarySidebar } from "../components/LibrarySidebar";
 import { PlayerBar } from "../components/PlayerBar";
@@ -34,8 +35,13 @@ export function AppShell({ controller }: AppShellProps) {
     albumsPanelRef,
     addTracksToSelectedPlaylist,
     addTrackToSelectedPlaylist,
+    artworkCandidateMessage,
+    artworkCandidatePreviewSrc,
+    artworkCandidates,
+    artworkSearchProgress,
     artworkDraftPath,
     artworkPreviewSrc,
+    artworkSearchQuery,
     audioAnalysisPacketRef,
     audioRef,
     availableAppUpdate,
@@ -46,7 +52,9 @@ export function AppShell({ controller }: AppShellProps) {
     changeShuffle,
     changeTrackDetailTab,
     chooseArtwork,
+    chooseArtworkCandidate,
     choosePlaylistArtwork,
+    closeArtworkCandidateDialog,
     closeTrackDetail,
     createEmptyPlaylist,
     currentLyrics,
@@ -72,6 +80,7 @@ export function AppShell({ controller }: AppShellProps) {
     hasTrackTagChanges,
     isAlbumPanelCollapsed,
     isAlbumTagEditing,
+    isArtworkCandidateDialogOpen,
     isBrowserBackendRuntime,
     isCheckingForUpdate,
     isLibraryMenuOpen,
@@ -80,6 +89,7 @@ export function AppShell({ controller }: AppShellProps) {
     isMockDataRuntime,
     isPlayerVisualizerOpen,
     isPlaying,
+    isInspectingArtworkRelease,
     isSavingAlbumTags,
     isSavingArtwork,
     isSavingPlaylistArtwork,
@@ -87,6 +97,8 @@ export function AppShell({ controller }: AppShellProps) {
     isSavingTrackUserState,
     isScanning,
     isShuffle,
+    isPreviewingArtworkCandidate,
+    isSearchingArtworkCandidates,
     isSidebarCollapsed,
     isTauriRuntime,
     libraryInfo,
@@ -99,6 +111,8 @@ export function AppShell({ controller }: AppShellProps) {
     mcpUrl,
     moveTrackLongPress,
     openAlbumFromPlaylist,
+    openArtworkCandidateDialog,
+    openArtworkGoogleSearch,
     openPlaylistAddTracks,
     openSelectedAlbumArtworkEditor,
     openTrackDetail,
@@ -112,6 +126,7 @@ export function AppShell({ controller }: AppShellProps) {
     playPlaylist,
     playQueuedTrack,
     playTrack,
+    previewSelectedArtworkCandidate,
     playbackAlbum,
     playbackError,
     playbackPlaylist,
@@ -130,10 +145,13 @@ export function AppShell({ controller }: AppShellProps) {
     saveTrackArtwork,
     saveTrackTags,
     saveTrackUserState,
+    searchAlbumArtworkCandidates,
     scrollAlbumPanel,
     seekTo,
     selectAlbum,
     selectedAlbum,
+    selectedArtworkCandidateId,
+    selectedArtworkRelease,
     selectedAlbumTrackEntries,
     selectedPlaylist,
     selectedPlaylistId,
@@ -152,6 +170,7 @@ export function AppShell({ controller }: AppShellProps) {
     setIsSidebarCollapsed,
     setLocale,
     setLyricsOnly,
+    setArtworkSearchQuery,
     setPlaybackError,
     setQuery,
     setThemeName,
@@ -348,6 +367,7 @@ export function AppShell({ controller }: AppShellProps) {
           isTauriRuntime,
           onChangeTab: changeTrackDetailTab,
           onChooseArtwork: () => void chooseArtwork(),
+          onOpenArtworkCandidateDialog: openArtworkCandidateDialog,
           onClose: closeTrackDetail,
           onSaveArtwork: () => void saveTrackArtwork(),
           onSaveTrackTags: () => void saveTrackTags(),
@@ -438,6 +458,31 @@ export function AppShell({ controller }: AppShellProps) {
         ) : null}
       {library.librarySettingsDialogProps ? <LibrarySettingsDialog {...library.librarySettingsDialogProps} /> : null}
       {tagEditing.trackDetailDialogProps ? <TrackDetailDialog {...tagEditing.trackDetailDialogProps} /> : null}
+      {isArtworkCandidateDialogOpen && hasRealBackend && isTauriRuntime ? (
+        <ArtworkCandidateDialog
+          artworkCandidateMessage={artworkCandidateMessage}
+          artworkCandidatePreviewSrc={artworkCandidatePreviewSrc}
+          artworkCandidates={artworkCandidates}
+          artworkSearchProgress={artworkSearchProgress}
+          artworkSearchQuery={artworkSearchQuery}
+          canSaveArtwork={Boolean(artworkDraftPath.trim())}
+          editingAlbum={detailAlbum}
+          isInspectingArtworkRelease={isInspectingArtworkRelease}
+          isPreviewingArtworkCandidate={isPreviewingArtworkCandidate}
+          isSavingArtwork={isSavingArtwork}
+          isSearchingArtworkCandidates={isSearchingArtworkCandidates}
+          onArtworkSearchQueryChange={setArtworkSearchQuery}
+          onChooseCandidate={(candidate) => void chooseArtworkCandidate(candidate)}
+          onClose={closeArtworkCandidateDialog}
+          onOpenGoogleSearch={() => void openArtworkGoogleSearch()}
+          onPreviewSelectedArtwork={() => void previewSelectedArtworkCandidate()}
+          onSaveArtwork={() => void saveTrackArtwork()}
+          onSearchCandidates={() => void searchAlbumArtworkCandidates()}
+          selectedArtworkCandidateId={selectedArtworkCandidateId}
+          selectedArtworkRelease={selectedArtworkRelease}
+          t={t}
+        />
+      ) : null}
       </main>
   );
 }

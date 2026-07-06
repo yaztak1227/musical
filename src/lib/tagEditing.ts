@@ -1,4 +1,10 @@
 import { backendInvoke } from "./backend";
+import type {
+  AlbumArtworkUpdateResult,
+  ArtworkCandidatePreviewResult,
+  ArtworkCandidateSearchResult,
+  ArtworkReleaseInspectResult,
+} from "./artworkSearch";
 import type { EntityId } from "../types/audio";
 
 export type AlbumTagDraft = {
@@ -80,6 +86,52 @@ export async function updateTrackArtwork(trackId: EntityId, artworkPath: string)
     request: {
       trackId,
       artworkPath: artworkPath.trim(),
+    },
+  });
+}
+
+export async function updateAlbumArtwork(albumId: EntityId, artworkPath: string) {
+  return backendInvoke<AlbumArtworkUpdateResult>("update_album_artwork", {
+    request: {
+      albumId,
+      artworkPath: artworkPath.trim(),
+    },
+  });
+}
+
+export async function searchArtworkCandidates(
+  albumTitle: string,
+  albumArtist: string,
+  firstTrackTitle?: string,
+  firstTrackArtist?: string,
+  limit = 8,
+  requestId?: number,
+) {
+  return backendInvoke<ArtworkCandidateSearchResult>("search_artwork_candidates", {
+    request: {
+      requestId: requestId ?? null,
+      albumTitle: albumTitle.trim(),
+      albumArtist: albumArtist.trim(),
+      firstTrackTitle: firstTrackTitle?.trim() || null,
+      firstTrackArtist: firstTrackArtist?.trim() || null,
+      limit,
+    },
+  });
+}
+
+export async function previewArtworkCandidate(imageUrl: string | null, releaseId?: string | null) {
+  return backendInvoke<ArtworkCandidatePreviewResult>("preview_artwork_candidate", {
+    request: {
+      imageUrl: imageUrl?.trim() || null,
+      releaseId: releaseId?.trim() || null,
+    },
+  });
+}
+
+export async function inspectArtworkRelease(releaseId: string) {
+  return backendInvoke<ArtworkReleaseInspectResult>("inspect_artwork_release", {
+    request: {
+      releaseId: releaseId.trim(),
     },
   });
 }

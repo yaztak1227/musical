@@ -1,5 +1,6 @@
 import { confirm as confirmDialog, open as openDialog } from "@tauri-apps/plugin-dialog";
 import { listen } from "@tauri-apps/api/event";
+import { openUrl } from "@tauri-apps/plugin-opener";
 import {
   type PointerEvent,
   type TouchEvent,
@@ -40,6 +41,19 @@ import { useGlobalMediaKeys } from "../../lib/useGlobalMediaKeys";
 import { getMockAudioAnalysisSegment, mockAlbums } from "../../lib/mockData";
 import { filterAndSortAlbums } from "../../lib/albumFilters";
 import { getArtworkSrc, getAlbumJumpTarget, toI18nError } from "../../lib/libraryUtils";
+import {
+  buildArtworkSearchQuery,
+  buildGoogleImagesUrl,
+  computeArtworkReleaseMatchScore,
+  readCachedArtworkRelease,
+  readCachedArtworkPreviewPath,
+  type ArtworkCandidate,
+  type ArtworkSearchProgress,
+  type ArtworkSearchProgressView,
+  type ArtworkReleaseInspectResult,
+  writeCachedArtworkRelease,
+  writeCachedArtworkPreviewPath,
+} from "../../lib/artworkSearch";
 import { makeAlbumTagDraft } from "../../lib/tagDraftUtils";
 import {
   getAlbumQueueTracks,
@@ -114,7 +128,10 @@ import {
   sendRemotePlayerCommand,
 } from "../../features/remote-player/infrastructure/remotePlayerRepository";
 import { updateAlbumTags } from "../../features/tag-editing/application/updateAlbumTags";
-import { updateTrackArtwork } from "../../features/tag-editing/application/updateTrackArtwork";
+import { inspectArtworkRelease } from "../../features/tag-editing/application/inspectArtworkRelease";
+import { previewArtworkCandidate } from "../../features/tag-editing/application/previewArtworkCandidate";
+import { searchArtworkCandidates } from "../../features/tag-editing/application/searchArtworkCandidates";
+import { updateAlbumArtwork } from "../../features/tag-editing/application/updateAlbumArtwork";
 import { updateTrackTags } from "../../features/tag-editing/application/updateTrackTags";
 import { updateTrackUserState } from "../../features/tag-editing/application/updateTrackUserState";
 import {
@@ -160,6 +177,7 @@ export function useAppController() {
   const lastRemoteCommandIdRef = useRef(0);
   const lastRemotePlayerStateRef = useRef<RemotePlayerStateSnapshot | null>(null);
   const remoteSyncRequestIdRef = useRef(0);
+  const artworkSearchRequestIdRef = useRef(0);
   const remotePlaybackClockRef = useRef<RemotePlaybackClock | null>(null);
   const playbackResolutionRef = useRef<PlaybackResolutionState | null>(null);
   const renderCountRef = useRef(0);
@@ -233,6 +251,17 @@ export function useAppController() {
   const [artworkDraftPath, setArtworkDraftPath] = useState("");
   const [artworkPreviewSrc, setArtworkPreviewSrc] = useState("");
   const [isSavingArtwork, setIsSavingArtwork] = useState(false);
+  const [isArtworkCandidateDialogOpen, setIsArtworkCandidateDialogOpen] = useState(false);
+  const [artworkSearchQuery, setArtworkSearchQuery] = useState("");
+  const [artworkCandidates, setArtworkCandidates] = useState<ArtworkCandidate[]>([]);
+  const [selectedArtworkCandidateId, setSelectedArtworkCandidateId] = useState<string | null>(null);
+  const [selectedArtworkRelease, setSelectedArtworkRelease] = useState<ArtworkReleaseInspectResult | null>(null);
+  const [artworkCandidatePreviewSrc, setArtworkCandidatePreviewSrc] = useState("");
+  const [isInspectingArtworkRelease, setIsInspectingArtworkRelease] = useState(false);
+  const [isSearchingArtworkCandidates, setIsSearchingArtworkCandidates] = useState(false);
+  const [artworkSearchProgress, setArtworkSearchProgress] = useState<ArtworkSearchProgressView | null>(null);
+  const [isPreviewingArtworkCandidate, setIsPreviewingArtworkCandidate] = useState(false);
+  const [artworkCandidateMessage, setArtworkCandidateMessage] = useState<I18nMessage | null>(null);
   const [isSavingPlaylistArtwork, setIsSavingPlaylistArtwork] = useState(false);
   const remoteAccess = useRemoteAccess();
   renderCountRef.current += 1;
@@ -347,6 +376,45 @@ export function useAppController() {
       void unlisten.then((dispose) => dispose());
     };
   }, []);
+
+  useEffect(() => {
+    if (!isTauriRuntime) return;
+
+    const unlisten = listen<ArtworkSearchProgress>("musical-artwork-search-progress", (event) => {
+      const payload = event.payload;
+      if (payload.requestId !== artworkSearchRequestIdRef.current) return;
+      console.info("[artwork-search]", payload);
+      setArtworkSearchProgress((progress) => {
+        const completed = nextArtworkSearchProgressValue(payload.status, progress?.completed ?? 0);
+        return {
+          messageKey: payload.messageKey,
+          completed,
+          total: 100,
+        };
+      });
+    });
+
+    return () => {
+      void unlisten.then((dispose) => dispose());
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!isArtworkCandidateDialogOpen || artworkCandidates.length > 0 || !artworkSearchProgress) return;
+
+    const timer = window.setInterval(() => {
+      setArtworkSearchProgress((progress) => {
+        if (!progress) return progress;
+        return {
+          ...progress,
+          completed: Math.min(progress.completed + 1, 82),
+          total: 100,
+        };
+      });
+    }, 850);
+
+    return () => window.clearInterval(timer);
+  }, [artworkCandidates.length, artworkSearchProgress !== null, isArtworkCandidateDialogOpen]);
 
   useEffect(() => {
     if (!isTauriRuntime) return;
@@ -1727,6 +1795,313 @@ export function useAppController() {
     }
   }
 
+  function openArtworkCandidateDialog() {
+    if (!detailAlbum || !detailTrack || !isTauriRuntime || !hasRealBackend) {
+      setTrackTagMessage({ key: "trackDetail.artworkDesktopOnly" });
+      return;
+    }
+
+    setArtworkSearchQuery(buildArtworkSearchQuery(detailAlbum.title, detailAlbum.artist, detailTrack.artist));
+    setArtworkCandidateMessage(null);
+    setArtworkCandidates([]);
+    setSelectedArtworkCandidateId(null);
+    setSelectedArtworkRelease(null);
+    setArtworkSearchProgress({ messageKey: "artworkSearch.progressOpeningDialog", completed: 4, total: 100 });
+    setArtworkCandidatePreviewSrc(artworkPreviewSrc);
+    setIsArtworkCandidateDialogOpen(true);
+    const requestId = ++artworkSearchRequestIdRef.current;
+    void (async () => {
+      await waitForNextPaint();
+      if (requestId !== artworkSearchRequestIdRef.current) return;
+      setArtworkSearchProgress({ messageKey: "artworkSearch.progressPreparing", completed: 8, total: 100 });
+      await searchAlbumArtworkCandidatesFor(detailAlbum.title, detailAlbum.artist, detailAlbum, requestId);
+    })();
+  }
+
+  function closeArtworkCandidateDialog() {
+    artworkSearchRequestIdRef.current += 1;
+    setIsSearchingArtworkCandidates(false);
+    setArtworkSearchProgress(null);
+    setIsArtworkCandidateDialogOpen(false);
+  }
+
+  async function openArtworkGoogleSearch() {
+    if (!isTauriRuntime) {
+      setArtworkCandidateMessage({ key: "trackDetail.artworkDesktopOnly" });
+      return;
+    }
+
+    const query = artworkSearchQuery.trim() || (detailAlbum ? buildArtworkSearchQuery(detailAlbum.title, detailAlbum.artist, detailTrack?.artist) : "");
+    if (!query) {
+      setArtworkCandidateMessage({ key: "artworkSearch.empty" });
+      return;
+    }
+
+    try {
+      await openUrl(buildGoogleImagesUrl(query));
+    } catch (error) {
+      setArtworkCandidateMessage(toI18nError(error));
+    }
+  }
+
+  async function searchAlbumArtworkCandidates() {
+    if (!detailAlbum) return;
+
+    const query = artworkSearchQuery.trim() || buildArtworkSearchQuery(detailAlbum.title, detailAlbum.artist, detailTrack?.artist);
+    if (!query) {
+      setArtworkCandidateMessage({ key: "artworkSearch.empty" });
+      return;
+    }
+
+    const requestId = ++artworkSearchRequestIdRef.current;
+    setArtworkCandidates([]);
+    setSelectedArtworkCandidateId(null);
+    setSelectedArtworkRelease(null);
+    setArtworkCandidatePreviewSrc("");
+    setArtworkSearchProgress({ messageKey: "artworkSearch.progressPreparing", completed: 8, total: 100 });
+    await searchAlbumArtworkCandidatesFor(query, detailAlbum.artist, detailAlbum, requestId);
+  }
+
+  async function searchAlbumArtworkCandidatesFor(
+    albumTitle: string,
+    albumArtist: string,
+    album: Album,
+    requestId = ++artworkSearchRequestIdRef.current,
+  ) {
+    try {
+      setIsSearchingArtworkCandidates(true);
+      setArtworkSearchProgress((progress) => ({
+        messageKey: "artworkSearch.progressPreparing",
+        completed: Math.max(progress?.completed ?? 0, 10),
+        total: 100,
+      }));
+      setArtworkCandidateMessage(null);
+      const firstTrack = firstSearchableTrack(album);
+      await waitForNextPaint();
+      if (requestId !== artworkSearchRequestIdRef.current) return;
+      const result = await searchArtworkCandidates(albumTitle, albumArtist, firstTrack?.title, firstTrack?.artist, 8, requestId);
+      if (requestId !== artworkSearchRequestIdRef.current) return;
+      setArtworkSearchProgress((progress) => ({
+        messageKey: "artworkSearch.progressLoadingCandidateList",
+        completed: Math.max(progress?.completed ?? 0, 86),
+        total: 100,
+      }));
+      setArtworkCandidates(
+        result.candidates.map((candidate) => hydrateArtworkCandidatePreview(candidate)),
+      );
+      setSelectedArtworkCandidateId(null);
+      setSelectedArtworkRelease(null);
+      setArtworkCandidatePreviewSrc("");
+      if (result.candidates.length === 0) {
+        setArtworkCandidateMessage({ key: "artworkSearch.noCandidates" });
+        setArtworkSearchProgress({ messageKey: "artworkSearch.progressComplete", completed: 100, total: 100 });
+        window.setTimeout(() => {
+          if (requestId === artworkSearchRequestIdRef.current) setArtworkSearchProgress(null);
+        }, 900);
+        return;
+      }
+      window.requestAnimationFrame(() => {
+        if (requestId === artworkSearchRequestIdRef.current) {
+          setArtworkSearchProgress((progress) => ({
+            messageKey: "artworkSearch.progressRenderingCandidates",
+            completed: Math.max(progress?.completed ?? 0, 92),
+            total: 100,
+          }));
+        }
+      });
+      void scoreArtworkCandidatesFor(result.candidates, album, requestId);
+    } catch (error) {
+      if (requestId !== artworkSearchRequestIdRef.current) return;
+      setArtworkCandidateMessage(toI18nError(error));
+      setArtworkSearchProgress(null);
+    } finally {
+      if (requestId === artworkSearchRequestIdRef.current) {
+        setIsSearchingArtworkCandidates(false);
+      }
+    }
+  }
+
+  async function scoreArtworkCandidatesFor(candidates: ArtworkCandidate[], album: Album, requestId: number) {
+    for (const candidate of candidates) {
+      if (requestId !== artworkSearchRequestIdRef.current) return;
+      const releaseId = candidate.releaseId ?? candidate.id;
+      if (!releaseId) continue;
+      try {
+        const release = await inspectArtworkReleaseCached(releaseId);
+        if (requestId !== artworkSearchRequestIdRef.current) return;
+        const matchScore = computeArtworkReleaseMatchScore(album, release);
+        setArtworkCandidates((currentCandidates) =>
+          sortArtworkCandidatesByMatchScore(
+            currentCandidates.map((currentCandidate) =>
+              currentCandidate.id === candidate.id ? { ...currentCandidate, matchScore } : currentCandidate,
+            ),
+          ),
+        );
+      } catch {
+        if (requestId !== artworkSearchRequestIdRef.current) return;
+        setArtworkCandidates((currentCandidates) =>
+          currentCandidates.map((currentCandidate) =>
+            currentCandidate.id === candidate.id ? { ...currentCandidate, matchScore: null } : currentCandidate,
+          ),
+        );
+      }
+      if (requestId !== artworkSearchRequestIdRef.current) return;
+      const scoredCandidates = Math.min(
+        candidates.length,
+        Math.max(0, candidates.findIndex((currentCandidate) => currentCandidate.id === candidate.id) + 1),
+      );
+      setArtworkSearchProgress((progress) => {
+        const scoringRatio = candidates.length > 0 ? scoredCandidates / candidates.length : 1;
+        return {
+          messageKey: "artworkSearch.progressScoringCandidates",
+          completed: Math.max(progress?.completed ?? 0, Math.min(99, 92 + Math.round(scoringRatio * 7))),
+          total: 100,
+        };
+      });
+      await delay(350);
+    }
+    if (requestId === artworkSearchRequestIdRef.current) {
+      setArtworkSearchProgress((progress) =>
+        progress
+          ? {
+              messageKey: "artworkSearch.progressComplete",
+              completed: 100,
+              total: 100,
+            }
+          : null,
+      );
+      window.setTimeout(() => {
+        if (requestId === artworkSearchRequestIdRef.current) setArtworkSearchProgress(null);
+      }, 900);
+    }
+  }
+
+  function sortArtworkCandidatesByMatchScore(candidates: ArtworkCandidate[]) {
+    return [...candidates].sort((left, right) => {
+      const leftScore = left.matchScore ?? -1;
+      const rightScore = right.matchScore ?? -1;
+      if (leftScore !== rightScore) return rightScore - leftScore;
+      return String(left.title).localeCompare(String(right.title));
+    });
+  }
+
+  async function chooseArtworkCandidate(candidate: ArtworkCandidate) {
+    const releaseId = candidate.releaseId ?? candidate.id;
+    if (!releaseId || isInspectingArtworkRelease) return;
+    const cachedPreviewPath = readCachedArtworkPreviewPath(releaseId);
+    const candidatePreviewSrc =
+      cachedPreviewPath
+        ? getBackendMediaSrc(cachedPreviewPath)
+        : candidate.previewPath ?? candidate.thumbnailPath ?? "";
+
+    try {
+      setIsInspectingArtworkRelease(true);
+      setArtworkCandidateMessage(null);
+      setSelectedArtworkCandidateId(candidate.id);
+      setSelectedArtworkRelease(null);
+      setArtworkDraftPath(cachedPreviewPath ?? "");
+      setArtworkCandidatePreviewSrc(candidatePreviewSrc);
+      if (cachedPreviewPath) {
+        setArtworkCandidates((currentCandidates) =>
+          currentCandidates.map((currentCandidate) =>
+            currentCandidate.id === candidate.id
+              ? { ...currentCandidate, previewPath: candidatePreviewSrc }
+              : currentCandidate,
+          ),
+        );
+      }
+      const release = await inspectArtworkReleaseCached(releaseId);
+      setSelectedArtworkRelease(release);
+    } catch (error) {
+      setArtworkCandidateMessage(toI18nError(error));
+    } finally {
+      setIsInspectingArtworkRelease(false);
+    }
+  }
+
+  async function inspectArtworkReleaseCached(releaseId: string) {
+    const cachedRelease = readCachedArtworkRelease(releaseId);
+    if (cachedRelease) return cachedRelease;
+    const release = await inspectArtworkRelease(releaseId);
+    writeCachedArtworkRelease(release);
+    return release;
+  }
+
+  function delay(milliseconds: number) {
+    return new Promise<void>((resolve) => {
+      window.setTimeout(resolve, milliseconds);
+    });
+  }
+
+  async function previewSelectedArtworkCandidate() {
+    const candidate = artworkCandidates.find((currentCandidate) => currentCandidate.id === selectedArtworkCandidateId);
+    const releaseId = candidate?.releaseId ?? candidate?.id ?? null;
+    if (!candidate || (!candidate.imageUrl && !releaseId) || isPreviewingArtworkCandidate) return;
+
+    try {
+      setIsPreviewingArtworkCandidate(true);
+      setArtworkCandidateMessage(null);
+      const result = await previewArtworkCandidate(candidate.imageUrl ?? null, releaseId);
+      const previewSrc = getBackendMediaSrc(result.previewPath);
+      if (releaseId) {
+        writeCachedArtworkPreviewPath(releaseId, result.previewPath);
+      }
+      setArtworkDraftPath(result.previewPath);
+      setArtworkPreviewSrc(previewSrc);
+      setArtworkCandidatePreviewSrc(previewSrc);
+      setArtworkCandidates((currentCandidates) =>
+        currentCandidates.map((currentCandidate) =>
+          currentCandidate.id === candidate.id
+            ? { ...currentCandidate, previewPath: previewSrc }
+            : currentCandidate,
+        ),
+      );
+    } catch (error) {
+      setArtworkCandidateMessage(toI18nError(error));
+    } finally {
+      setIsPreviewingArtworkCandidate(false);
+    }
+  }
+
+  function hydrateArtworkCandidatePreview(candidate: ArtworkCandidate): ArtworkCandidate {
+    const releaseId = candidate.releaseId ?? candidate.id;
+    const cachedPreviewPath = releaseId ? readCachedArtworkPreviewPath(releaseId) : null;
+    return {
+      ...candidate,
+      thumbnailPath: candidate.thumbnailPath ? getBackendMediaSrc(candidate.thumbnailPath) : null,
+      previewPath: cachedPreviewPath
+        ? getBackendMediaSrc(cachedPreviewPath)
+        : candidate.previewPath
+          ? getBackendMediaSrc(candidate.previewPath)
+          : null,
+    };
+  }
+
+  function firstSearchableTrack(album: Album) {
+    return [...album.tracks]
+      .sort((left, right) => {
+        const leftDisc = left.discNumber ?? 1;
+        const rightDisc = right.discNumber ?? 1;
+        if (leftDisc !== rightDisc) return leftDisc - rightDisc;
+        return (left.trackNumber ?? Number.MAX_SAFE_INTEGER) - (right.trackNumber ?? Number.MAX_SAFE_INTEGER);
+      })
+      .find((track) => isSearchableTrackTitle(track.title));
+  }
+
+  function isSearchableTrackTitle(title: string) {
+    const normalized = title
+      .normalize("NFKC")
+      .toLocaleLowerCase()
+      .replace(/[\p{P}\p{S}]+/gu, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+    return (
+      normalized.length >= 2 &&
+      !/^\d+$/.test(normalized) &&
+      !/^(?:untitled|untitle|unknown|unknown track|no title|audio track|track|trk|名称未設定|無題|不明な曲)(?:\s*\d+)?$/i.test(normalized)
+    );
+  }
+
   async function choosePlaylistArtwork(playlist: Playlist) {
     if (isSavingPlaylistArtwork) return;
 
@@ -1788,15 +2163,22 @@ export function useAppController() {
       setIsSavingArtwork(true);
       setTrackTagMessage(null);
 
-      const result = await updateTrackArtwork(detailTrack.id, artworkDraftPath);
+      const result = await updateAlbumArtwork(detailAlbum.id, artworkDraftPath);
       const snapshot = await loadLibrarySnapshot();
       applyLibrarySnapshot(snapshot, { resetPlayback: false });
       notifyLibraryChanged();
       setSelectedAlbumId(result.albumId);
-      setDetailTrackId(result.trackId);
       setArtworkDraftPath("");
       setArtworkPreviewSrc("");
-      setTrackTagMessage({ key: "tags.artworkSaved" });
+      setArtworkCandidatePreviewSrc("");
+      setSelectedArtworkRelease(null);
+      setTrackTagMessage(
+        result.failedFiles.length > 0
+          ? { key: "tags.partialSaved", values: { updated: result.updatedFiles, failed: result.failedFiles.length } }
+          : { key: "tags.artworkSaved" },
+      );
+      setArtworkCandidateMessage({ key: "tags.artworkSaved" });
+      setIsArtworkCandidateDialogOpen(false);
     } catch (error) {
       setTrackTagMessage(toI18nError(error));
     } finally {
@@ -2007,8 +2389,13 @@ export function useAppController() {
     addTracksToSelectedPlaylist,
     addTrackToSelectedPlaylist,
     applyRemotePlayerState,
+    artworkCandidateMessage,
+    artworkCandidatePreviewSrc,
+    artworkCandidates,
+    artworkSearchProgress,
     artworkDraftPath,
     artworkPreviewSrc,
+    artworkSearchQuery,
     audioAnalysisPacketRef,
     audioRef,
     availableAppUpdate,
@@ -2019,7 +2406,9 @@ export function useAppController() {
     changeShuffle,
     changeTrackDetailTab,
     chooseArtwork,
+    chooseArtworkCandidate,
     choosePlaylistArtwork,
+    closeArtworkCandidateDialog,
     closeTrackDetail,
     currentLyrics,
     currentTrack,
@@ -2044,6 +2433,7 @@ export function useAppController() {
     hasTrackTagChanges,
     isAlbumPanelCollapsed,
     isAlbumTagEditing,
+    isArtworkCandidateDialogOpen,
     isBrowserBackendRuntime,
     isCheckingForUpdate,
     isLibraryMenuOpen,
@@ -2052,12 +2442,15 @@ export function useAppController() {
     isMockDataRuntime,
     isPlayerVisualizerOpen,
     isPlaying,
+    isInspectingArtworkRelease,
     isSavingAlbumTags,
     isSavingArtwork,
     isSavingPlaylistArtwork,
     isSavingTrackTags,
     isSavingTrackUserState,
     isScanning,
+    isPreviewingArtworkCandidate,
+    isSearchingArtworkCandidates,
     isShuffle,
     isSidebarCollapsed,
     isTauriRuntime,
@@ -2072,6 +2465,8 @@ export function useAppController() {
     moveTrackLongPress,
     openSelectedAlbumArtworkEditor,
     openAlbumFromPlaylist,
+    openArtworkCandidateDialog,
+    openArtworkGoogleSearch,
     openPlaylistAddTracks,
     openTrackDetail,
     openTrackLyrics,
@@ -2085,6 +2480,7 @@ export function useAppController() {
     playPreviousTrack,
     playQueuedTrack,
     playTrack,
+    previewSelectedArtworkCandidate,
     playbackAlbum,
     playbackError,
     playbackPlaylist: playlists.find((playlist) => playlist.id === playbackPlaylistId) ?? null,
@@ -2107,6 +2503,8 @@ export function useAppController() {
     seekTo,
     selectAlbum,
     selectedAlbum,
+    selectedArtworkCandidateId,
+    selectedArtworkRelease,
     selectedAlbumTrackEntries,
     selectedPlaylist,
     selectedPlaylistId,
@@ -2133,6 +2531,7 @@ export function useAppController() {
     setTrackTagDraft,
     setEditingTrackTag,
     setLibraryPath,
+    setArtworkSearchQuery,
     setVolume,
     shouldShowLibraryStatus,
     startAlbumPanelPointerDrag,
@@ -2146,7 +2545,28 @@ export function useAppController() {
     trackTagDraft,
     trackTagMessage,
     updateInfo,
+    searchAlbumArtworkCandidates,
   };
+}
+
+function nextArtworkSearchProgressValue(status: string, currentValue: number) {
+  const nextValue = (() => {
+    if (status === "preparing") return Math.max(currentValue + 3, 14);
+    if (status === "release-search") return Math.max(currentValue + 4, 22);
+    if (status === "release-group-search") return Math.max(currentValue + 4, 52);
+    if (status === "recording-search") return Math.max(currentValue + 3, 66);
+    if (status.includes("fallback")) return Math.max(currentValue + 2, 76);
+    if (status === "thumbnail-search") return Math.max(currentValue + 2, 78);
+    if (status === "completed") return Math.max(currentValue + 2, 84);
+    return currentValue + 2;
+  })();
+
+  if (status === "release-search") return Math.min(nextValue, 50);
+  if (status === "release-group-search") return Math.min(nextValue, 64);
+  if (status === "recording-search") return Math.min(nextValue, 74);
+  if (status.includes("fallback")) return Math.min(nextValue, 84);
+  if (status === "thumbnail-search") return Math.min(nextValue, 86);
+  return Math.min(nextValue, 88);
 }
 
 export type AppController = ReturnType<typeof useAppController>;

@@ -141,6 +141,47 @@ pub struct TrackArtworkUpdateRequest {
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct AlbumArtworkUpdateRequest {
+    pub album_id: String,
+    pub artwork_path: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ArtworkCandidateSearchRequest {
+    pub request_id: Option<u64>,
+    pub album_title: String,
+    pub album_artist: String,
+    pub first_track_title: Option<String>,
+    pub first_track_artist: Option<String>,
+    pub limit: Option<usize>,
+}
+
+#[derive(Debug, Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct ArtworkSearchProgress {
+    pub request_id: Option<u64>,
+    pub status: &'static str,
+    pub message_key: &'static str,
+    pub completed: usize,
+    pub total: usize,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ArtworkCandidatePreviewRequest {
+    pub image_url: Option<String>,
+    pub release_id: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ArtworkReleaseInspectRequest {
+    pub release_id: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct TrackUserStateUpdateRequest {
     pub track_id: String,
     pub is_favorite: bool,
@@ -230,6 +271,65 @@ pub struct TrackArtworkUpdateResult {
     pub track_id: String,
     pub album_id: String,
     pub artwork_path: String,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AlbumArtworkUpdateResult {
+    pub album_id: String,
+    pub artwork_path: String,
+    pub updated_files: usize,
+    pub failed_files: Vec<TagWriteFailure>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ArtworkCandidateSearchResult {
+    pub candidates: Vec<ArtworkCandidate>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ArtworkCandidatePreviewResult {
+    pub preview_path: String,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ArtworkReleaseInspectResult {
+    pub release_id: String,
+    pub title: String,
+    pub artist: Option<String>,
+    pub year: Option<String>,
+    pub country: Option<String>,
+    pub status: Option<String>,
+    pub page_url: String,
+    pub tracks: Vec<ArtworkReleaseTrack>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ArtworkReleaseTrack {
+    pub position: String,
+    pub title: String,
+    pub length_seconds: Option<u64>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ArtworkCandidate {
+    pub id: String,
+    pub release_id: Option<String>,
+    pub source: String,
+    pub title: String,
+    pub artist: Option<String>,
+    pub year: Option<String>,
+    pub thumbnail_path: Option<String>,
+    pub preview_path: Option<String>,
+    pub image_url: Option<String>,
+    pub page_url: Option<String>,
+    pub width: Option<u32>,
+    pub height: Option<u32>,
 }
 
 #[derive(Debug, Serialize)]

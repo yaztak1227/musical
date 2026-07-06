@@ -280,6 +280,11 @@ Tagging and metadata:
 - Persist tag changes to the audio files through the Rust backend.
 - Report partial album-tag save failures when some files cannot be written.
 - Update track artwork from a native image file picker.
+- Browse MusicBrainz / Cover Art Archive artwork candidates inside the Tauri
+  main window, preview a selected candidate, and save it as album artwork across
+  the album's tracks.
+- Open Google Images in the default browser as a helper path without scraping
+  Google Images results inside the app.
 - Update playlist artwork from a native image file picker.
 - Mark a track favorite/not favorite.
 - Set or clear a track rating.
@@ -340,6 +345,9 @@ TV/Fire TV support:
 
 - Real scanning, file playback, tag writes, artwork writes, update checks, folder
   pickers, and playlist persistence require Tauri.
+- Artwork candidate search, candidate image downloads, and album-wide artwork
+  writes are Tauri main-window-only and are not exposed through the local HTTP
+  server.
 - Remote HTTP state, queued player commands, display devices, and TV player
   events are in-memory for the current app process.
 - Non-local HTTP clients receive `403 remote access is private` until LAN access

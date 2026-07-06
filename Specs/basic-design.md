@@ -61,7 +61,8 @@ flowchart LR
 - `SelectedPlaylistPanel`: プレイリスト曲の表示、追加、削除、並べ替え。
 - `PlayerBar`: 再生状態、キュー、シーク、音量、Player mode 導線。
 - `PlayerVisualizerOverlay`: Player mode、ビジュアライザ、歌詞、キュー。
-- `TrackDetailDialog`: 曲情報、歌詞、アートワーク、タグ編集。
+- `TrackDetailDialog`: 曲情報、歌詞、アートワーク候補検索、アートワーク、タグ編集。
+- `ArtworkCandidateDialog`: MusicBrainz / Cover Art Archive 由来の候補検索、検索中の進捗表示、候補比較、preview、保存導線。
 
 `src/features/**` は UI から切り出した領域別ロジックです。
 
@@ -91,6 +92,9 @@ flowchart LR
 - `create_playlist_from_album`
 - `update_album_tags`
 - `update_track_tags`
+- `search_artwork_candidates`
+- `preview_artwork_candidate`
+- `update_album_artwork`
 - `update_track_artwork`
 - `update_playlist_artwork`
 - `update_track_user_state`
@@ -127,6 +131,7 @@ Tauri setup 時に local server を開始し、desktop/browser/Fire TV の接続
 - local request は許可する。
 - LAN access が明示的に有効になるまで非ローカル request は拒否する。
 - media は server が公開した file/API 経由でのみ取得できる。
+- アートワーク候補検索と候補画像 download は Tauri command 専用で、local server API には公開しない。
 
 ### 3.4 Fire TV Android Shell
 

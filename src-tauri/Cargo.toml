@@ -27,6 +27,7 @@ log = "0.4"
 md5 = "0.7"
 rustfft = "6.4.1"
 rusqlite = { version = "0.39.0", features = ["bundled"] }
+reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "rustls-tls"] }
 tauri = { version = "2", features = ["protocol-asset"] }
 tauri-plugin-opener = "2"
 serde = { version = "1", features = ["derive"] }

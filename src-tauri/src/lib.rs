@@ -5,13 +5,15 @@ mod library;
 mod local_server;
 
 use library::{
-    AddTrackToPlaylistRequest, AddTracksToPlaylistRequest, AlbumTagUpdateRequest,
-    AlbumTagUpdateResult, CreatePlaylistFromAlbumRequest, CreatePlaylistRequest,
-    DeletePlaylistRequest, LibrarySnapshot, PlaylistArtworkUpdateRequest,
-    PlaylistArtworkUpdateResult, RemovePlaylistTrackRequest, RenamePlaylistRequest,
-    ReorderPlaylistTrackRequest, ScanSummary, TrackArtworkUpdateRequest, TrackArtworkUpdateResult,
-    TrackTagUpdateRequest, TrackTagUpdateResult, TrackUserStateUpdateRequest,
-    TrackUserStateUpdateResult,
+    AddTrackToPlaylistRequest, AddTracksToPlaylistRequest, AlbumArtworkUpdateRequest,
+    AlbumArtworkUpdateResult, AlbumTagUpdateRequest, AlbumTagUpdateResult,
+    ArtworkCandidatePreviewRequest, ArtworkCandidatePreviewResult, ArtworkCandidateSearchRequest,
+    ArtworkCandidateSearchResult, ArtworkReleaseInspectRequest, ArtworkReleaseInspectResult,
+    CreatePlaylistFromAlbumRequest, CreatePlaylistRequest, DeletePlaylistRequest, LibrarySnapshot,
+    PlaylistArtworkUpdateRequest, PlaylistArtworkUpdateResult, RemovePlaylistTrackRequest,
+    RenamePlaylistRequest, ReorderPlaylistTrackRequest, ScanSummary, TrackArtworkUpdateRequest,
+    TrackArtworkUpdateResult, TrackTagUpdateRequest, TrackTagUpdateResult,
+    TrackUserStateUpdateRequest, TrackUserStateUpdateResult,
 };
 use log::{error, info, LevelFilter};
 
@@ -150,6 +152,44 @@ fn update_track_artwork(
 }
 
 #[tauri::command]
+fn update_album_artwork(
+    app: tauri::AppHandle,
+    request: AlbumArtworkUpdateRequest,
+) -> Result<AlbumArtworkUpdateResult, String> {
+    library::update_album_artwork(&app, request)
+}
+
+#[tauri::command]
+async fn search_artwork_candidates(
+    app: tauri::AppHandle,
+    request: ArtworkCandidateSearchRequest,
+) -> Result<ArtworkCandidateSearchResult, String> {
+    tauri::async_runtime::spawn_blocking(move || library::search_artwork_candidates(&app, request))
+        .await
+        .map_err(|error| error.to_string())?
+}
+
+#[tauri::command]
+async fn preview_artwork_candidate(
+    app: tauri::AppHandle,
+    request: ArtworkCandidatePreviewRequest,
+) -> Result<ArtworkCandidatePreviewResult, String> {
+    tauri::async_runtime::spawn_blocking(move || library::preview_artwork_candidate(&app, request))
+        .await
+        .map_err(|error| error.to_string())?
+}
+
+#[tauri::command]
+async fn inspect_artwork_release(
+    app: tauri::AppHandle,
+    request: ArtworkReleaseInspectRequest,
+) -> Result<ArtworkReleaseInspectResult, String> {
+    tauri::async_runtime::spawn_blocking(move || library::inspect_artwork_release(&app, request))
+        .await
+        .map_err(|error| error.to_string())?
+}
+
+#[tauri::command]
 fn update_playlist_artwork(
     app: tauri::AppHandle,
     request: PlaylistArtworkUpdateRequest,
@@ -216,12 +256,16 @@ pub fn run() {
             create_playlist,
             create_playlist_from_album,
             delete_playlist,
+            inspect_artwork_release,
             library_snapshot,
+            preview_artwork_candidate,
             remove_playlist_track,
             rename_playlist,
             reorder_playlist_track,
             scan_music_folder,
+            search_artwork_candidates,
             track_lyrics,
+            update_album_artwork,
             update_album_tags,
             update_playlist_artwork,
             update_track_artwork,

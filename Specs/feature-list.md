@@ -72,6 +72,8 @@
 - 必須項目を検証してから保存する。
 - Rust backend 経由で音声ファイルへタグ変更を書き込む。
 - 曲アートワークとプレイリストアートワークをネイティブ画像ピッカーから更新する。
+- デスクトップ Tauri では MusicBrainz / Cover Art Archive 由来のアートワーク候補をアプリ内で閲覧し、検索中の処理内容と進捗を表示しながら、選択候補をアルバム全曲のアートワークとして保存する。
+- Google 画像検索は既定ブラウザで開く補助導線として提供し、Google Images の検索結果をアプリ内で scraping しない。
 - 曲のお気に入りとレーティングを設定/解除する。
 - 保存済み歌詞を曲詳細と Player mode に表示する。
 
@@ -130,6 +132,7 @@
 ## 現在の主な制約
 
 - 実スキャン、ファイル再生、タグ/アートワーク書き込み、フォルダ/画像ピッカーは Tauri が必要。
+- アートワーク候補検索、候補画像 download、アルバム全曲へのアートワーク保存は Tauri main window 専用で、local server API には公開しない。
 - Remote HTTP state、queued player commands、display devices、TV player events は現 app process 内 in-memory。
 - Fire TV は到達可能な desktop local server に依存する。
 - Fire TV discovery は現在 local IPv4 subnet の port `1422` を対象にする。

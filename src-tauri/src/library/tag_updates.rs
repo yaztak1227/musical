@@ -13,8 +13,9 @@ use super::{
     allow_asset_directory, artwork_cache_dir_for_root, current_library_root,
     make_front_cover_picture, normalize_group_key, open_database, required_app_database_path,
     stable_hash, to_error_string, unix_timestamp_millis, write_artwork_bytes,
-    AlbumTagUpdateRequest, AlbumTagUpdateResult, ExistingAlbum, ExistingFileState, ExistingTrack,
-    TagWriteFailure, TrackArtworkUpdateRequest, TrackArtworkUpdateResult, TrackTagUpdateRequest,
+    AlbumArtworkUpdateRequest, AlbumArtworkUpdateResult, AlbumTagUpdateRequest,
+    AlbumTagUpdateResult, ExistingAlbum, ExistingFileState, ExistingTrack, TagWriteFailure,
+    TrackArtworkUpdateRequest, TrackArtworkUpdateResult, TrackTagUpdateRequest,
     TrackTagUpdateResult, TrackUserStateUpdateRequest, TrackUserStateUpdateResult,
 };
 
@@ -168,6 +169,72 @@ pub fn update_track_artwork(
         track_id: existing_track.uuid,
         album_id: existing_track.album_group_key,
         artwork_path: cached_artwork_path,
+    })
+}
+
+pub fn update_album_artwork(
+    app: &AppHandle,
+    request: AlbumArtworkUpdateRequest,
+) -> Result<AlbumArtworkUpdateResult, String> {
+    let artwork_source_path = request.artwork_path.trim();
+    if artwork_source_path.is_empty() {
+        return Err("library.error.emptyArtworkPath".to_owned());
+    }
+
+    let database_path = required_app_database_path(app)?;
+    let mut connection = open_database(&database_path)?;
+    load_album_for_update(&connection, request.album_id.clone())?;
+    let track_paths = load_track_paths(&connection, request.album_id.clone())?;
+
+    if track_paths.is_empty() {
+        return Err(format!(
+            "library.error.albumHasNoTracks\t{}",
+            request.album_id.clone()
+        ));
+    }
+
+    let artwork_bytes = fs::read(artwork_source_path).map_err(to_error_string)?;
+    make_front_cover_picture(artwork_bytes.clone())?;
+
+    let mut updated_files = 0usize;
+    let mut failed_files = Vec::new();
+    for file_path in track_paths {
+        match make_front_cover_picture(artwork_bytes.clone())
+            .and_then(|picture| write_track_artwork_to_file(&file_path, picture))
+        {
+            Ok(()) => updated_files += 1,
+            Err(reason) => failed_files.push(TagWriteFailure { file_path, reason }),
+        }
+    }
+
+    if updated_files == 0 {
+        return Err(format!(
+            "library.error.albumArtworkWriteFailed\t{}",
+            request.album_id
+        ));
+    }
+
+    let library_root = current_library_root(app)?;
+    let artwork_dir = artwork_cache_dir_for_root(&library_root)?;
+    fs::create_dir_all(&artwork_dir).map_err(to_error_string)?;
+    allow_asset_directory(app, &artwork_dir)?;
+    let cached_artwork_path = write_artwork_bytes(
+        &artwork_bytes,
+        &artwork_dir,
+        &format!(
+            "album-{}-{}",
+            request.album_id,
+            stable_hash(artwork_source_path)
+        ),
+    )?;
+
+    persist_track_artwork_update(&mut connection, &request.album_id, &cached_artwork_path)?;
+
+    Ok(AlbumArtworkUpdateResult {
+        album_id: request.album_id,
+        artwork_path: cached_artwork_path,
+        updated_files,
+        failed_files,
     })
 }
 
@@ -408,7 +475,7 @@ fn write_track_tags_to_file(
         .map_err(to_error_string)
 }
 
-fn write_track_artwork_to_file(file_path: &str, picture: Picture) -> Result<(), String> {
+pub(super) fn write_track_artwork_to_file(file_path: &str, picture: Picture) -> Result<(), String> {
     let path = Path::new(file_path);
     let mut tagged_file = read_from_path(path).map_err(to_error_string)?;
     let tag_type = tagged_file.primary_tag_type();

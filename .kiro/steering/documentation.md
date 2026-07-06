@@ -11,6 +11,7 @@ Musical の改修では、コード変更と設計/仕様ドキュメント更�
 - Fire TV の protocol、architecture、UI design、device registry、voice command memory が変わる場合は対応する `docs/firetv-*.md` を更新する。
 - 再生終了、キュー、再生ボタン状態が変わる場合は `Specs/playback-sequences.md` を更新する。
 - ビジュアライザの解析、描画、キャッシュ、Chibi 表示が変わる場合は `docs/visualizer-design.ja.md` を更新する。
+- アートワーク候補検索ロジックを変更する場合は、`cargo test --manifest-path src-tauri/Cargo.toml artwork_search::tests` を実行し、検索語から期待 release ID が候補に残る回帰テストが通るように修正する。アートワーク検索に関係しない変更ではこのテストを必須検証対象にしない。外部 API の実確認へ広がる作業を必要な変更時だけに絞り、MusicBrainz / Cover Art Archive などへの負荷を抑えるため。
 - ドキュメント更新が不要なコード変更では、PR/変更説明に「仕様ドキュメント影響なし」と明記できる状態にする。
 
 ## 運用メモ

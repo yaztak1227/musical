@@ -1,4 +1,4 @@
-import { Check, FolderOpen, Heart, Save, Star, X } from "lucide-react";
+import { Check, FolderOpen, Heart, Images, Save, Star, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -28,6 +28,7 @@ type TrackDetailDialogProps = {
   onChangeTab: (tab: TrackDetailTab) => void;
   onChooseArtwork: () => void;
   onClose: () => void;
+  onOpenArtworkCandidateDialog: () => void;
   onSaveArtwork: () => void;
   onSaveTrackTags: () => void;
   onTrackFavoriteChange: (isFavorite: boolean) => void;
@@ -57,6 +58,7 @@ export function TrackDetailDialog({
   onChangeTab,
   onChooseArtwork,
   onClose,
+  onOpenArtworkCandidateDialog,
   onSaveArtwork,
   onSaveTrackTags,
   onTrackFavoriteChange,
@@ -230,6 +232,12 @@ export function TrackDetailDialog({
                 )}
               </div>
               <div className="album-tag-actions artwork-actions">
+                {isTauriRuntime && hasRealBackend ? (
+                  <Button disabled={isSavingArtwork} onClick={onOpenArtworkCandidateDialog} type="button" variant="outline">
+                    <Images />
+                    {t("artworkSearch.open")}
+                  </Button>
+                ) : null}
                 <Button disabled={isSavingArtwork} onClick={onChooseArtwork} type="button" variant="outline">
                   <FolderOpen />
                   {t("trackDetail.chooseArtwork")}

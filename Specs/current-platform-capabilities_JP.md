@@ -231,6 +231,8 @@
 - Rust バックエンド経由でタグ変更を音声ファイルへ永続化する。
 - 一部ファイルを書き込めなかった場合、アルバムタグ保存の partial failure を報告する。
 - ネイティブ画像ファイルピッカーから曲アートワークを更新する。
+- Tauri main window 内で MusicBrainz / Cover Art Archive 由来のアートワーク候補を閲覧し、選択候補を preview してアルバム内トラック全体のアートワークとして保存する。
+- Google 画像検索は補助導線として既定ブラウザで開き、アプリ内では Google Images の検索結果を scraping しない。
 - ネイティブ画像ファイルピッカーからプレイリストアートワークを更新する。
 - 曲をお気に入り/お気に入り解除する。
 - 曲のレーティングを設定/クリアする。
@@ -284,6 +286,7 @@ TV/Fire TV 対応:
 ### デスクトップ版の制約
 
 - 実スキャン、ファイル再生、タグ書き込み、アートワーク書き込み、アップデート確認、フォルダピッカー、プレイリスト永続化には Tauri が必要。
+- アートワーク候補検索、候補画像 download、アルバム全体へのアートワーク保存は Tauri main window 専用で、local HTTP server には公開しない。
 - Remote HTTP state、queued player commands、display devices、TV player events は現在の app process 内 in-memory。
 - LAN access が有効になるまで、非ローカル HTTP client は `403 remote access is private` を受け取る。
 - LAN access には検出可能な LAN IPv4 address が必要。
