@@ -43,7 +43,8 @@ flowchart LR
 | Tauri backend | `src-tauri/src/lib.rs` | Tauri command と plugin setup |
 | Library backend | `src-tauri/src/library.rs`, `src-tauri/src/library/**` | scan, snapshot, playlist, tag, artwork, storage |
 | Audio analysis backend | `src-tauri/src/audio_analysis.rs` | FFT bucket 生成と cache |
-| Local server | `src-tauri/src/local_server.rs` | `/api/*`, `/tv`, WebSocket, media streaming |
+| Local server | `src-tauri/src/local_server.rs` | `/api/*`, `/tv`, WebSocket, media streaming, MCP sidecar lifecycle/proxy |
+| MCP sidecar | `src/mcp/**`, `dist/mcp/server.js` | MCP SDK server, AI SDK V7 compatible tool catalog, internal bridge client |
 | Fire TV shell | `apps/firetv/app/src/main/java/app/musical/firetv/**` | Android native shell, discovery, Settings, key bridge |
 | TV route | `src/features/tv-display/presentation/TvDisplayApp.tsx` | Fire TV/TV browser UI |
 
@@ -123,6 +124,10 @@ Tauri setup 時に local server を開始し、desktop/browser/Fire TV の接続
 - `POST /api/player_command`
 - `GET /api/player_commands`
 - `POST /api/tv/player_event`
+- `GET /api/mcp-settings`
+- `POST /api/mcp-settings`
+- `POST /api/_mcp/tools/{toolName}` internal bridge, loopback + token only
+- `POST /mcp` MCP sidecar proxy, loopback only
 - `GET /tv`
 - `GET /tv/sessions/{sessionId}` WebSocket
 
@@ -130,6 +135,10 @@ Tauri setup 時に local server を開始し、desktop/browser/Fire TV の接続
 
 - local request は許可する。
 - LAN access が明示的に有効になるまで非ローカル request は拒否する。
+- `/mcp` と `/api/mcp-settings` は LAN access と独立して local-only のままにする。
+- MCP enabled 時、Tauri は `dist/mcp/server.js` を Node sidecar として起動し、`/mcp` request を sidecar の loopback port へ proxy する。
+- MCP sidecar は `@modelcontextprotocol/sdk` の Streamable HTTP server を使い、AI SDK V7 `@ai-sdk/mcp` client から `mcpClient.tools()` / `callTool()` で検証する。
+- MCP internal bridge API は sidecar に渡した per-process token (`X-Musical-MCP-Token`) を要求する。
 - media は server が公開した file/API 経由でのみ取得できる。
 - アートワーク候補検索と候補画像 download は Tauri command 専用で、local server API には公開しない。
 

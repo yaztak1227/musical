@@ -536,16 +536,17 @@ export function useAppController() {
   const selectedAlbum =
     albums.find((album) => album.id === selectedAlbumId) ?? filteredAlbums[0] ?? albums[0] ?? null;
   const selectedPlaylist = playlists.find((playlist) => playlist.id === selectedPlaylistId) ?? null;
+  const playbackPlaylist = playlists.find((playlist) => playlist.id === playbackPlaylistId) ?? null;
   const selectedAlbumTrackEntries = useMemo(
     () => selectedAlbum?.tracks.map((track, trackIndex) => ({ album: selectedAlbum, track, trackIndex })) ?? [],
     [selectedAlbum],
   );
   const selectedPlaylistTrackEntries = useMemo(
     () =>
-      selectedPlaylist?.tracks.map((track, trackIndex) => ({
+      selectedPlaylist?.tracks.map((track, displayIndex) => ({
         album: findAlbumByTrackId(track.id),
         track,
-        trackIndex,
+        trackIndex: selectedPlaylist.trackIndexes?.[displayIndex] ?? displayIndex,
       })) ?? [],
     [albums, selectedPlaylist],
   );
@@ -781,8 +782,8 @@ export function useAppController() {
     if (playbackAlbumId !== state.playbackAlbumId) {
       setPlaybackAlbumId(state.playbackAlbumId);
     }
-    if (playbackPlaylistId !== null) {
-      setPlaybackPlaylistId(null);
+    if (playbackPlaylistId !== state.playbackPlaylistId) {
+      setPlaybackPlaylistId(state.playbackPlaylistId);
     }
 
     const syncedTrack = findTrackById(state.currentTrackId);
@@ -984,6 +985,7 @@ export function useAppController() {
     const queueTrackIds = queueTracks.map((track) => track.id);
     if (sendRemoteCommand("play-track", {
       albumId: firstAlbum?.id ?? null,
+      playlistId: playlist.id,
       trackId: firstTrack.id,
       isShuffle: false,
       queueTrackIds,
@@ -1463,9 +1465,8 @@ export function useAppController() {
 
   function changeShuffle(nextShuffle: boolean, source = "programmatic") {
     const albumForQueue = playbackAlbum ?? findAlbumByTrackId(currentTrack?.id ?? null);
-    const nextQueueTrackIds = albumForQueue
-      ? getToggledQueueTracks(albumForQueue, nextShuffle, currentTrack).map((track) => track.id)
-      : playbackQueueTrackIds;
+    const sourceTracks = playbackPlaylist?.tracks ?? albumForQueue?.tracks ?? queue;
+    const nextQueueTrackIds = getToggledQueueTracks(sourceTracks, nextShuffle, currentTrack).map((track) => track.id);
 
     if (source !== "remote-sync") {
       sendRemoteCommand("toggle-shuffle", { isShuffle: nextShuffle, queueTrackIds: nextQueueTrackIds });
@@ -2218,6 +2219,7 @@ export function useAppController() {
       isPlaying,
       isShuffle,
       playbackAlbumId,
+      playbackPlaylistId,
       queueTrackIds: queue.map((track) => track.id),
       repeatMode,
       selectedAlbumId,
@@ -2476,7 +2478,7 @@ export function useAppController() {
     previewSelectedArtworkCandidate,
     playbackAlbum,
     playbackError,
-    playbackPlaylist: playlists.find((playlist) => playlist.id === playbackPlaylistId) ?? null,
+    playbackPlaylist,
     playerBarRef,
     playlists,
     query,

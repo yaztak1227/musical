@@ -36,6 +36,7 @@ export type Playlist = {
   artworkPath?: string | null;
   trackCount: number;
   missingTrackPaths: string[];
+  trackIndexes?: number[];
   tracks: Track[];
 };
 

@@ -65,6 +65,7 @@ pub struct PlaylistRecord {
     pub artwork_path: Option<String>,
     pub track_count: usize,
     pub missing_track_paths: Vec<String>,
+    pub track_indexes: Vec<usize>,
     pub tracks: Vec<TrackRecord>,
 }
 

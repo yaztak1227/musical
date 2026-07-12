@@ -104,6 +104,9 @@
 - LAN/public control URL の QR code を表示する。
 - dev mode では public dev tunnel を任意で公開する。
 - ローカル MCP endpoint を切り替える。無効時の `/mcp` は 404 を返す。
+- MCP endpoint は AI SDK V7 compatible な TypeScript sidecar と MCP SDK server で提供し、Tauri local server は `/mcp` を sidecar へ proxy する。
+- MCP sidecar は loopback だけに bind し、Tauri internal bridge は per-process token で保護する。
+- MCP tools は player/library read、album/track/artist discovery、playback/queue command、favorites、playlist mutation、tag/artwork/user-state mutation を公開し、AI SDK `createMCPClient` で tool discovery と `structuredContent` を検証する。
 - ブラウザバックエンドモードでは、ブラウザが再生を所有せず、デスクトップへ remote player command を送る。
 
 ## Fire TV

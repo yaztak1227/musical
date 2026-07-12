@@ -18,7 +18,12 @@ export function getAlbumQueueTracks(album: Album, isShuffle: boolean, startTrack
   return [startTrack, ...shuffledRemainder];
 }
 
-export function getToggledQueueTracks(album: Album, isShuffle: boolean, currentTrack: Track | null) {
-  if (!isShuffle) return album.tracks;
-  return getAlbumQueueTracks(album, true, currentTrack);
+export function getToggledQueueTracks(sourceTracks: Track[], isShuffle: boolean, currentTrack: Track | null) {
+  if (!isShuffle) return sourceTracks;
+  if (!currentTrack || !sourceTracks.some((track) => track.id === currentTrack.id)) {
+    return shuffleTracks(sourceTracks);
+  }
+
+  const shuffledRemainder = shuffleTracks(sourceTracks.filter((track) => track.id !== currentTrack.id));
+  return [currentTrack, ...shuffledRemainder];
 }

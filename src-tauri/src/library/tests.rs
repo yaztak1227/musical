@@ -1,16 +1,41 @@
 use super::{
     display_album_artist, display_album_year, find_audio_files, load_playlist_file_best_effort,
     parse_m3u_playlist, parse_pls_playlist, persist_album_tag_update, repair_mojibake,
-    strip_windows_drive_prefix, update_playlist_artwork_file, ExistingAlbum,
-    PlaylistArtworkUpdateRequest, PlaylistFile,
+    resolve_playlist_tracks, strip_windows_drive_prefix, update_playlist_artwork_file,
+    ExistingAlbum, PlaylistArtworkUpdateRequest, PlaylistFile,
 };
 use rusqlite::{params, Connection};
 use std::{
-    collections::BTreeSet,
+    collections::{BTreeSet, HashMap},
     fs,
     path::PathBuf,
     time::{SystemTime, UNIX_EPOCH},
 };
+
+#[test]
+fn preserves_source_indexes_when_playlist_tracks_are_missing() {
+    let available_track = super::TrackRecord {
+        id: "available".to_owned(),
+        uuid: "available".to_owned(),
+        title: "Available".to_owned(),
+        artist: "Artist".to_owned(),
+        duration_seconds: 180,
+        track_number: Some(1),
+        disc_number: Some(1),
+        file_path: "/music/available.mp3".to_owned(),
+        has_lyrics: false,
+        is_favorite: false,
+        rating: None,
+    };
+    let tracks_by_path = HashMap::from([("available.mp3".to_owned(), available_track)]);
+    let paths = vec!["missing.mp3".to_owned(), "available.mp3".to_owned()];
+
+    let (missing_paths, track_indexes, tracks) = resolve_playlist_tracks(&paths, &tracks_by_path);
+
+    assert_eq!(missing_paths, vec!["missing.mp3"]);
+    assert_eq!(track_indexes, vec![1]);
+    assert_eq!(tracks[0].id, "available");
+}
 
 #[test]
 fn finds_supported_audio_files_recursively() {

@@ -301,8 +301,8 @@ sequenceDiagram
 | D1 | User clicks Next | any except remote takeover | middle | Next track starts | Existing controls coverage |
 | D2 | User clicks Previous after more than 3s | any | any | Same track seeks to 0 | Needed |
 | D3 | User clicks Previous within first 3s | any | any | Previous queue track starts | Needed |
-| E1 | Shuffle toggled while playing | off to on | any | Queue is reshuffled around current track | Existing shuffle queue tests |
-| E2 | Shuffle toggled while playing | on to off | any | Queue returns to album order around current track | Existing shuffle queue tests |
+| E1 | Shuffle toggled while playing | off to on | any | Album playback reshuffles the album queue; playlist playback reshuffles only the playlist queue, with the current track first | Existing shuffle queue tests |
+| E2 | Shuffle toggled while playing | on to off | any | Queue returns to its source album order or stored playlist order | Existing shuffle queue tests |
 | E3 | Last track completes with shuffle and repeat all | on | last | Next-cycle queue is reshuffled, then first shuffled track starts | `reshuffles the next cycle when the last track ends with repeat all and shuffle` |
 | F1 | Remote `next` command | any | middle | Next track starts through command path | Needed |
 | F2 | Remote `seek` near end then completion | off | middle | Next track starts without local/remote loop | Needed |

@@ -17,6 +17,7 @@ export const hasRealBackend = !isMockDataRuntime;
 export type RemotePlayerState = {
   selectedAlbumId: EntityId | null;
   playbackAlbumId: EntityId | null;
+  playbackPlaylistId: EntityId | null;
   currentTrackId: EntityId | null;
   queueTrackIds: EntityId[];
   isPlaying: boolean;
@@ -51,7 +52,9 @@ export type RemotePlayerCommandType =
   | "seek"
   | "select-album"
   | "select-track"
+  | "clear-queue"
   | "set-volume"
+  | "set-queue"
   | "toggle-mute"
   | "toggle-playback"
   | "toggle-shuffle"

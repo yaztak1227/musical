@@ -89,6 +89,28 @@ const remotePlayerCommandHandlers: Partial<Record<QueuedRemotePlayerCommand["com
     const track = context.findTrackById(trackId);
     if (track) context.selectTrack(track);
   },
+  "clear-queue": (_command, context) => {
+    context.setPlaybackPlaylistId(null);
+    context.setPlaybackQueueTrackIds([]);
+    context.setCurrentTrack(null);
+    context.resetPlayerPosition();
+    context.setIsPlaying(false);
+  },
+  "set-queue": (command, context) => {
+    const queueTrackIds = getCommandEntityIdArray(command, "queueTrackIds") ?? [];
+    const queue = context.findTracksByIds(queueTrackIds);
+    const currentTrackId = getCommandEntityId(command, "currentTrackId") ?? queue[0]?.id ?? null;
+    const currentTrack = context.findTrackById(currentTrackId) ?? queue[0] ?? null;
+    const album = context.findAlbumByTrackId(currentTrack?.id ?? null);
+    const shouldPlay = getCommandBoolean(command, "isPlaying") ?? getCommandBoolean(command, "play") ?? Boolean(currentTrack);
+
+    context.setPlaybackAlbumId(album?.id ?? null);
+    context.setPlaybackPlaylistId(null);
+    context.setPlaybackQueueTrackIds(queueTrackIds);
+    context.setCurrentTrack(currentTrack);
+    context.resetPlayerPosition();
+    context.setIsPlaying(Boolean(currentTrack) && shouldPlay);
+  },
   "set-volume": (command, context) => {
     const volume = getCommandNumber(command, "volume");
     if (volume !== null) context.setVolume(volume);
@@ -148,7 +170,7 @@ function playRemoteTrack(
   const nextQueue = commandQueue.length > 0 ? commandQueue : album ? getAlbumQueueTracks(album, shouldShuffle, track) : [track];
 
   context.setPlaybackAlbumId(album?.id ?? albumId);
-  context.setPlaybackPlaylistId(null);
+  context.setPlaybackPlaylistId(getCommandEntityId(command, "playlistId"));
   context.setPlaybackQueueTrackIds(nextQueue.map((track) => track.id));
   context.setCurrentTrack(track);
   context.resetPlayerPosition();

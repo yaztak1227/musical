@@ -3,6 +3,7 @@ use std::{
     collections::HashMap,
     fs,
     path::{Component, Path, PathBuf},
+    sync::{Mutex, MutexGuard},
 };
 use tauri::AppHandle;
 
@@ -18,10 +19,19 @@ use super::{
     PLAYLIST_EXTENSION, PLS_EXTENSION,
 };
 
+static PLAYLIST_MUTATION_LOCK: Mutex<()> = Mutex::new(());
+
+fn lock_playlist_mutations() -> Result<MutexGuard<'static, ()>, String> {
+    PLAYLIST_MUTATION_LOCK
+        .lock()
+        .map_err(|error| error.to_string())
+}
+
 pub fn create_playlist_from_album(
     app: &AppHandle,
     request: CreatePlaylistFromAlbumRequest,
 ) -> Result<LibrarySnapshot, String> {
+    let _mutation_guard = lock_playlist_mutations()?;
     let playlist_name = request.name.trim();
     if playlist_name.is_empty() {
         return Err("library.error.emptyPlaylistName".to_owned());
@@ -54,8 +64,7 @@ pub fn create_playlist_from_album(
         artwork_path: None,
         track_paths,
     };
-    let bytes = serde_json::to_vec_pretty(&playlist_file).map_err(to_error_string)?;
-    fs::write(&file_path, bytes).map_err(to_error_string)?;
+    write_playlist_file(&file_path, &playlist_file)?;
 
     load_snapshot(app)
 }
@@ -64,6 +73,7 @@ pub fn create_playlist(
     app: &AppHandle,
     request: CreatePlaylistRequest,
 ) -> Result<LibrarySnapshot, String> {
+    let _mutation_guard = lock_playlist_mutations()?;
     let playlist_name = request.name.trim();
     if playlist_name.is_empty() {
         return Err("library.error.emptyPlaylistName".to_owned());
@@ -81,8 +91,7 @@ pub fn create_playlist(
         artwork_path: None,
         track_paths: Vec::new(),
     };
-    let bytes = serde_json::to_vec_pretty(&playlist_file).map_err(to_error_string)?;
-    fs::write(&file_path, bytes).map_err(to_error_string)?;
+    write_playlist_file(&file_path, &playlist_file)?;
 
     load_snapshot(app)
 }
@@ -91,6 +100,7 @@ pub fn add_track_to_playlist(
     app: &AppHandle,
     request: AddTrackToPlaylistRequest,
 ) -> Result<LibrarySnapshot, String> {
+    let _mutation_guard = lock_playlist_mutations()?;
     let library_root = current_library_root(app)?;
     let database_path = required_app_database_path(app)?;
     let connection = open_database_for_read(&database_path)?;
@@ -105,8 +115,7 @@ pub fn add_track_to_playlist(
         .any(|existing_path| existing_path.replace('\\', "/") == track_path)
     {
         playlist_file.track_paths.push(track_path);
-        let bytes = serde_json::to_vec_pretty(&playlist_file).map_err(to_error_string)?;
-        fs::write(&playlist_path, bytes).map_err(to_error_string)?;
+        write_playlist_file(&playlist_path, &playlist_file)?;
     }
 
     load_snapshot(app)
@@ -116,6 +125,7 @@ pub fn add_tracks_to_playlist(
     app: &AppHandle,
     request: AddTracksToPlaylistRequest,
 ) -> Result<LibrarySnapshot, String> {
+    let _mutation_guard = lock_playlist_mutations()?;
     let library_root = current_library_root(app)?;
     let database_path = required_app_database_path(app)?;
     let connection = open_database_for_read(&database_path)?;
@@ -149,6 +159,7 @@ pub fn rename_playlist(
     app: &AppHandle,
     request: RenamePlaylistRequest,
 ) -> Result<LibrarySnapshot, String> {
+    let _mutation_guard = lock_playlist_mutations()?;
     let playlist_name = request.name.trim();
     if playlist_name.is_empty() {
         return Err("library.error.emptyPlaylistName".to_owned());
@@ -167,6 +178,7 @@ pub fn delete_playlist(
     app: &AppHandle,
     request: DeletePlaylistRequest,
 ) -> Result<LibrarySnapshot, String> {
+    let _mutation_guard = lock_playlist_mutations()?;
     let library_root = current_library_root(app)?;
     let playlist_path = playlist_file_path_for_id(&library_root, &request.playlist_id)?;
     let playlist_stem = playlist_path
@@ -192,6 +204,7 @@ pub fn remove_playlist_track(
     app: &AppHandle,
     request: RemovePlaylistTrackRequest,
 ) -> Result<LibrarySnapshot, String> {
+    let _mutation_guard = lock_playlist_mutations()?;
     let library_root = current_library_root(app)?;
     let (playlist_path, mut playlist_file) =
         editable_playlist_file_for_id(&library_root, &request.playlist_id)?;
@@ -212,6 +225,7 @@ pub fn reorder_playlist_track(
     app: &AppHandle,
     request: ReorderPlaylistTrackRequest,
 ) -> Result<LibrarySnapshot, String> {
+    let _mutation_guard = lock_playlist_mutations()?;
     let library_root = current_library_root(app)?;
     let (playlist_path, mut playlist_file) =
         editable_playlist_file_for_id(&library_root, &request.playlist_id)?;
@@ -235,6 +249,7 @@ pub fn update_playlist_artwork(
     app: &AppHandle,
     request: PlaylistArtworkUpdateRequest,
 ) -> Result<PlaylistArtworkUpdateResult, String> {
+    let _mutation_guard = lock_playlist_mutations()?;
     let library_root = current_library_root(app)?;
     update_playlist_artwork_file(&library_root, request)
 }
@@ -269,8 +284,7 @@ pub(super) fn update_playlist_artwork_file(
 
     fs::write(&artwork_path, artwork_bytes).map_err(to_error_string)?;
     playlist_file.artwork_path = Some(artwork_path.to_string_lossy().into_owned());
-    let bytes = serde_json::to_vec_pretty(&playlist_file).map_err(to_error_string)?;
-    fs::write(&playlist_path, bytes).map_err(to_error_string)?;
+    write_playlist_file(&playlist_path, &playlist_file)?;
 
     Ok(PlaylistArtworkUpdateResult {
         playlist_id: playlist_file.id,
@@ -302,7 +316,19 @@ pub(super) fn read_mplaylist_file(path: &Path) -> Result<PlaylistFile, String> {
 
 pub(super) fn write_playlist_file(path: &Path, playlist_file: &PlaylistFile) -> Result<(), String> {
     let bytes = serde_json::to_vec_pretty(playlist_file).map_err(to_error_string)?;
-    fs::write(path, bytes).map_err(to_error_string)
+    let file_name = path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .ok_or_else(|| "library.error.invalidPlaylistPath".to_owned())?;
+    let temporary_path =
+        path.with_file_name(format!(".{file_name}.{}.tmp", unix_timestamp_millis()?));
+
+    fs::write(&temporary_path, bytes).map_err(to_error_string)?;
+    if let Err(error) = fs::rename(&temporary_path, path) {
+        let _ = fs::remove_file(&temporary_path);
+        return Err(to_error_string(error));
+    }
+    Ok(())
 }
 
 pub(super) fn playlist_file_path_for_id(
@@ -407,19 +433,8 @@ pub(super) fn load_playlists(
         let Some(playlist_file) = load_playlist_file_best_effort(library_root, &path) else {
             continue;
         };
-        let mut missing_track_paths = Vec::new();
-        let tracks = playlist_file
-            .track_paths
-            .iter()
-            .filter_map(|track_path| {
-                let normalized_path = track_path.replace('\\', "/");
-                let track = tracks_by_path.get(&normalized_path).cloned();
-                if track.is_none() {
-                    missing_track_paths.push(normalized_path);
-                }
-                track
-            })
-            .collect::<Vec<_>>();
+        let (missing_track_paths, track_indexes, tracks) =
+            resolve_playlist_tracks(&playlist_file.track_paths, &tracks_by_path);
         playlists.push(PlaylistRecord {
             id: playlist_file.id,
             name: playlist_file.name,
@@ -427,6 +442,7 @@ pub(super) fn load_playlists(
             artwork_path: existing_artwork_path(playlist_file.artwork_path),
             track_count: playlist_file.track_paths.len(),
             missing_track_paths,
+            track_indexes,
             tracks,
         });
     }
@@ -438,6 +454,29 @@ pub(super) fn load_playlists(
             .then_with(|| left.id.cmp(&right.id))
     });
     Ok(playlists)
+}
+
+pub(super) fn resolve_playlist_tracks(
+    track_paths: &[String],
+    tracks_by_path: &HashMap<String, TrackRecord>,
+) -> (Vec<String>, Vec<usize>, Vec<TrackRecord>) {
+    let mut missing_track_paths = Vec::new();
+    let mut track_indexes = Vec::new();
+    let tracks = track_paths
+        .iter()
+        .enumerate()
+        .filter_map(|(track_index, track_path)| {
+            let normalized_path = track_path.replace('\\', "/");
+            let track = tracks_by_path.get(&normalized_path).cloned();
+            if track.is_some() {
+                track_indexes.push(track_index);
+            } else {
+                missing_track_paths.push(normalized_path);
+            }
+            track
+        })
+        .collect();
+    (missing_track_paths, track_indexes, tracks)
 }
 
 pub(super) fn is_supported_playlist_path(path: &Path) -> bool {

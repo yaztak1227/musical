@@ -263,6 +263,10 @@
 - dev mode では dev tunnel API が利用可能な場合に public dev tunnel を任意で公開する。
 - LAN/public control URL の QR code を表示する。
 - ローカル MCP endpoint を切り替える。`/mcp` endpoint は local-only で、無効時は 404 を返す。
+- `/mcp` は公式 MCP SDK 上の TypeScript sidecar で提供し、AI SDK V7 compatible な tool catalog として検証する。Tauri local server は enabled 設定、sidecar lifecycle、reverse proxy を担当する。
+- MCP sidecar と internal bridge は loopback bind と per-process `X-Musical-MCP-Token` で保護する。
+- `@ai-sdk/mcp` による tool discovery と `structuredContent` 検証を provider API key なしで実行できる。
+- MCP は再生操作、album/track/artist 検索、library summary、queue 操作、favorites、playlist mutation、tag/artwork 更新を含む 43 tools を公開する。
 
 リモートブラウザ操作:
 
@@ -577,7 +581,7 @@ architecture、navigation、layout、playback、platform integration を変更�
 - `/api/player_state`, `/api/player_command`, `/api/player_commands` が remote browser controls と desktop player を同期し続ける。
 - Browser backend mode は real local playback を own しようとせず commands を送る。
 - Browser backend mode は remote desktop player が既に別 track へ移った場合に stale analysis response を無視する。
-- `/mcp` は local-only のままで、MCP enabled でない限り disabled。
+- `/mcp` は local-only のままで、MCP enabled でない限り disabled。enabled 時は AI SDK V7 compatible MCP sidecar へ proxy する。
 
 ### Mock Browser Mode
 

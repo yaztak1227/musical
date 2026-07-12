@@ -319,6 +319,16 @@ Updates and local services:
 - Show QR codes for LAN/public control URLs.
 - Toggle the local MCP endpoint. The `/mcp` endpoint is local-only and returns
   404 when disabled.
+- Serve `/mcp` through an AI SDK V7 compatible TypeScript sidecar built on the
+  official MCP SDK. The Tauri local server owns the enabled setting, sidecar
+  lifecycle, and reverse proxy.
+- Protect the MCP sidecar and internal bridge with loopback binding plus a
+  per-process `X-Musical-MCP-Token`.
+- Validate MCP tool discovery and `structuredContent` through `@ai-sdk/mcp`
+  without requiring a provider API key.
+- MCP exposes 43 tools covering playback transport, album/track/artist search,
+  library summaries, queue operations, favorites, playlist mutation, and tag or
+  artwork updates.
 
 Remote browser control:
 
@@ -729,7 +739,8 @@ app still satisfies the relevant platform items below.
   playback.
 - Browser backend mode ignores stale analysis responses when the remote desktop
   player has already moved to another track.
-- `/mcp` remains local-only and disabled unless MCP is enabled.
+- `/mcp` remains local-only and disabled unless MCP is enabled; when enabled,
+  requests are proxied to the AI SDK V7 compatible MCP sidecar.
 
 ### Mock Browser Mode
 

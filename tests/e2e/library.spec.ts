@@ -170,6 +170,37 @@ test("creates an empty playlist", async ({ page }) => {
   await expect(page.getByText("No playlists yet.")).toBeVisible();
 });
 
+test("keeps shuffle changes inside the active playlist queue", async ({ page }) => {
+  await page.addInitScript(() => {
+    Math.random = () => 0;
+    window.localStorage.setItem("musical.locale", "en");
+  });
+  await page.goto("/");
+
+  await page.getByRole("tab", { name: "Playlists" }).click();
+  await page.getByLabel("Playlist name").fill("Mixed Queue");
+  await page.getByRole("button", { name: "New playlist" }).click();
+
+  await page.getByRole("tab", { name: "Large icons" }).click();
+  await page.getByRole("region", { name: "Album library" }).getByRole("button", { name: /Midnight Transit/ }).click();
+  await page.getByRole("button", { name: "Add Station Lights to playlist" }).click();
+  await page.getByRole("menuitem", { name: /Mixed Queue/ }).click();
+  await page.getByRole("region", { name: "Album library" }).getByRole("button", { name: /Room Tone/ }).click();
+  await page.getByRole("button", { name: "Add Soft Machines to playlist" }).click();
+  await page.getByRole("menuitem", { name: /Mixed Queue/ }).click();
+
+  await page.getByRole("tab", { name: "Playlists" }).click();
+  await page.locator(".playlist-card").first().click();
+  await page.getByRole("region", { name: "Selected playlist" }).getByRole("button", { name: "Play", exact: true }).click();
+  await expect(page.getByLabel("Player")).toContainText("Station Lights");
+  await expect(page.getByLabel("Player")).toContainText("From Mixed Queue");
+
+  await page.getByRole("button", { name: "Shuffle" }).click();
+  await page.getByLabel("Player").getByRole("button", { name: "Next" }).click();
+  await expect(page.getByLabel("Player")).toContainText("Soft Machines");
+  await expect(page.getByLabel("Player")).not.toContainText("Last Train Home");
+});
+
 test("shows playlists as playable collections on the TV display", async ({ page }) => {
   await page.addInitScript(() => window.localStorage.setItem("musical.locale", "en"));
 

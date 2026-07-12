@@ -294,7 +294,7 @@ export function SelectedPlaylistPanel({
                     aria-label={t("playlists.moveTrackUp", { track: localizeLibraryText(track.title, t) })}
                     className="track-playlist-add-button"
                     disabled={displayIndex === 0}
-                    onClick={() => onReorderTrack(playlist, trackIndex, trackIndex - 1)}
+                    onClick={() => onReorderTrack(playlist, trackIndex, trackEntries[displayIndex - 1]?.trackIndex ?? trackIndex)}
                     title={t("playlists.moveTrackUp", { track: localizeLibraryText(track.title, t) })}
                     type="button"
                   >
@@ -304,7 +304,7 @@ export function SelectedPlaylistPanel({
                     aria-label={t("playlists.moveTrackDown", { track: localizeLibraryText(track.title, t) })}
                     className="track-playlist-add-button"
                     disabled={displayIndex === trackEntries.length - 1}
-                    onClick={() => onReorderTrack(playlist, trackIndex, trackIndex + 1)}
+                    onClick={() => onReorderTrack(playlist, trackIndex, trackEntries[displayIndex + 1]?.trackIndex ?? trackIndex)}
                     title={t("playlists.moveTrackDown", { track: localizeLibraryText(track.title, t) })}
                     type="button"
                   >
