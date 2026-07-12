@@ -121,6 +121,12 @@ h2 {
   justify-self: start;
 }
 
+.settings-action-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
 .mcp-setting {
   display: inline-grid;
   grid-template-columns: auto minmax(0, 1fr);

@@ -198,6 +198,7 @@ export function useAppController() {
   );
   const [updateInfo, setUpdateInfo] = useState<I18nMessage | null>(null);
   const [isCheckingForUpdate, setIsCheckingForUpdate] = useState(false);
+  const [hasCheckedForUpdate, setHasCheckedForUpdate] = useState(false);
   const [availableAppUpdate, setAvailableAppUpdate] = useState<AvailableAppUpdate | null>(null);
   const [isMcpEnabled, setIsMcpEnabled] = useState(false);
   const [mcpUrl, setMcpUrl] = useState<string | null>(null);
@@ -857,11 +858,6 @@ export function useAppController() {
   }
 
   async function handleCheckForUpdate() {
-    if (availableAppUpdate) {
-      await confirmAndInstallAppUpdate(availableAppUpdate);
-      return;
-    }
-
     setIsCheckingForUpdate(true);
     setUpdateInfo({ key: "updates.checking" });
 
@@ -882,8 +878,13 @@ export function useAppController() {
     } catch (error) {
       setUpdateInfo(toI18nError(error));
     } finally {
+      setHasCheckedForUpdate(true);
       setIsCheckingForUpdate(false);
     }
+  }
+
+  async function handleInstallAvailableUpdate() {
+    if (availableAppUpdate) await confirmAndInstallAppUpdate(availableAppUpdate);
   }
 
   async function confirmAndInstallAppUpdate(appUpdate: AvailableAppUpdate) {
@@ -2420,6 +2421,8 @@ export function useAppController() {
     finishAlbumPanelTouchDrag,
     finishTrackLongPress,
     handleCheckForUpdate,
+    handleInstallAvailableUpdate,
+    hasCheckedForUpdate,
     handleChooseFolder,
     handleScan,
     handleTrackEnded,

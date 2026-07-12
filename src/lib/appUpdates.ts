@@ -1,5 +1,7 @@
 import { check, type Update } from "@tauri-apps/plugin-updater";
+import packageJson from "../../package.json";
 import { isTauriRuntime } from "./backend";
+import { isNewerVersion } from "./version";
 
 export type AppUpdateResult =
   | { status: "installed"; version: string }
@@ -17,7 +19,7 @@ export async function checkAppUpdate(): Promise<AppUpdateCheckResult> {
   if (!isTauriRuntime) return { status: "unsupported" };
 
   const update = await check();
-  if (!update) return { status: "none" };
+  if (!update || !isNewerVersion(update.version, packageJson.version)) return { status: "none" };
 
   return { status: "available", update, version: update.version };
 }

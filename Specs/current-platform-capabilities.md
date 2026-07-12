@@ -312,7 +312,9 @@ Localization and preferences:
 
 Updates and local services:
 
-- Check for and install app updates through the Tauri updater when supported.
+- Show the current app version in the desktop window title.
+- Check for and install only strictly newer app versions through the Tauri updater when supported.
+- Keep a separate recheck action available after an update candidate is found.
 - Toggle LAN access to the local HTTP server.
 - In dev mode, optionally publish a public dev tunnel when the dev tunnel API is
   available.

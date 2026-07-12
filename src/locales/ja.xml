@@ -22,6 +22,7 @@
   <message key="scan.buttonScanning">スキャン中...</message>
   <message key="updates.label">アップデート</message>
   <message key="updates.check">アップデートを確認</message>
+  <message key="updates.recheck">再確認</message>
   <message key="updates.start">アップデート開始</message>
   <message key="updates.checking">確認中...</message>
   <message key="updates.available">バージョン {version} を利用できます。</message>

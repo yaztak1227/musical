@@ -15,6 +15,7 @@ export type LibrarySidebarSectionState = Record<LibrarySidebarSection, boolean>;
 type LibrarySidebarProps = {
   displayedLibraryPath: string;
   hasAvailableAppUpdate: boolean;
+  hasCheckedForUpdate: boolean;
   isCheckingForUpdate: boolean;
   isLibraryMenuOpen: boolean;
   isMcpEnabled: boolean;
@@ -25,6 +26,7 @@ type LibrarySidebarProps = {
   mcpUrl: string | null;
   updateInfo: I18nMessage | null;
   onCheckForUpdate: () => void;
+  onInstallAvailableUpdate: () => void;
   onLibraryMenuOpenChange: (isOpen: boolean | ((isOpen: boolean) => boolean)) => void;
   onLocaleChange: (locale: Locale) => void;
   onMcpEnabledChange: (enabled: boolean) => void;
@@ -41,6 +43,7 @@ type LibrarySidebarProps = {
 export function LibrarySidebar({
   displayedLibraryPath,
   hasAvailableAppUpdate,
+  hasCheckedForUpdate,
   isCheckingForUpdate,
   isLibraryMenuOpen,
   isMcpEnabled,
@@ -51,6 +54,7 @@ export function LibrarySidebar({
   mcpUrl,
   updateInfo,
   onCheckForUpdate,
+  onInstallAvailableUpdate,
   onLibraryMenuOpenChange,
   onLocaleChange,
   onMcpEnabledChange,
@@ -168,15 +172,22 @@ export function LibrarySidebar({
                 </p>
               ) : null}
             </div>
-            <Button
-              disabled={isCheckingForUpdate || !isTauriRuntime}
-              onClick={onCheckForUpdate}
-              title={!isTauriRuntime ? t("updates.desktopOnly") : undefined}
-              type="button"
-              variant="outline"
-            >
-              {isCheckingForUpdate ? t("updates.checking") : hasAvailableAppUpdate ? t("updates.start") : t("updates.check")}
-            </Button>
+            <div className="settings-action-buttons">
+              {hasAvailableAppUpdate ? (
+                <Button disabled={isCheckingForUpdate} onClick={onInstallAvailableUpdate} type="button" variant="outline">
+                  {t("updates.start")}
+                </Button>
+              ) : null}
+              <Button
+                disabled={isCheckingForUpdate || !isTauriRuntime}
+                onClick={onCheckForUpdate}
+                title={!isTauriRuntime ? t("updates.desktopOnly") : undefined}
+                type="button"
+                variant="outline"
+              >
+                {isCheckingForUpdate ? t("updates.checking") : hasCheckedForUpdate ? t("updates.recheck") : t("updates.check")}
+              </Button>
+            </div>
           </div>
 
           {isTauriRuntime ? (

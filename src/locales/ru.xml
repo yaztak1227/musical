@@ -22,6 +22,7 @@
   <message key="scan.buttonScanning">Сканирование...</message>
   <message key="updates.label">Обновления</message>
   <message key="updates.check">Проверить обновления</message>
+  <message key="updates.recheck">Проверить снова</message>
   <message key="updates.start">Начать обновление</message>
   <message key="updates.checking">Проверка...</message>
   <message key="updates.available">Доступна версия {version}.</message>

@@ -29,6 +29,7 @@ export const translationKeys = [
   "scan.buttonScanning",
   "updates.label",
   "updates.check",
+  "updates.recheck",
   "updates.start",
   "updates.checking",
   "updates.available",

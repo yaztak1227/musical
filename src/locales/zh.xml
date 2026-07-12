@@ -22,6 +22,7 @@
   <message key="scan.buttonScanning">正在扫描...</message>
   <message key="updates.label">更新</message>
   <message key="updates.check">检查更新</message>
+  <message key="updates.recheck">再次检查</message>
   <message key="updates.start">开始更新</message>
   <message key="updates.checking">正在检查...</message>
   <message key="updates.available">{version} 版本现已推出。</message>

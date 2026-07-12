@@ -22,6 +22,7 @@
   <message key="scan.buttonScanning">Escaneando...</message>
   <message key="updates.label">Actualizaciones</message>
   <message key="updates.check">Buscar actualizaciones</message>
+  <message key="updates.recheck">Comprobar de nuevo</message>
   <message key="updates.start">Iniciar actualización</message>
   <message key="updates.checking">Buscando...</message>
   <message key="updates.available">La versión {version} está disponible.</message>
