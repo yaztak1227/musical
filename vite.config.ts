@@ -347,6 +347,7 @@ function proxyLocalBackendRequest(request: IncomingMessage, response: ServerResp
       headers: {
         ...request.headers,
         host: targetUrl.host,
+        origin: targetUrl.origin,
       },
       method: request.method,
     },

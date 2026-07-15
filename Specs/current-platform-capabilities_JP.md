@@ -60,6 +60,8 @@
 閲覧と選択:
 
 - アルバムを大アイコン、小アイコン、アルバム表、曲表、プレイリスト表示で閲覧する。
+- カードグリッドの初回描画完了後にアルバムスクロールインデックスを構築する。Resize 起因の計測は animation frame に集約し、同期レイアウト取得とインデックス更新がカードの初回描画へ割り込まないようにする。
+- アルバムのアートワーク、タイトル、メタデータは明示した grid area へ配置する。アルバムパネル幅が変わった場合は、描画後の安定した寸法を計測してスクロールインデックスだけを再構築し、カード配置を auto-placement や非表示の中間レイアウトへ依存させない。大アイコンの正方形行は WebKit の Grid 内 aspect-ratio 算定に依存せず、通常フローの割合 padding で先に確保する。アルバムグリッドの暗黙行は max-content で算出し、カードを行頭へ揃えることで、レスポンシブな列数変更時に古い行高へ引き伸ばされないようにする。
 - アクティブな表示に応じて、アルバム、アーティスト、年、プレイリスト、曲名、曲アーティスト、ファイルパスを検索する。
 - アルバムをタイトル、アーティスト、年で昇順/降順ソートする。
 - 歌詞があるアルバム/曲だけに絞り込む。
@@ -132,11 +134,20 @@
 - Chibi mode ボタン:
   - ビジュアライザ内のキャラクター描画を切り替える。
   - `localStorage` の `musical.visualizerChibiMode` に保存する。
-- ビジュアライザモードボタン:
-  - `Wave` は波形ビジュアライゼーションを描く。
-  - `Spectrum` はバー/スペクトラムビジュアライゼーションを描き、デフォルトモードである。
-  - `Circle` は円形ビジュアライゼーションを描く。
+  - ダブルクリック/ダブルタップで非表示の Chibi orchestra scene を切り替え、通常ビジュアライザモードとしては保存しない。
+- ビジュアライザモードボタングループ:
+  - `Wave`, `Spectrum`, `Circle`, `Peaks`, `Aurora`, `Starfield`, `DNA Helix`, `Flowing ink`, `VU meters` を選択する。DNA 螺旋の横線は低音から高音までの1時点の周波数分布で、新しい履歴を下側へ追加する。
+  - `Peaks` は周波数の稜線を画面下端へ閉じる面として描く。`Aurora` は専用の Three.js/WebGL2 シェーダーで低域から高域までの5帯域を連続した色・エネルギーマップへ補間し、蛇行する発光上端、半透明の面光、細い光条、縦横のカラーグラデーション、控えめな bloom を重ねる。WebGL 初期化に失敗した場合は Canvas 2D へ fallback する。
+  - `Starfield` は専用の Three.js/WebGL2 シェーダーで消失点から奥行きの異なる5層を放射し、長い光跡、中心付近の星間ダスト、色付きハロー、控えめな中心フレア、拡大する衝撃波リングを重ねる。周波数 bucket は `1,33,65,2,34,66…` 型で32方向へ散らし、隣接データが画面の一方向へ固まらないようにする。平滑化した方向別エネルギーは光跡の出現数、長さ、太さ、輝度を制御し、周波数の正の変化は光跡密度、中心光、衝撃波、bloom を一時的に強める。低域は加速度、中域は霞、高域は微細星と瞬きにも反映する。WebGL 初期化に失敗した場合は Canvas 2D へ fallback する。
+  - 保存済みモードがない場合は `Spectrum` がデフォルトである。
   - 選択したモードは再生状態を変えず即座に反映される。
+  - 選択したモードは `localStorage` の `musical.visualizerMode` に保存する。
+- ビジュアライザ配色ボタングループ:
+  - 従来の時間変化する HSL 配色、アプリテーマ色、現在アートワークから抽出した色、固定レインボーパレットを選択する。
+  - オリジナル配色は以前の Wave、Spectrum、Circle の色計算を再現し、その他のモードでは寒色中心の専用パレットを使ってレインボーと区別する。
+  - レインボー配色はライム、グリーン、アクア、ブルー、バイオレット、マゼンタ、ローズへ連続し、オーロラでは左から右へ全色を順番に補間する。
+  - アートワークを読み取れない場合はアプリテーマ配色へ fallback する。
+  - 選択した配色は `localStorage` の `musical.visualizerPalette` に保存する。
 - Player mode の再生操作:
   - 前へ、再生/一時停止、次へは Player bar と同じハンドラを呼ぶ。
   - 現在曲がない場合、ボタンは無効になる。
@@ -157,6 +168,7 @@
   - Spectrum mode では idle spectrum。
   - Chibi mode が有効な場合は、通常の idle scene ではなく、周波数値をゼロにした対応キャラクター scene を描く。
 - 再生が live の場合、`requestAnimationFrame` でアニメーションする。
+- `prefers-reduced-motion` が動きの抑制を要求する場合、音への反応は保ちながら、移動系モードの要素数、回転、移動速度を抑える。
 - ビジュアライザが live とみなされるのは、`isPlaying` が true かつ以下のいずれかが true のときだけ。
   - Web Audio analyser が利用可能。
   - そのランタイムで remote/offline analysis を優先する。
@@ -165,6 +177,10 @@
 - remote/offline analysis フレームがある場合、推定再生時刻の周辺フレーム timecode 間を補間して描画する。
 - remote/offline フレームがなく Web Audio が利用可能な場合は、`AnalyserNode.getByteFrequencyData` をサンプリングする。
 - 周波数データは平滑化、動的拡張されたうえで、アクティブなビジュアライザモードに描画される。
+- 大きなID3v2タグの後ろにあるRIFF/RMP3 streamは、固定64 KiBの先頭検索ではなくタグのsyncsafe sizeから位置を特定する。
+- ブラウザの解析取得は同じ曲の再生中に1秒、3秒、8秒後へ再試行し、停止または曲変更時に予約済み再試行を解除する。
+- アートワーク背景、装飾背景、ビジュアライザ Canvas、vignette、操作 UI は非負の stacking order を明示し、Chromium で Canvas が overlay 背景の後ろへ回らないようにする。
+- ブラウザ回帰では Canvas 内部のピクセルと時間経過後の overlay 最終合成 screenshot の両方を検証し、内部では動いていても画面上で隠れた Canvas を失敗として扱う。
 
 音楽解析タイミング:
 
@@ -262,6 +278,7 @@
 - サポートされる場合、Tauri updater 経由で現行より新しいバージョンだけを確認/インストールする。
 - 更新候補の検出後も、アップデート開始とは別に再確認操作を表示する。
 - ローカル HTTP サーバーの LAN access を切り替える。
+- app settings は read-modify-write を直列化し、atomic file replacement で保存する。
 - dev mode では dev tunnel API が利用可能な場合に public dev tunnel を任意で公開する。
 - LAN/public control URL の QR code を表示する。
 - ローカル MCP endpoint を切り替える。`/mcp` endpoint は local-only で、無効時は 404 を返す。
@@ -274,9 +291,13 @@
 
 - player state をローカル desktop HTTP server へ publish する。
 - remote browser command を poll し、desktop player に適用する。
+- 保持上限を超えて欠落した command を検出し、最新の server snapshot から desktop playback/library state を回復する。
 - `/api/*` 経由で library snapshot、lyrics、media file、audio analysis segment、player state、command queue を提供する。
 - stream client 向けに media file を HTTP byte-range 対応で提供する。
+- `/api/media` は正規化後に設定済みライブラリ配下となる音声・画像ファイルだけを配信する。
 - LAN access が明示的に有効化されるまでは、非ローカル HTTP access を拒否する。
+- local/LAN API の routing 前に、信頼されていない cross-site Origin からの browser request を拒否する。
+- local server は 1 MiB を超える request body を buffer へ読み込む前に拒否する。
 
 TV/Fire TV 対応:
 

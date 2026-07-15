@@ -138,6 +138,7 @@ Tauri setup 時に local server を開始し、desktop/browser/Fire TV の接続
 - `/mcp` と `/api/mcp-settings` は LAN access と独立して local-only のままにする。
 - MCP enabled 時、Tauri は `dist/mcp/server.js` を Node sidecar として起動し、`/mcp` request を sidecar の loopback port へ proxy する。
 - MCP sidecar は `@modelcontextprotocol/sdk` の Streamable HTTP server を使い、AI SDK V7 `@ai-sdk/mcp` client から `mcpClient.tools()` / `callTool()` で検証する。
+- `dev:public` は Vite 起動前に MCP sidecar を build し、production build は Vite が `dist` を生成した後に `dist/mcp/server.js` を出力する。これにより Vite の出力 cleanup で sidecar が欠落しないようにする。
 - MCP internal bridge API は sidecar に渡した per-process token (`X-Musical-MCP-Token`) を要求する。
 - media は server が公開した file/API 経由でのみ取得できる。
 - アートワーク候補検索と候補画像 download は Tauri command 専用で、local server API には公開しない。
@@ -257,6 +258,8 @@ sequenceDiagram
 
 ### 5.4 ビジュアライザ解析
 
+iTunes由来の `ID3v2 + RIFF/RMP3` wrapper は、ID3 header の syncsafe size からタグ終端へ seek し、`data` chunk 以降をMP3としてprobeする。ブラウザ側の解析取得が一時失敗した場合は上限付きbackoffで再試行し、停止・曲変更時に再試行を解除する。
+
 ```mermaid
 sequenceDiagram
   participant UI as React UI
@@ -277,6 +280,16 @@ sequenceDiagram
   Server-->>UI: analysis packet
   UI->>Viz: render by playback time
 ```
+
+`PlayerVisualizerOverlay` は解析 bucket を共通入力として、波、スペクトラム、サークル、山脈、DNA 螺旋、墨流し、VU メーターを Canvas 2D で描画する。オーロラとスターフィールドはそれぞれ専用の Three.js/WebGL2 canvas で GLSL シェーダーを実行し、WebGL 初期化に失敗した場合だけ Canvas 2D 描画へ fallback する。ちびキャラオーケストラは通常のモードボタンへ出さず、Chibi mode ボタンのダブルクリック/ダブルタップで一時的に切り替える。山脈は下端へ閉じる面の起伏として描く。
+
+overlay の stacking context はブラウザ間で同じ合成結果になるよう、アートワーク背景、装飾背景、Canvas、vignette、操作 UI、closeボタンの順を非負の `z-index` で明示する。Canvasと装飾レイヤーは `pointer-events: none` とし、closeボタンを常にクリック可能な最前面へ置く。Canvas 内部のピクセル検査に加え、overlay 全体の screenshot が再生中に変化することとcloseボタンでoverlayを閉じられることをブラウザ回帰テストで検証し、親背景の背面へ Canvas が隠れる不具合と透明レイヤーが操作を遮る不具合を検出する。
+
+ビジュアライザの control dock は、通常幅では9モードを1×9、4配色を1×4で上段へ横並びにし、再生操作を最下段に保つ。幅680px以下ではそれぞれ3×3、2×2へ戻す。外周余白、段間、ボタン寸法を抑え、overlay の残りの高さを `visualizer-stage` へ割り当てる。stage 内の歌詞とキューの配置は変更しない。
+
+オーロラは解析 bucket を低域から高域まで5帯域へ要約し、横方向へ連続する色・エネルギーマップとして補間する。GPU シェーダーは5フレームの周波数履歴、FBM ノイズ、蛇行する発光上端、多数の縦フィラメント、半透明の面光、暗部へ溶ける不規則な下端を合成する。色は横方向のオーロラパレットに加え、上端の淡い色から下端の隣接色相へ移る縦グラデーションを持つ。レインボー選択時はライムからグリーン、アクア、ブルー、バイオレット、マゼンタ、ローズへ進む8色を左から右へ補間し、オリジナル選択時の寒色中心パレットと明確に区別する。オリジナル、テーマ、アートワークは従来の面光、フィラメント密度、露出を維持し、レインボーだけは細線主体の形状、専用露出、専用 bloom を使う。レインボーの解析履歴は約48 ms間隔で更新し、帯域エネルギーを上端位置、フィラメント長、輝度へ強く反映する。`EffectComposer` の `UnrealBloomPass` は高輝度の芯だけへ薄い bloom を加え、面全体の白飛びを避ける。Canvas 2D fallback は7フレームの残光を用いる。帯域の強度はフィラメントの丈、輝度、太さ、揺れへ反映する。DNA 螺旋は一定間隔で解析 bucket を周波数履歴へ取り込み、低音から高音へ分割した1時点のスナップショットを横線1本として描く。新しい横線は下側、古い横線は上側へ配置し、両端を逆位相の二重螺旋で結ぶ。描画モードと配色モードは独立したボタングループで選択する。配色は旧来の時間変化する HSL 配色を再現するオリジナル、アプリテーマ、アートワークから抽出した代表色、固定レインボーから選択する。通常モードの選択値は `localStorage` へ保存し、`prefers-reduced-motion` が有効な場合は粒子数、回転、移動速度、bloom 強度を抑制する。
+
+スターフィールドは画面中央付近の消失点から星を手前へ射出するワープ航行表現とする。GPU シェーダーは距離と速度の異なる5層の放射状光跡、中心付近の微細な星間ダスト、色付きのハロー、中心フレア、薄い衝撃波リングを合成する。周波数 bucket は32方向へ割り当てる前に、完全な32分割を列方向へ読む `1,33,65,2,34,66…` 型の順序へ並べ替える。これにより隣接する周波数値を角度方向へ散らし、特定帯域が強い場合も一方向だけへ光跡が偏ることを防ぐ。各方向の平滑化エネルギーは光跡の出現数、長さ、太さ、輝度を制御し、全体エネルギーと正の差分から求めた立ち上がり成分は一時的に光跡数、中心フレア、衝撃波、bloom を強める。停止時は平滑化済みエネルギーと立ち上がり状態をリセットし、音声連動光跡を残留させない。低域は加速度、中域は空間の霞、高域は微細星と瞬きにも反映する。`UnrealBloomPass` は光跡の芯だけを発光させ、背景の黒とUI文字の可読性を保つ。低モーション設定では移動速度、光跡長、衝撃波、立ち上がり反応、bloom 強度を抑える。
 
 ### 5.5 Browser Backend Remote Control
 

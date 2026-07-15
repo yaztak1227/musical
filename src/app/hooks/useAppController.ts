@@ -2264,7 +2264,24 @@ export function useAppController() {
 
     const pollCommands = () => {
       void getRemotePlayerCommands(lastRemoteCommandIdRef.current)
-        .then(({ commands }) => {
+        .then(({ commands, hasGap, latestId }) => {
+          if (hasGap) {
+            lastRemoteCommandIdRef.current = latestId;
+            void getRemotePlayerState()
+              .then(({ clientReceivedAtMs, clientRequestedAtMs, responseSentAtMs, state, stateCapturedAtMs }) => {
+                if (state) {
+                  applyRemotePlayerState(state, {
+                    clientReceivedAtMs,
+                    clientRequestedAtMs,
+                    responseSentAtMs,
+                    stateCapturedAtMs,
+                  });
+                }
+              })
+              .catch((error: unknown) => setPlaybackError(String(error)));
+            void refreshLibrary();
+            return;
+          }
           for (const command of commands) {
             lastRemoteCommandIdRef.current = Math.max(lastRemoteCommandIdRef.current, command.id);
             handleRemoteCommand(command);
@@ -2328,7 +2345,12 @@ export function useAppController() {
 
     const pollLibraryCommands = () => {
       void getRemotePlayerCommands(lastLibraryCommandIdRef.current)
-        .then(({ commands }) => {
+        .then(({ commands, hasGap, latestId }) => {
+          if (hasGap) {
+            lastLibraryCommandIdRef.current = latestId;
+            void refreshLibrary();
+            return;
+          }
           for (const command of commands) {
             lastLibraryCommandIdRef.current = Math.max(lastLibraryCommandIdRef.current, command.id);
             if (command.commandType === "refresh-library") {

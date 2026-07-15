@@ -4,7 +4,6 @@ import {
   type PointerEvent as ReactPointerEvent,
   type RefObject,
   useEffect,
-  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -33,6 +32,7 @@ type AlbumBrowserProps = {
   albumSortDirection: AlbumSortDirection;
   albumSortMode: AlbumSortMode;
   albumViewMode: AlbumViewMode;
+  isSidebarCollapsed: boolean;
   isTauriRuntime: boolean;
   isPlaying: boolean;
   panelRef: RefObject<HTMLElement | null>;
@@ -80,6 +80,7 @@ function AlbumBrowserComponent({
   albumSortDirection,
   albumSortMode,
   albumViewMode,
+  isSidebarCollapsed,
   isTauriRuntime,
   isPlaying,
   panelRef,
@@ -109,6 +110,8 @@ function AlbumBrowserComponent({
   const albumListRef = useRef<HTMLDivElement | null>(null);
   const programmaticScrollRef = useRef(false);
   const programmaticScrollEndTimeoutRef = useRef<number | null>(null);
+  const scrollIndexAfterPaintFrameRef = useRef<number | null>(null);
+  const scrollIndexMeasureFrameRef = useRef<number | null>(null);
   const [isFilterPanelOpen, setIsFilterPanelOpen] = useState(false);
   const [newPlaylistName, setNewPlaylistName] = useState("");
   const [scrollIndexItems, setScrollIndexItems] = useState<AlbumScrollIndexItem[]>([]);
@@ -229,16 +232,22 @@ function AlbumBrowserComponent({
     if (!scrollElement) return;
 
     const scrollRect = scrollElement.getBoundingClientRect();
+    const positionedElements = Array.from(scrollElement.querySelectorAll<HTMLElement>("[data-scroll-index-id]"))
+      .map((element) => ({
+        element,
+        label: element.dataset.scrollIndexLabel,
+        rowTop: Math.round(element.getBoundingClientRect().top - scrollRect.top + scrollElement.scrollTop),
+        targetId: element.dataset.scrollIndexId,
+      }))
+      .filter(
+        (item): item is typeof item & { label: string; targetId: string } =>
+          Boolean(item.label && item.targetId),
+      );
     const rowItems: AlbumScrollIndexItem[] = [];
     let currentRowTop: number | null = null;
     let row = -1;
 
-    Array.from(scrollElement.querySelectorAll<HTMLElement>("[data-scroll-index-id]")).forEach((element) => {
-      const label = element.dataset.scrollIndexLabel;
-      const targetId = element.dataset.scrollIndexId;
-      if (!label || !targetId) return;
-
-      const rowTop = Math.round(element.getBoundingClientRect().top - scrollRect.top + scrollElement.scrollTop);
+    positionedElements.forEach(({ element, label, rowTop, targetId }) => {
       if (currentRowTop === null || Math.abs(rowTop - currentRowTop) > 4) {
         row += 1;
         currentRowTop = rowTop;
@@ -262,18 +271,44 @@ function AlbumBrowserComponent({
     });
   }
 
-  useLayoutEffect(() => {
-    rebuildScrollIndex();
-  }, [albumListMode, albumSortMode, albumViewMode, albums, filteredPlaylists, t, trackRows.length]);
+  function cancelScheduledScrollIndexRebuild() {
+    if (scrollIndexAfterPaintFrameRef.current !== null) {
+      window.cancelAnimationFrame(scrollIndexAfterPaintFrameRef.current);
+      scrollIndexAfterPaintFrameRef.current = null;
+    }
+    if (scrollIndexMeasureFrameRef.current !== null) {
+      window.cancelAnimationFrame(scrollIndexMeasureFrameRef.current);
+      scrollIndexMeasureFrameRef.current = null;
+    }
+  }
+
+  function scheduleScrollIndexRebuild() {
+    cancelScheduledScrollIndexRebuild();
+    // The second frame runs only after the card grid has had a paint opportunity.
+    scrollIndexAfterPaintFrameRef.current = window.requestAnimationFrame(() => {
+      scrollIndexAfterPaintFrameRef.current = null;
+      scrollIndexMeasureFrameRef.current = window.requestAnimationFrame(() => {
+        scrollIndexMeasureFrameRef.current = null;
+        rebuildScrollIndex();
+      });
+    });
+  }
 
   useEffect(() => {
     const scrollElement = albumListRef.current;
     if (!scrollElement) return undefined;
 
-    const resizeObserver = new ResizeObserver(() => rebuildScrollIndex());
+    scheduleScrollIndexRebuild();
+    const resizeObserver = new ResizeObserver(scheduleScrollIndexRebuild);
     resizeObserver.observe(scrollElement);
-    return () => resizeObserver.disconnect();
-  }, [albumListMode, albumSortMode, albumViewMode, albums, filteredPlaylists, t, trackRows.length]);
+    const contentElement = scrollElement.firstElementChild;
+    if (contentElement instanceof HTMLElement) resizeObserver.observe(contentElement);
+
+    return () => {
+      resizeObserver.disconnect();
+      cancelScheduledScrollIndexRebuild();
+    };
+  }, [albumListMode, albumSortMode, albumViewMode, albums, filteredPlaylists, isSidebarCollapsed, t, trackRows.length]);
 
   useEffect(() => {
     syncActiveScrollIndex();
@@ -282,6 +317,7 @@ function AlbumBrowserComponent({
   useEffect(
     () => () => {
       if (programmaticScrollEndTimeoutRef.current) window.clearTimeout(programmaticScrollEndTimeoutRef.current);
+      cancelScheduledScrollIndexRebuild();
     },
     [],
   );

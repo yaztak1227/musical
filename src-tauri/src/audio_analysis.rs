@@ -696,19 +696,52 @@ fn make_audio_probe_hint<'a>(path: &'a Path, file_path: &str) -> Result<Hint, St
 
 fn detect_rmp3_data_offset(file: &mut File) -> Result<Option<u64>, String> {
     file.seek(SeekFrom::Start(0)).map_err(to_error_string)?;
-    let mut bytes = Vec::new();
-    file.take(64 * 1024)
-        .read_to_end(&mut bytes)
-        .map_err(to_error_string)?;
-    file.seek(SeekFrom::Start(0)).map_err(to_error_string)?;
+    let mut header = [0u8; 10];
+    let header_len = file.read(&mut header).map_err(to_error_string)?;
+    let mut search_offsets = vec![0];
+    if let Some(id3_end) = id3v2_end_offset(&header[..header_len]) {
+        search_offsets.push(id3_end);
+    }
 
+    for search_offset in search_offsets {
+        file.seek(SeekFrom::Start(search_offset))
+            .map_err(to_error_string)?;
+        let mut bytes = Vec::new();
+        file.by_ref()
+            .take(64 * 1024)
+            .read_to_end(&mut bytes)
+            .map_err(to_error_string)?;
+        if let Some(offset) = find_rmp3_data_offset(&bytes, search_offset) {
+            file.seek(SeekFrom::Start(0)).map_err(to_error_string)?;
+            return Ok(Some(offset));
+        }
+    }
+
+    file.seek(SeekFrom::Start(0)).map_err(to_error_string)?;
+    Ok(None)
+}
+
+fn id3v2_end_offset(header: &[u8]) -> Option<u64> {
+    if header.len() < 10
+        || &header[..3] != b"ID3"
+        || header[6..10].iter().any(|byte| byte & 0x80 != 0)
+    {
+        return None;
+    }
+    let payload_size = ((header[6] as u64) << 21)
+        | ((header[7] as u64) << 14)
+        | ((header[8] as u64) << 7)
+        | header[9] as u64;
+    let footer_size = if header[5] & 0x10 != 0 { 10 } else { 0 };
+    Some(10 + payload_size + footer_size)
+}
+
+fn find_rmp3_data_offset(bytes: &[u8], base_offset: u64) -> Option<u64> {
     let riff_index = bytes
         .windows(4)
         .position(|window| window == b"RIFF")
         .filter(|index| bytes.get(index + 8..index + 12) == Some(&b"RMP3"[..]));
-    let Some(riff_index) = riff_index else {
-        return Ok(None);
-    };
+    let riff_index = riff_index?;
 
     let mut chunk_index = riff_index + 12;
     while chunk_index + 8 <= bytes.len() {
@@ -721,12 +754,12 @@ fn detect_rmp3_data_offset(file: &mut File) -> Result<Option<u64>, String> {
         ]) as usize;
         let data_offset = chunk_index + 8;
         if chunk_id == b"data" {
-            return Ok(Some(data_offset as u64));
+            return Some(base_offset + data_offset as u64);
         }
         chunk_index = data_offset + chunk_size + (chunk_size % 2);
     }
 
-    Ok(None)
+    None
 }
 
 impl TrackAnalysisCacheKey {
@@ -984,6 +1017,38 @@ mod tests {
         fs::remove_file(&file_path).ok();
 
         assert_eq!(offset, Some((24 + 10 + 14 + 12 + 8) as u64));
+    }
+
+    #[test]
+    fn detects_rmp3_data_offset_after_large_id3_tag() {
+        let file_path = std::env::temp_dir().join("musical-large-id3-rmp3-offset-test.mp3");
+        let id3_payload_size = 128 * 1024;
+        let syncsafe_size = [
+            ((id3_payload_size >> 21) & 0x7f) as u8,
+            ((id3_payload_size >> 14) & 0x7f) as u8,
+            ((id3_payload_size >> 7) & 0x7f) as u8,
+            (id3_payload_size & 0x7f) as u8,
+        ];
+        let mut bytes = b"ID3\x04\0\0".to_vec();
+        bytes.extend_from_slice(&syncsafe_size);
+        bytes.resize(10 + id3_payload_size, 0);
+        bytes.extend_from_slice(b"RIFF");
+        bytes.extend_from_slice(&16u32.to_le_bytes());
+        bytes.extend_from_slice(b"RMP3");
+        bytes.extend_from_slice(b"data");
+        bytes.extend_from_slice(&4u32.to_le_bytes());
+        bytes.extend_from_slice(&[0xff, 0xfb, 0x90, 0x64]);
+
+        {
+            let mut file = File::create(&file_path).expect("create test file");
+            file.write_all(&bytes).expect("write test file");
+        }
+
+        let mut file = File::open(&file_path).expect("open test file");
+        let offset = detect_rmp3_data_offset(&mut file).expect("detect offset");
+        fs::remove_file(&file_path).ok();
+
+        assert_eq!(offset, Some((10 + id3_payload_size + 12 + 8) as u64));
     }
 
     #[test]

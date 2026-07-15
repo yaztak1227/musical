@@ -67,6 +67,16 @@ Browsing and selection:
 
 - Browse albums as large icons, small icons, album table, track table, and
   playlist view.
+- Build the album scroll index only after the card grid has completed its initial
+  paint. Resize-driven measurements are coalesced into animation frames so
+  synchronous layout reads and index updates cannot interrupt the first card render.
+- Place album artwork, title, and metadata in explicit grid areas. When the album
+  panel width changes, measure the settled geometry after paint and rebuild only
+  the scroll index; card placement never depends on auto-placement or a hidden
+  intermediate layout. Large artwork reserves its square row through normal-flow
+  percentage padding instead of relying on WebKit's grid/aspect-ratio track sizing.
+  Implicit album-grid rows use max-content sizing and cards align to the row start,
+  preventing a responsive column-count transition from stretching stale row heights.
 - Search albums, artists, years, playlists, track titles, track artists, and
   file paths depending on the active view.
 - Sort albums by title, artist, or year in ascending or descending order.
@@ -150,11 +160,20 @@ Desktop Player mode buttons and tabs:
 - Chibi mode button:
   - Toggles character rendering in the visualizer.
   - Persists to `localStorage` key `musical.visualizerChibiMode`.
-- Visualizer mode buttons:
-  - `Wave` draws a wave visualization.
-  - `Spectrum` draws bar/spectrum visualization and is the default mode.
-  - `Circle` draws circular visualization.
+  - Double-click/double-tap toggles the hidden Chibi orchestra scene and does not persist it as the normal visualizer mode.
+- Visualizer mode button group:
+  - Selects `Wave`, `Spectrum`, `Circle`, `Peaks`, `Aurora`, `Starfield`, `DNA Helix`, `Flowing ink`, or `VU meters`. Each DNA Helix rung is a low-to-high frequency snapshot, with newer snapshots entering at the bottom of the timeline.
+  - `Peaks` closes layered frequency ridges toward the bottom edge. `Aurora` uses a dedicated Three.js/WebGL2 shader to interpolate five low-to-high frequency bands across a continuous color-and-energy map, combining a luminous winding ridge, translucent curtain light, fine filaments, two-axis color gradients, and restrained bloom. It falls back to Canvas 2D when WebGL initialization fails.
+  - `Starfield` uses a dedicated Three.js/WebGL2 shader to radiate five depth layers from a vanishing point, combining long tapered trails, central dust, colored halos, a restrained core flare, and expanding shockwave rings. Frequency buckets are scattered over 32 angular sectors in `1,33,65,2,34,66…` order so adjacent spectral data cannot collect in one screen region. Smoothed sector energy controls trail count, length, width, and luminance; positive spectral change briefly boosts trail density, the core, shockwaves, and bloom. Bass also controls acceleration, mids control haze, and treble controls fine stars and twinkle. It falls back to Canvas 2D when WebGL initialization fails.
+  - `Spectrum` is the default when no saved mode exists.
   - The selected mode updates immediately without changing playback.
+  - The selected mode persists to `localStorage` key `musical.visualizerMode`.
+- Visualizer color button group:
+  - Selects the original animated HSL colors, app-theme colors, colors sampled from the current artwork, or the fixed rainbow palette.
+  - Original colors reproduce the earlier Wave, Spectrum, and Circle color calculations; other modes use a dedicated cool palette that remains distinct from Rainbow.
+  - Rainbow progresses from lime through green, aqua, blue, violet, and magenta to rose; Aurora interpolates the complete sequence from left to right.
+  - Artwork sampling falls back to the app-theme palette when the image cannot be read.
+  - The selected palette persists to `localStorage` key `musical.visualizerPalette`.
 - Player mode transport:
   - Previous, play/pause, and next call the same playback handlers as the player
     bar.
@@ -179,6 +198,7 @@ Desktop visualizer rendering:
   - If Chibi mode is enabled, the relevant character scene is drawn with zeroed
     frequency values instead of the plain idle scene.
 - If playback is live, animation runs through `requestAnimationFrame`.
+- When `prefers-reduced-motion` requests reduced motion, moving modes reduce their element counts, rotation, and travel speed while retaining audio-reactive feedback.
 - A visualizer is considered live only when `isPlaying` is true and at least one
   of these is true:
   - Web Audio analyser is available.
@@ -194,6 +214,15 @@ Desktop visualizer rendering:
   renderer samples `AnalyserNode.getByteFrequencyData`.
 - Frequency data is smoothed, dynamically expanded, and then drawn in the active
   visualizer mode.
+- RIFF/RMP3 streams behind large ID3v2 tags are located from the tag's syncsafe
+  size instead of relying on a fixed 64 KiB prefix scan.
+- Browser analysis requests retry after 1, 3, and 8 seconds while the same track
+  remains playing, and pending retries are cancelled on pause or track change.
+- The artwork background, decorative background, visualizer canvases, vignette,
+  and controls use an explicit non-negative stacking order so Chromium does not
+  place the canvases behind the overlay background.
+- Browser regression verifies both canvas pixels and the final composited overlay
+  screenshot over time; an internally animated but visually hidden canvas fails.
 
 Music-analysis timing:
 
@@ -316,6 +345,7 @@ Updates and local services:
 - Check for and install only strictly newer app versions through the Tauri updater when supported.
 - Keep a separate recheck action available after an update candidate is found.
 - Toggle LAN access to the local HTTP server.
+- Persist app settings with serialized read-modify-write updates and atomic file replacement.
 - In dev mode, optionally publish a public dev tunnel when the dev tunnel API is
   available.
 - Show QR codes for LAN/public control URLs.
@@ -336,10 +366,14 @@ Remote browser control:
 
 - Publish player state to the local desktop HTTP server.
 - Poll remote browser commands and apply them to the desktop player.
+- Report evicted command gaps and recover desktop playback/library state from the latest server snapshots.
 - Serve library snapshots, lyrics, media files, audio analysis segments, player
   state, and command queues over `/api/*`.
 - Serve media files with HTTP byte-range support for stream clients.
+- Restrict `/api/media` to canonical audio and image files inside the configured library root.
 - Deny non-local HTTP access unless LAN access is explicitly enabled.
+- Reject browser requests from untrusted cross-site origins before routing local or LAN APIs.
+- Reject request bodies larger than 1 MiB before buffering them in the local server.
 
 TV/Fire TV support:
 

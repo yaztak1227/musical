@@ -1,9 +1,9 @@
 use crate::{
     app_config::{
-        LOCAL_SERVER_ADDR, LOCAL_SERVER_PORT, MAX_REMOTE_COMMANDS, RESPONSE_WRITE_CHUNK_SIZE,
+        LOCAL_SERVER_ADDR, LOCAL_SERVER_PORT, MAX_REMOTE_COMMANDS, MAX_REQUEST_BODY_BYTES,
+        RESPONSE_WRITE_CHUNK_SIZE,
     },
-    app_settings::{self, AppSettings},
-    audio_analysis,
+    app_settings, audio_analysis,
     library::{
         self, AddTrackToPlaylistRequest, AddTracksToPlaylistRequest, AlbumTagUpdateRequest,
         CreatePlaylistFromAlbumRequest, CreatePlaylistRequest, DeletePlaylistRequest,
@@ -20,10 +20,10 @@ use serde_json::{json, Value};
 use sha1::{Digest, Sha1};
 use std::{
     collections::{HashMap, HashSet, VecDeque},
-    fs::File,
+    fs::{self, File},
     io::{Read, Seek, SeekFrom, Write},
     net::{Shutdown, TcpListener, TcpStream, UdpSocket},
-    path::Path,
+    path::{Path, PathBuf},
     process::{Child, Command, Stdio},
     sync::{Arc, Condvar, LockResult, Mutex, MutexGuard},
     thread,
@@ -32,6 +32,11 @@ use std::{
 use tauri::AppHandle;
 
 static FRONTEND_DIST: Dir<'_> = include_dir!("$CARGO_MANIFEST_DIR/../dist");
+
+const MEDIA_EXTENSIONS: &[&str] = &[
+    "aac", "aif", "aiff", "alac", "ape", "flac", "m4a", "m4b", "mka", "mp3", "mp4", "oga", "ogg",
+    "opus", "wav", "wma", "jpg", "jpeg", "png", "gif", "bmp", "tif", "tiff", "webp",
+];
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -208,6 +213,9 @@ struct FireTvVoiceCommandBody {
 #[serde(rename_all = "camelCase")]
 struct RemotePlayerCommandsResponse {
     commands: Vec<QueuedRemotePlayerCommand>,
+    has_gap: bool,
+    latest_id: u64,
+    oldest_available_id: Option<u64>,
 }
 
 #[derive(Default)]
@@ -530,6 +538,11 @@ fn read_request(stream: &mut TcpStream, is_local: bool) -> Result<Request, Strin
         .get("content-length")
         .and_then(|value| value.parse::<usize>().ok())
         .unwrap_or(0);
+    if content_length > MAX_REQUEST_BODY_BYTES {
+        return Err(format!(
+            "request body exceeds {MAX_REQUEST_BODY_BYTES} bytes"
+        ));
+    }
 
     let mut body = buffer[header_end..].to_vec();
     while body.len() < content_length {
@@ -561,6 +574,9 @@ fn route_request(
     app: AppHandle,
     remote_state: SharedRemoteServerState,
 ) -> Vec<u8> {
+    if !is_allowed_request_origin(&request) {
+        return text_response(403, "request origin is not allowed");
+    }
     if request.method == "OPTIONS" {
         return empty_response(204);
     }
@@ -585,13 +601,7 @@ fn route_request(
 
             let request_body = parse_json::<McpSettingsBody>(&request.body);
             let result = request_body.and_then(|body| {
-                app_settings::save(
-                    &app,
-                    &AppSettings {
-                        last_library_path: app_settings::load(&app)?.last_library_path,
-                        mcp_enabled: body.enabled,
-                    },
-                )?;
+                app_settings::update(&app, |settings| settings.mcp_enabled = body.enabled)?;
                 set_mcp_enabled(&app, &remote_state, body.enabled)?;
                 mcp_settings_info(&remote_state)
             });
@@ -846,19 +856,29 @@ fn route_request(
             let commands = remote_state
                 .lock()
                 .map(|state| {
-                    state
+                    let oldest_available_id = state.commands.front().map(|command| command.id);
+                    let commands = state
                         .commands
                         .iter()
                         .filter(|command| command.id > after_id)
                         .cloned()
-                        .collect::<Vec<_>>()
+                        .collect::<Vec<_>>();
+                    RemotePlayerCommandsResponse {
+                        commands,
+                        has_gap: has_command_gap(after_id, oldest_available_id),
+                        latest_id: state.next_command_id,
+                        oldest_available_id,
+                    }
                 })
                 .map_err(|error| error.to_string());
-            result_response(commands.map(|commands| RemotePlayerCommandsResponse { commands }))
+            result_response(commands)
         }
         ("GET", "/api/media") | ("HEAD", "/api/media") => {
             if let Some(path) = query_param(&request.query, "path") {
-                file_response(&request, &path)
+                match authorized_media_path(&app, &path) {
+                    Ok(path) => file_response(&request, &path),
+                    Err(error) => text_response(403, &error),
+                }
             } else {
                 text_response(400, "missing media path")
             }
@@ -876,6 +896,88 @@ fn route_request(
         ("GET", path) if !path.starts_with("/api/") => frontend_response(path),
         _ => text_response(404, "not found"),
     }
+}
+
+fn has_command_gap(after_id: u64, oldest_available_id: Option<u64>) -> bool {
+    after_id > 0
+        && oldest_available_id
+            .map(|oldest_id| oldest_id > after_id.saturating_add(1))
+            .unwrap_or(false)
+}
+
+fn is_allowed_request_origin(request: &Request) -> bool {
+    let Some(origin) = request.headers.get("origin") else {
+        return true;
+    };
+    if matches!(
+        origin.as_str(),
+        "tauri://localhost" | "http://tauri.localhost" | "https://tauri.localhost"
+    ) {
+        return true;
+    }
+
+    let Ok(origin_url) = reqwest::Url::parse(origin) else {
+        return false;
+    };
+    let Some(host) = request.headers.get("host") else {
+        return false;
+    };
+    let Ok(host_url) = reqwest::Url::parse(&format!("http://{host}")) else {
+        return false;
+    };
+    let trusted_host = match host_url.host_str() {
+        Some("localhost") => true,
+        Some(host) => host
+            .parse::<std::net::IpAddr>()
+            .map(|address| match address {
+                std::net::IpAddr::V4(address) => address.is_loopback() || address.is_private(),
+                std::net::IpAddr::V6(address) => address.is_loopback(),
+            })
+            .unwrap_or(false),
+        None => false,
+    };
+    if !trusted_host {
+        return false;
+    }
+    if origin_url.host_str() == host_url.host_str()
+        && origin_url.port_or_known_default() == host_url.port_or_known_default()
+    {
+        return true;
+    }
+
+    matches!(
+        (
+            origin_url.scheme(),
+            origin_url.host_str(),
+            origin_url.port_or_known_default()
+        ),
+        ("http", Some("localhost" | "127.0.0.1"), Some(1420))
+    )
+}
+
+fn authorized_media_path(app: &AppHandle, requested_path: &str) -> Result<PathBuf, String> {
+    let library_root = app_settings::load(app)?
+        .last_library_path
+        .ok_or_else(|| "No music library is configured".to_owned())?;
+    resolve_media_path(Path::new(&library_root), Path::new(requested_path))
+}
+
+fn resolve_media_path(library_root: &Path, requested_path: &Path) -> Result<PathBuf, String> {
+    let canonical_root = fs::canonicalize(library_root).map_err(|error| error.to_string())?;
+    let canonical_path = fs::canonicalize(requested_path).map_err(|error| error.to_string())?;
+    if !canonical_path.starts_with(&canonical_root) {
+        return Err("Media path is outside the configured library".to_owned());
+    }
+
+    let extension = canonical_path
+        .extension()
+        .and_then(|extension| extension.to_str())
+        .map(str::to_ascii_lowercase)
+        .ok_or_else(|| "Media path has no supported extension".to_owned())?;
+    if !MEDIA_EXTENSIONS.contains(&extension.as_str()) {
+        return Err("Media type is not allowed".to_owned());
+    }
+    Ok(canonical_path)
 }
 
 fn is_local_access_enabled(remote_state: &SharedRemoteServerState) -> bool {
@@ -2666,8 +2768,7 @@ fn empty_response(status: u16) -> Vec<u8> {
     response(status, "text/plain; charset=utf-8", b"")
 }
 
-fn file_response(request: &Request, path: &str) -> Vec<u8> {
-    let path = Path::new(path);
+fn file_response(request: &Request, path: &Path) -> Vec<u8> {
     let mut file = match File::open(path) {
         Ok(file) => file,
         Err(error) => return text_response(404, &error.to_string()),
@@ -2835,6 +2936,7 @@ fn response_with_declared_content_length(
         204 => "No Content",
         206 => "Partial Content",
         400 => "Bad Request",
+        403 => "Forbidden",
         404 => "Not Found",
         416 => "Range Not Satisfiable",
         500 => "Internal Server Error",
@@ -2932,5 +3034,94 @@ fn content_type(path: &Path) -> &'static str {
         "webp" => "image/webp",
         "woff2" => "font/woff2",
         _ => "application/octet-stream",
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{has_command_gap, is_allowed_request_origin, resolve_media_path, Request};
+    use std::{
+        collections::HashMap,
+        fs,
+        time::{SystemTime, UNIX_EPOCH},
+    };
+
+    fn request_with_origin(origin: Option<&str>, host: &str) -> Request {
+        let mut headers = HashMap::from([("host".to_owned(), host.to_owned())]);
+        if let Some(origin) = origin {
+            headers.insert("origin".to_owned(), origin.to_owned());
+        }
+        Request {
+            method: "GET".to_owned(),
+            path: "/api/app_status".to_owned(),
+            query: String::new(),
+            headers,
+            body: Vec::new(),
+            is_local: true,
+        }
+    }
+
+    #[test]
+    fn rejects_untrusted_browser_origins() {
+        assert!(is_allowed_request_origin(&request_with_origin(
+            None,
+            "127.0.0.1:1422"
+        )));
+        assert!(is_allowed_request_origin(&request_with_origin(
+            Some("http://192.168.1.20:1422"),
+            "192.168.1.20:1422"
+        )));
+        assert!(is_allowed_request_origin(&request_with_origin(
+            Some("http://localhost:1420"),
+            "127.0.0.1:1422"
+        )));
+        assert!(is_allowed_request_origin(&request_with_origin(
+            Some("tauri://localhost"),
+            "127.0.0.1:1422"
+        )));
+        assert!(!is_allowed_request_origin(&request_with_origin(
+            Some("https://attacker.example"),
+            "127.0.0.1:1422"
+        )));
+        assert!(!is_allowed_request_origin(&request_with_origin(
+            Some("http://attacker.example:1422"),
+            "attacker.example:1422"
+        )));
+    }
+
+    #[test]
+    fn detects_evicted_remote_commands() {
+        assert!(!has_command_gap(0, Some(50)));
+        assert!(!has_command_gap(49, Some(50)));
+        assert!(has_command_gap(10, Some(50)));
+        assert!(!has_command_gap(10, None));
+    }
+
+    #[test]
+    fn restricts_media_to_supported_files_inside_library_root() {
+        let fixture_root = std::env::temp_dir().join(format!(
+            "musical-media-path-test-{}",
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .expect("system time")
+                .as_nanos()
+        ));
+        let library_root = fixture_root.join("library");
+        fs::create_dir_all(&library_root).expect("create library root");
+        let track_path = library_root.join("track.mp3");
+        let database_path = library_root.join("library.sqlite3");
+        let outside_path = fixture_root.join("secret.mp3");
+        fs::write(&track_path, []).expect("write track");
+        fs::write(&database_path, []).expect("write database");
+        fs::write(&outside_path, []).expect("write outside file");
+
+        assert_eq!(
+            resolve_media_path(&library_root, &track_path).expect("allow track"),
+            fs::canonicalize(&track_path).expect("canonical track")
+        );
+        assert!(resolve_media_path(&library_root, &database_path).is_err());
+        assert!(resolve_media_path(&library_root, &outside_path).is_err());
+
+        fs::remove_dir_all(fixture_root).expect("remove fixtures");
     }
 }

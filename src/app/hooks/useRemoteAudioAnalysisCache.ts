@@ -21,6 +21,7 @@ import {
   remoteAudioAnalysisDurationPaddingSeconds,
   remoteAudioAnalysisFallbackDurationSeconds,
   remoteAudioAnalysisMaxCachedPackets,
+  remoteAudioAnalysisRetryDelaysMs,
 } from "./useAppControllerConfig";
 import type { RemoteAudioAnalysisLoadState } from "./useAppControllerTypes";
 import { getHeapTotalUsageMb } from "./useAppControllerUtils";
@@ -51,12 +52,21 @@ export function useRemoteAudioAnalysisCache({
   const remoteAudioAnalysisPacketsByTrackRef = useRef(new Map<EntityId, RemoteAudioAnalysisPacket>());
   const activeRemoteAudioAnalysisWarmupsRef = useRef(new Set<EntityId>());
   const loadedRemoteAudioAnalysisTrackIdRef = useRef<EntityId | null>(null);
+  const retryTrackAnalysisRef = useRef<(track: Track) => void>(() => undefined);
+  const remoteAudioAnalysisRetryRef = useRef<{ attempt: number; timer: number | null; trackId: EntityId } | null>(null);
+
+  function clearRemoteAudioAnalysisRetry() {
+    const retry = remoteAudioAnalysisRetryRef.current;
+    if (retry?.timer != null) window.clearTimeout(retry.timer);
+    remoteAudioAnalysisRetryRef.current = null;
+  }
 
   function clearAudioAnalysisPacket() {
     audioAnalysisPacketRef.current = null;
   }
 
   function resetAudioAnalysisLoad() {
+    clearRemoteAudioAnalysisRetry();
     audioAnalysisPacketRef.current = null;
     remoteAudioAnalysisLoadStateRef.current = null;
     loadedRemoteAudioAnalysisTrackIdRef.current = null;
@@ -136,6 +146,7 @@ export function useRemoteAudioAnalysisCache({
     const duration = getTrackAnalysisRequestDuration(track);
     const cachedPacket = remoteAudioAnalysisPacketsByTrackRef.current.get(track.id);
     if (cachedPacket) {
+      clearRemoteAudioAnalysisRetry();
       console.debug(
         `[remote-audio-analysis] memory cache hit trackId=${String(track.id)} frames=${cachedPacket.frames.length} duration=${duration.toFixed(2)}s`,
       );
@@ -201,7 +212,7 @@ export function useRemoteAudioAnalysisCache({
           audioAnalysisSampleIntervalMs,
           performance.now(),
         );
-        if (partialPacket) audioAnalysisPacketRef.current = partialPacket;
+      if (partialPacket) audioAnalysisPacketRef.current = partialPacket;
 
         if (segment.isComplete) break;
       }
@@ -224,6 +235,7 @@ export function useRemoteAudioAnalysisCache({
         performance.now(),
       );
       if (completePacket) {
+        clearRemoteAudioAnalysisRetry();
         remoteAudioAnalysisPacketsByTrackRef.current.set(track.id, completePacket);
         purgeRemoteAudioAnalysisPackets(track.id);
         audioAnalysisPacketRef.current = completePacket;
@@ -238,9 +250,27 @@ export function useRemoteAudioAnalysisCache({
       if (remoteAudioAnalysisLoadStateRef.current?.requestId === requestId) {
         remoteAudioAnalysisLoadStateRef.current = null;
       }
+      const clock = remotePlaybackClockRef.current;
+      if (isBrowserBackendRuntime && clock?.isPlaying && clock.trackId === track.id) {
+        const previousRetry = remoteAudioAnalysisRetryRef.current;
+        const attempt = previousRetry?.trackId === track.id ? previousRetry.attempt + 1 : 1;
+        const delay = remoteAudioAnalysisRetryDelaysMs[attempt - 1];
+        if (delay !== undefined) {
+          if (previousRetry?.timer != null) window.clearTimeout(previousRetry.timer);
+          const timer = window.setTimeout(() => {
+            const latestClock = remotePlaybackClockRef.current;
+            remoteAudioAnalysisRetryRef.current = { attempt, timer: null, trackId: track.id };
+            if (latestClock?.isPlaying && latestClock.trackId === track.id) {
+              retryTrackAnalysisRef.current(track);
+            }
+          }, delay);
+          remoteAudioAnalysisRetryRef.current = { attempt, timer, trackId: track.id };
+        }
+      }
       // Partial analysis is intentionally not cached unless every chunk completes.
     });
   });
+  retryTrackAnalysisRef.current = loadTrackAnalysis;
 
   const warmTrackAnalysisCache = useEffectEvent((track: Track | null) => {
     if (!track || activeRemoteAudioAnalysisWarmupsRef.current.has(track.id)) return;

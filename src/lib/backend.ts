@@ -137,7 +137,12 @@ export async function sendRemotePlayerCommand(
 }
 
 export async function getRemotePlayerCommands(afterId: number) {
-  return localApiRequest<{ commands: QueuedRemotePlayerCommand[] }>(
+  return localApiRequest<{
+    commands: QueuedRemotePlayerCommand[];
+    hasGap: boolean;
+    latestId: number;
+    oldestAvailableId: number | null;
+  }>(
     `/api/player_commands?after=${encodeURIComponent(String(afterId))}`,
   );
 }

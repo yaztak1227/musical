@@ -57,9 +57,13 @@
 ## Player Mode とビジュアライザ
 
 - Player mode でアートワーク、ビジュアライザ、歌詞パネル、キュー、再生操作を全画面表示する。
-- ビジュアライザモードは `Wave`, `Spectrum`, `Circle` を持つ。
+- 表示モードボタンは `Wave`, `Spectrum`, `Circle`, `Peaks`, `Aurora`, `Starfield`, `DNA Helix`, `Flowing ink`, `VU meters` を持つ。`Aurora` は専用の Three.js/WebGL2 シェーダーで低域から高域までの5帯域を連続した色・エネルギーマップへ補間し、発光する上端、半透明の面光、縦フィラメント、縦横のカラーグラデーション、薄い bloom へ周波数履歴を重ねる。`Starfield` は専用シェーダーで5層の星を消失点から放射し、長い光跡、星間ダスト、色付きハロー、中心フレア、衝撃波リングを合成してワープ航行の疾走感を表す。周波数 bucket は `1,33,65,2,34,66…` 型で32方向へ散らし、各方向のエネルギーと音の立ち上がりで光跡の出現数、長さ、太さ、輝度、bloom を変える。両モードとも WebGL を利用できない場合は Canvas 2D へ fallback する。`DNA Helix` は横線ごとに1時点の低音から高音までの周波数分布を表し、新しい履歴を下側へ追加して古い履歴を上側へ送る。
+- モードと配色は、ビジュアライザ描画領域の下に分離したアイコン専用UIで選択する。9モードを3×3、4配色を2×2で右向き矢印を挟んで並べ、再生操作はその下段に置く。
+- 配色は従来の連続色相または寒色パレットを使うオリジナル、テーマ追従、アートワーク抽出、ライムからローズまでを連続させるレインボーから選択し、モードとともに `localStorage` へ保存する。
 - Chibi mode を切り替え、`localStorage` の `musical.visualizerChibiMode` に保存する。
+- Chibi mode ボタンのダブルクリック/ダブルタップで、非表示の Chibi orchestra mode を切り替える。
 - Chibi character と chibi orchestra のビジュアルアセットを使う。
+- OS の低モーション設定では、連続移動を伴う描画の速度と要素数を抑える。
 - 再生中は remote/offline analysis frame、または Web Audio analyser fallback で描画する。
 - 停止中や解析未取得時は idle 表示に落とす。
 - シークや曲変更時は古い解析フレームをクリアし、別曲の stale frame を描画しない。

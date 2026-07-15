@@ -1,5 +1,5 @@
 import { type CSSProperties, type MouseEvent, type PointerEvent, type RefObject, useEffect, useRef, useState } from "react";
-import { ChevronLeft, ChevronRight, CircleDot, Pause, Play, RadioTower, Sparkles, Waves, X } from "lucide-react";
+import { ArrowRight, ChevronLeft, ChevronRight, CircleDot, Dna, Droplets, Gauge, Mountain, Pause, Play, RadioTower, Sparkles, Stars, Waves, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import chibiCatHoodieBoyHandsDownSrc from "@/assets/chibi-cat-hoodie-boy-hands-down.png";
 import chibiCatHoodieBoyHandsUpSrc from "@/assets/chibi-cat-hoodie-boy-hands-up.png";
@@ -77,10 +77,15 @@ import type { Album, EntityId, Track } from "@/types/audio";
 import type { TFunction } from "@/types/app";
 import { chibiSpectrumConfig } from "@/config/appConfig";
 import { getAudioVisualizerNode } from "@/lib/audioAnalysis";
+import { AuroraWebGLVisualizer } from "@/lib/auroraWebgl";
 import { getArtworkSrc, localizeLibraryText } from "@/lib/libraryUtils";
 import { prepareMarquee } from "@/lib/marqueeUtils";
+import { captureScatteredAngularEnergy, warpAngularSectorCount, WarpStarfieldWebGLVisualizer } from "@/lib/starfieldWebgl";
 
-type VisualizerMode = "wave" | "spectrum" | "circle";
+type VisualizerMode = "wave" | "spectrum" | "circle" | "mountains" | "aurora" | "starfield" | "tunnel" | "ink" | "vu";
+type VisualizerPaletteMode = "theme" | "artwork" | "rainbow" | "original";
+type VisualizerColor = readonly [number, number, number];
+type VisualizerPalette = readonly VisualizerColor[];
 type SurfPuchiGender = "boy" | "girl";
 type SurfPuchiPose = "paddling" | "standing";
 type SurfPuchiImages = Record<SurfPuchiPose, HTMLImageElement | null>;
@@ -128,6 +133,14 @@ type OrchestraVisualizerMotionState = {
   energyWeights: Float32Array;
   playingWeights: Float32Array;
 };
+type FrequencyHelixTimelineState = {
+  frames: Float32Array[];
+  lastCapturedAt: number;
+};
+type AuroraTimelineState = {
+  frames: Float32Array[];
+  lastCapturedAt: number;
+};
 
 type RemoteAudioAnalysisPacket = {
   currentTimeAtReceived: number;
@@ -167,7 +180,171 @@ const visualizerCanvasMaxScale = 1.35;
 const remoteVisualizerCanvasMaxScale = 1;
 const spectrumBarCount = 48;
 const chibiModeStorageKey = "musical.visualizerChibiMode";
+const visualizerModeStorageKey = "musical.visualizerMode";
+const visualizerPaletteStorageKey = "musical.visualizerPalette";
 const chibiToggleDoubleTapMs = 320;
+const frequencyHelixBandCount = 24;
+const frequencyHelixFrameCount = 42;
+const frequencyHelixCaptureIntervalMs = 55;
+const auroraBandCount = 5;
+const auroraFrameCount = 7;
+const auroraCaptureIntervalMs = 120;
+
+const visualizerModes = ["wave", "spectrum", "circle", "mountains", "aurora", "starfield", "tunnel", "ink", "vu"] as const;
+const visualizerPaletteModes = ["theme", "artwork", "rainbow", "original"] as const;
+const rainbowVisualizerPalette: VisualizerPalette = [
+  [154, 232, 91],
+  [69, 225, 145],
+  [61, 216, 199],
+  [72, 177, 235],
+  [104, 126, 239],
+  [169, 96, 235],
+  [232, 83, 197],
+  [245, 126, 185],
+];
+const originalVisualizerPalette: VisualizerPalette = [
+  [92, 219, 255],
+  [65, 164, 243],
+  [99, 119, 232],
+  [151, 91, 218],
+  [66, 194, 183],
+];
+
+function isVisualizerMode(value: string | null): value is VisualizerMode {
+  return visualizerModes.some((mode) => mode === value);
+}
+
+function isVisualizerPaletteMode(value: string | null): value is VisualizerPaletteMode {
+  return visualizerPaletteModes.some((mode) => mode === value);
+}
+
+function rgba(color: VisualizerColor, alpha = 1) {
+  return `rgba(${color[0]}, ${color[1]}, ${color[2]}, ${Math.max(0, Math.min(1, alpha))})`;
+}
+
+function paletteColor(palette: VisualizerPalette, index: number) {
+  return palette[((index % palette.length) + palette.length) % palette.length] ?? rainbowVisualizerPalette[0];
+}
+
+function mixVisualizerColors(first: VisualizerColor, second: VisualizerColor, amount: number): VisualizerColor {
+  const blend = Math.max(0, Math.min(1, amount));
+  return [
+    Math.round(first[0] + (second[0] - first[0]) * blend),
+    Math.round(first[1] + (second[1] - first[1]) * blend),
+    Math.round(first[2] + (second[2] - first[2]) * blend),
+  ];
+}
+
+function resolveCssVisualizerColor(value: string, fallback: VisualizerColor): VisualizerColor {
+  const probe = document.createElement("span");
+  probe.style.position = "fixed";
+  probe.style.pointerEvents = "none";
+  probe.style.opacity = "0";
+  probe.style.color = value;
+  document.body.appendChild(probe);
+  const resolved = getComputedStyle(probe).color;
+  probe.remove();
+
+  const canvas = document.createElement("canvas");
+  canvas.width = 1;
+  canvas.height = 1;
+  const context = canvas.getContext("2d", { willReadFrequently: true });
+  if (!context) return fallback;
+  context.clearRect(0, 0, 1, 1);
+  context.fillStyle = resolved;
+  context.fillRect(0, 0, 1, 1);
+  const pixel = context.getImageData(0, 0, 1, 1).data;
+  return pixel[3] ? [pixel[0], pixel[1], pixel[2]] : fallback;
+}
+
+function getThemeVisualizerPalette(): VisualizerPalette {
+  const primary = resolveCssVisualizerColor("var(--primary)", rainbowVisualizerPalette[0]);
+  const accent = resolveCssVisualizerColor("var(--accent)", rainbowVisualizerPalette[1]);
+  const foreground = resolveCssVisualizerColor("var(--foreground)", [255, 255, 255]);
+  return [
+    mixVisualizerColors(primary, foreground, 0.2),
+    mixVisualizerColors(primary, accent, 0.42),
+    mixVisualizerColors(primary, foreground, 0.5),
+    mixVisualizerColors(accent, foreground, 0.18),
+    mixVisualizerColors(primary, [0, 0, 0], 0.18),
+  ];
+}
+
+function rgbToHue([red, green, blue]: VisualizerColor) {
+  const r = red / 255;
+  const g = green / 255;
+  const b = blue / 255;
+  const maximum = Math.max(r, g, b);
+  const minimum = Math.min(r, g, b);
+  const delta = maximum - minimum;
+  if (delta === 0) return 0;
+  const hue = maximum === r
+    ? ((g - b) / delta) % 6
+    : maximum === g
+      ? (b - r) / delta + 2
+      : (r - g) / delta + 4;
+  return (hue * 60 + 360) % 360;
+}
+
+function enhanceArtworkColor(color: VisualizerColor): VisualizerColor {
+  const average = (color[0] + color[1] + color[2]) / 3;
+  return color.map((channel) => Math.round(Math.max(24, Math.min(246, average + (channel - average) * 1.32 + 18)))) as unknown as VisualizerColor;
+}
+
+async function extractArtworkVisualizerPalette(src: string): Promise<VisualizerPalette | null> {
+  if (!src) return null;
+  const image = new Image();
+  image.crossOrigin = "anonymous";
+  const loaded = new Promise<boolean>((resolve) => {
+    image.onload = () => resolve(true);
+    image.onerror = () => resolve(false);
+  });
+  image.src = src;
+  if (!(await loaded)) return null;
+
+  const canvas = document.createElement("canvas");
+  canvas.width = 36;
+  canvas.height = 36;
+  const context = canvas.getContext("2d", { willReadFrequently: true });
+  if (!context) return null;
+  try {
+    context.drawImage(image, 0, 0, canvas.width, canvas.height);
+    const pixels = context.getImageData(0, 0, canvas.width, canvas.height).data;
+    const buckets = Array.from({ length: 12 }, () => ({ color: [0, 0, 0] as [number, number, number], count: 0, score: 0 }));
+    for (let index = 0; index < pixels.length; index += 16) {
+      const color: VisualizerColor = [pixels[index] ?? 0, pixels[index + 1] ?? 0, pixels[index + 2] ?? 0];
+      const alpha = pixels[index + 3] ?? 0;
+      const maximum = Math.max(...color);
+      const minimum = Math.min(...color);
+      const saturation = maximum - minimum;
+      const lightness = (maximum + minimum) / 2;
+      if (alpha < 180 || lightness < 22 || lightness > 238) continue;
+      const bucket = buckets[Math.floor(rgbToHue(color) / 30) % buckets.length];
+      bucket.color[0] += color[0];
+      bucket.color[1] += color[1];
+      bucket.color[2] += color[2];
+      bucket.count += 1;
+      bucket.score += 1 + saturation / 80;
+    }
+    const colors = buckets
+      .filter((bucket) => bucket.count > 0)
+      .sort((first, second) => second.score - first.score)
+      .slice(0, 4)
+      .map((bucket) => enhanceArtworkColor([
+        Math.round(bucket.color[0] / bucket.count),
+        Math.round(bucket.color[1] / bucket.count),
+        Math.round(bucket.color[2] / bucket.count),
+      ]));
+    if (colors.length === 0) return null;
+    while (colors.length < 5) {
+      const base = colors[colors.length % Math.max(1, colors.length)] ?? rainbowVisualizerPalette[0];
+      colors.push(mixVisualizerColors(base, colors.length % 2 === 0 ? [255, 255, 255] : [0, 0, 0], 0.28));
+    }
+    return colors;
+  } catch {
+    return null;
+  }
+}
 
 const surfPuchiSources: Record<SurfPuchiGender, Record<SurfPuchiPose, string>> = {
   boy: {
@@ -214,7 +391,7 @@ const orchestraCharacterSources: OrchestraCharacterSource[] = [
   { holding: orchestraHoldingTrumpetSrc, playing: orchestraPlayingTrumpetSrc, band: 8, floorX: 0.81, floorY: 0.51, baseScale: 0.9 },
 ];
 
-function drawIdleSpectrum(context: CanvasRenderingContext2D, width: number, height: number) {
+function drawIdleSpectrum(context: CanvasRenderingContext2D, width: number, height: number, palette: VisualizerPalette, useOriginalColors: boolean) {
   const barCount = 36;
   const gap = 6;
   const barWidth = Math.max(4, Math.min(10, (width * 0.48) / barCount - gap));
@@ -226,21 +403,23 @@ function drawIdleSpectrum(context: CanvasRenderingContext2D, width: number, heig
   for (let index = 0; index < barCount; index += 1) {
     const centerBias = 1 - Math.abs(index / Math.max(1, barCount - 1) - 0.5) * 1.35;
     const barHeight = Math.max(5, height * (0.018 + centerBias * 0.018));
+    const color = paletteColor(palette, index);
+    const nextColor = paletteColor(palette, index + 1);
     const hue = 190 + (index / barCount) * 120;
     const gradient = context.createLinearGradient(0, baseY - barHeight, 0, baseY);
 
-    gradient.addColorStop(0, `hsla(${hue}, 84%, 70%, 0.36)`);
-    gradient.addColorStop(1, "hsla(330, 72%, 60%, 0.2)");
+    gradient.addColorStop(0, useOriginalColors ? `hsla(${hue}, 84%, 70%, 0.36)` : rgba(color, 0.36));
+    gradient.addColorStop(1, useOriginalColors ? "hsla(330, 72%, 60%, 0.2)" : rgba(nextColor, 0.2));
     context.beginPath();
     context.fillStyle = gradient;
-    context.shadowColor = `hsla(${hue}, 84%, 64%, 0.16)`;
+    context.shadowColor = useOriginalColors ? `hsla(${hue}, 84%, 64%, 0.16)` : rgba(color, 0.16);
     context.roundRect(startX + index * (barWidth + gap), baseY - barHeight, barWidth, barHeight, 999);
     context.fill();
   }
   context.restore();
 }
 
-function drawIdleWave(context: CanvasRenderingContext2D, width: number, height: number) {
+function drawIdleWave(context: CanvasRenderingContext2D, width: number, height: number, palette: VisualizerPalette, useOriginalColors: boolean) {
   const centerY = height * 0.58;
   context.save();
   context.lineCap = "round";
@@ -249,9 +428,14 @@ function drawIdleWave(context: CanvasRenderingContext2D, width: number, height: 
 
   for (let layer = 0; layer < 2; layer += 1) {
     context.beginPath();
-    context.strokeStyle = layer === 0 ? "rgba(99, 230, 255, 0.34)" : "rgba(255, 79, 216, 0.2)";
+    const color = paletteColor(palette, layer);
+    context.strokeStyle = useOriginalColors
+      ? (layer === 0 ? "rgba(99, 230, 255, 0.34)" : "rgba(255, 79, 216, 0.2)")
+      : rgba(color, layer === 0 ? 0.34 : 0.2);
     context.lineWidth = layer === 0 ? 5 : 3;
-    context.shadowColor = layer === 0 ? "rgba(99, 230, 255, 0.2)" : "rgba(255, 79, 216, 0.16)";
+    context.shadowColor = useOriginalColors
+      ? (layer === 0 ? "rgba(99, 230, 255, 0.2)" : "rgba(255, 79, 216, 0.16)")
+      : rgba(color, layer === 0 ? 0.2 : 0.16);
 
     for (let x = width * 0.26; x <= width * 0.74; x += 16) {
       const y = centerY + Math.sin((x / width) * Math.PI * 4 + layer * 0.8) * height * 0.018;
@@ -265,7 +449,7 @@ function drawIdleWave(context: CanvasRenderingContext2D, width: number, height: 
   context.restore();
 }
 
-function drawIdleCircle(context: CanvasRenderingContext2D, width: number, height: number) {
+function drawIdleCircle(context: CanvasRenderingContext2D, width: number, height: number, palette: VisualizerPalette, useOriginalColors: boolean) {
   const centerX = width / 2;
   const centerY = height * 0.55;
   const radius = Math.min(width, height) * 0.15;
@@ -280,12 +464,13 @@ function drawIdleCircle(context: CanvasRenderingContext2D, width: number, height
     const angle = (index / barCount) * Math.PI * 2;
     const centerBias = Math.sin((index / barCount) * Math.PI);
     const outerRadius = radius + 6 + centerBias * 7;
+    const color = paletteColor(palette, Math.floor(index / 12));
     const hue = 190 + (index / barCount) * 150;
 
     context.beginPath();
-    context.strokeStyle = `hsla(${hue}, 84%, 68%, 0.3)`;
+    context.strokeStyle = useOriginalColors ? `hsla(${hue}, 84%, 68%, 0.3)` : rgba(color, 0.3);
     context.lineWidth = 2.2;
-    context.shadowColor = `hsla(${hue}, 84%, 64%, 0.15)`;
+    context.shadowColor = useOriginalColors ? `hsla(${hue}, 84%, 64%, 0.15)` : rgba(color, 0.15);
     context.moveTo(Math.cos(angle) * radius, Math.sin(angle) * radius);
     context.lineTo(Math.cos(angle) * outerRadius, Math.sin(angle) * outerRadius);
     context.stroke();
@@ -299,13 +484,13 @@ function drawIdleCircle(context: CanvasRenderingContext2D, width: number, height
   context.restore();
 }
 
-function drawIdleVisualizer(context: CanvasRenderingContext2D, width: number, height: number, mode: VisualizerMode) {
+function drawIdleVisualizer(context: CanvasRenderingContext2D, width: number, height: number, mode: VisualizerMode, palette: VisualizerPalette, useOriginalColors: boolean) {
   if (mode === "wave") {
-    drawIdleWave(context, width, height);
+    drawIdleWave(context, width, height, palette, useOriginalColors);
   } else if (mode === "circle") {
-    drawIdleCircle(context, width, height);
+    drawIdleCircle(context, width, height, palette, useOriginalColors);
   } else {
-    drawIdleSpectrum(context, width, height);
+    drawIdleSpectrum(context, width, height, palette, useOriginalColors);
   }
 }
 
@@ -416,6 +601,8 @@ function drawWave(
   surfPuchiImages: SurfPuchiImages,
   surfPuchiMotion: SurfPuchiMotionState,
   isChibiModeEnabled: boolean,
+  palette: VisualizerPalette,
+  useOriginalColors: boolean,
 ) {
   const centerY = height * 0.52;
   const surfPoints: Array<{ x: number; y: number }> = [];
@@ -424,8 +611,9 @@ function drawWave(
 
   for (let layer = 0; layer < 2; layer += 1) {
     context.beginPath();
+    const color = paletteColor(palette, layer);
     const hue = 188 + layer * 54 + Math.sin(time * 0.0007) * 18;
-    context.strokeStyle = `hsla(${hue}, 92%, ${62 + layer * 5}%, ${0.72 - layer * 0.14})`;
+    context.strokeStyle = useOriginalColors ? `hsla(${hue}, 92%, ${62 + layer * 5}%, ${0.72 - layer * 0.14})` : rgba(color, 0.72 - layer * 0.14);
     context.lineWidth = 4.6 - layer * 1.2;
     context.shadowBlur = 0;
 
@@ -455,6 +643,8 @@ function drawSpectrum(
   height: number,
   time: number,
   peakValues: Float32Array,
+  palette: VisualizerPalette,
+  useOriginalColors: boolean,
   chibiImages?: ChibiSpectrumImages[],
   chibiMotion?: ChibiSpectrumMotionState,
 ) {
@@ -475,16 +665,21 @@ function drawSpectrum(
     const value = values[valueIndex] ?? 0;
     const normalized = value / 255;
     const barHeight = normalized * maxBarHeight;
+    const color = paletteColor(palette, Math.floor((index / barCount) * palette.length));
     const hue = (index / barCount) * 210 + 168 + Math.sin(time * 0.0008) * 32;
     const x = startX + index * (barWidth + gap);
     const previousPeak = peakValues[index] ?? 0;
     const nextPeak = Math.max(barHeight, Math.max(0, previousPeak - peakDrop));
     peakValues[index] = nextPeak;
 
-    context.fillStyle = `hsla(${hue}, 96%, ${58 + normalized * 18}%, ${0.52 + normalized * 0.42})`;
+    context.fillStyle = useOriginalColors
+      ? `hsla(${hue}, 96%, ${58 + normalized * 18}%, ${0.52 + normalized * 0.42})`
+      : rgba(mixVisualizerColors(color, [255, 255, 255], normalized * 0.22), 0.52 + normalized * 0.42);
     context.fillRect(x, baseY - barHeight, barWidth, barHeight);
 
-    context.fillStyle = `hsla(${hue}, 96%, 78%, ${0.54 + Math.min(1, nextPeak / Math.max(1, height * 0.48)) * 0.32})`;
+    context.fillStyle = useOriginalColors
+      ? `hsla(${hue}, 96%, 78%, ${0.54 + Math.min(1, nextPeak / Math.max(1, height * 0.48)) * 0.32})`
+      : rgba(mixVisualizerColors(color, [255, 255, 255], 0.38), 0.54 + Math.min(1, nextPeak / Math.max(1, height * 0.48)) * 0.32);
     context.beginPath();
     context.roundRect(x, baseY - nextPeak - capGap, barWidth, capHeight, 999);
     context.fill();
@@ -723,6 +918,7 @@ function drawOrchestraVisualizer(
   time: number,
   images: OrchestraVisualizerImages,
   motion: OrchestraVisualizerMotionState,
+  palette: VisualizerPalette,
 ) {
   const average = values.reduce((total, value) => total + value, 0) / Math.max(1, values.length) / 255;
   const backgroundBlend = Math.min(1, Math.max(0, (average - 0.08) / 0.24));
@@ -745,7 +941,7 @@ function drawOrchestraVisualizer(
     context.globalAlpha = 1;
   }
 
-  context.fillStyle = `rgba(255, 226, 147, ${0.08 + average * 0.18})`;
+  context.fillStyle = rgba(paletteColor(palette, 0), 0.08 + average * 0.18);
   context.beginPath();
   context.ellipse(width * 0.5, height * 0.76, width * 0.46, height * 0.16, 0, 0, Math.PI * 2);
   context.fill();
@@ -782,7 +978,7 @@ function drawOrchestraVisualizer(
     if (value < 0.08) continue;
     const x = width * (0.16 + (index / 17) * 0.68);
     const y = height * (0.24 + Math.sin(time * 0.0007 + index) * 0.08);
-    context.fillStyle = `rgba(255, 230, 142, ${0.12 + value * 0.24})`;
+    context.fillStyle = rgba(paletteColor(palette, index), 0.12 + value * 0.24);
     context.beginPath();
     context.arc(x, y, 1.4 + value * 4.6, 0, Math.PI * 2);
     context.fill();
@@ -892,6 +1088,8 @@ function drawCircle(
   width: number,
   height: number,
   time: number,
+  palette: VisualizerPalette,
+  useOriginalColors: boolean,
 ) {
   const centerX = width / 2;
   const centerY = height / 2;
@@ -911,10 +1109,11 @@ function drawCircle(
     const angle = (index / barCount) * Math.PI * 2;
     const innerRadius = radius + Math.sin(time * 0.0012 + index * 0.12) * 8;
     const outerRadius = innerRadius + normalized * Math.min(width, height) * 0.2;
+    const color = paletteColor(palette, Math.floor((index / barCount) * palette.length));
     const hue = 320 + (index / barCount) * 220 + Math.sin(time * 0.0006) * 28;
 
     context.beginPath();
-    context.strokeStyle = `hsla(${hue}, 96%, 64%, 0.78)`;
+    context.strokeStyle = useOriginalColors ? `hsla(${hue}, 96%, 64%, 0.78)` : rgba(color, 0.78);
     context.lineWidth = 2.8;
     context.moveTo(Math.cos(angle) * innerRadius, Math.sin(angle) * innerRadius);
     context.lineTo(Math.cos(angle) * outerRadius, Math.sin(angle) * outerRadius);
@@ -929,6 +1128,560 @@ function drawCircle(
   context.restore();
 }
 
+function averageFrequencyBand(values: Uint8Array, start: number, end: number) {
+  const first = Math.max(0, Math.floor(values.length * start));
+  const last = Math.max(first + 1, Math.min(values.length, Math.ceil(values.length * end)));
+  let total = 0;
+  for (let index = first; index < last; index += 1) total += values[index] ?? 0;
+  return total / Math.max(1, last - first) / 255;
+}
+
+function deterministicNoise(seed: number) {
+  const value = Math.sin(seed * 12.9898 + 78.233) * 43758.5453;
+  return value - Math.floor(value);
+}
+
+function drawMountains(
+  context: CanvasRenderingContext2D,
+  values: Uint8Array,
+  width: number,
+  height: number,
+  time: number,
+  palette: VisualizerPalette,
+  reducedMotion: boolean,
+) {
+  const motionTime = time * (reducedMotion ? 0.00006 : 0.00028);
+  const layerCount = reducedMotion ? 3 : 5;
+  context.save();
+  context.globalCompositeOperation = "lighter";
+  context.filter = reducedMotion ? "blur(10px)" : "blur(18px)";
+
+  for (let layer = 0; layer < layerCount; layer += 1) {
+    const color = paletteColor(palette, layer);
+    const baseline = height * (0.32 + layer * 0.09);
+    const gradient = context.createLinearGradient(0, height * 0.18, 0, height * 0.82);
+    gradient.addColorStop(0, rgba(color, 0));
+    gradient.addColorStop(0.45, rgba(color, 0.1 + layer * 0.018));
+    gradient.addColorStop(1, rgba(color, 0));
+    context.fillStyle = gradient;
+    context.beginPath();
+    context.moveTo(0, height);
+    for (let x = 0; x <= width + 18; x += 18) {
+      const progress = x / Math.max(1, width);
+      const value = (values[Math.floor(progress * (values.length - 1))] ?? 0) / 255;
+      const wave = Math.sin(progress * Math.PI * (2.4 + layer * 0.42) + motionTime * (1 + layer * 0.14) + layer) * height * 0.07;
+      const shimmer = Math.sin(progress * Math.PI * 9 - motionTime * 1.8 + layer * 0.7) * height * 0.025;
+      context.lineTo(x, baseline + wave + shimmer - value * height * (0.16 + layer * 0.012));
+    }
+    context.lineTo(width, height);
+    context.closePath();
+    context.fill();
+  }
+  context.filter = "none";
+  context.restore();
+}
+
+function drawStarfield(
+  context: CanvasRenderingContext2D,
+  values: Uint8Array,
+  width: number,
+  height: number,
+  time: number,
+  palette: VisualizerPalette,
+  reducedMotion: boolean,
+) {
+  const centerX = width * 0.5;
+  const centerY = height * 0.49;
+  const bass = averageFrequencyBand(values, 0, 0.16);
+  const mids = averageFrequencyBand(values, 0.16, 0.48);
+  const treble = averageFrequencyBand(values, 0.48, 0.9);
+  const angularEnergies = captureScatteredAngularEnergy(values);
+  const activity = Math.min(1, Math.sqrt(angularEnergies.reduce((total, energy) => total + energy * energy, 0) / warpAngularSectorCount) * 1.28);
+  const starCount = reducedMotion ? 72 : 240;
+  const speed = reducedMotion ? 0.000012 : 0.00011 + bass * 0.00025 + mids * 0.00004;
+  const diagonal = Math.hypot(width, height);
+  context.save();
+  context.globalCompositeOperation = "lighter";
+  context.lineCap = "round";
+
+  const centerGlow = context.createRadialGradient(centerX, centerY, 0, centerX, centerY, Math.min(width, height) * 0.34);
+  centerGlow.addColorStop(0, rgba(mixVisualizerColors(paletteColor(palette, 0), [255, 255, 255], 0.48), 0.13 + bass * 0.12));
+  centerGlow.addColorStop(0.16, rgba(paletteColor(palette, 2), 0.055 + mids * 0.07));
+  centerGlow.addColorStop(0.52, rgba(paletteColor(palette, 0), 0.018));
+  centerGlow.addColorStop(1, rgba(paletteColor(palette, 0), 0));
+  context.fillStyle = centerGlow;
+  context.fillRect(0, 0, width, height);
+
+  if (!reducedMotion) {
+    context.save();
+    context.translate(centerX, centerY);
+    context.scale(1, 0.58);
+    for (let ringIndex = 0; ringIndex < 2; ringIndex += 1) {
+      const phase = (time * speed * 0.2 + ringIndex * 0.53) % 1;
+      const radius = diagonal * (0.055 + phase * 0.48);
+      context.strokeStyle = rgba(paletteColor(palette, ringIndex * 2), (1 - phase) * (0.035 + bass * 0.05));
+      context.lineWidth = 0.6 + (1 - phase) * 1.4;
+      context.beginPath();
+      context.arc(0, 0, radius, 0, Math.PI * 2);
+      context.stroke();
+    }
+    context.restore();
+  }
+
+  for (let index = 0; index < starCount; index += 1) {
+    const angle = deterministicNoise(index + 2) * Math.PI * 2 + (deterministicNoise(index + 47) - 0.5) * 0.018;
+    const normalizedAngle = ((angle / (Math.PI * 2)) % 1 + 1) % 1;
+    const sector = Math.floor(normalizedAngle * warpAngularSectorCount) % warpAngularSectorCount;
+    const distributedEnergy = angularEnergies[sector] ?? 0;
+    const densityThreshold = Math.min(0.96, 0.045 + Math.pow(Math.min(1, distributedEnergy * 1.3 + activity * 0.2), 0.72) * 0.915);
+    if (deterministicNoise(index + 107) > densityThreshold) continue;
+    const velocity = 0.62 + deterministicNoise(index + 9) * 0.76;
+    const depth = (deterministicNoise(index + 31) + time * speed * velocity) % 1;
+    const trailDepth = reducedMotion ? 0.008 : 0.008 + Math.pow(depth, 2.2) * (0.065 + bass * 0.1 + distributedEnergy * 0.16);
+    const tailDepth = Math.max(0, depth - trailDepth);
+    const radial = Math.pow(depth, 1.82) * diagonal * 0.72;
+    const tailRadial = Math.pow(tailDepth, 1.82) * diagonal * 0.72;
+    const stretch = 0.72 + deterministicNoise(index + 71) * 0.68;
+    const x = centerX + Math.cos(angle) * radial * stretch;
+    const y = centerY + Math.sin(angle) * radial * 0.58;
+    const tailX = centerX + Math.cos(angle) * tailRadial * stretch;
+    const tailY = centerY + Math.sin(angle) * tailRadial * 0.58;
+    const energy = Math.max(distributedEnergy, (values[index % values.length] ?? 0) / 255 * 0.4);
+    const size = 0.3 + Math.pow(depth, 1.7) * 2.1 + energy * 1.6;
+    const color = mixVisualizerColors(paletteColor(palette, index), [232, 247, 255], 0.42 + depth * 0.2);
+    const alpha = 0.1 + depth * 0.42 + energy * 0.42;
+
+    if (!reducedMotion && depth > 0.34 && index % 3 === 0) {
+      context.strokeStyle = rgba(color, alpha * 0.15);
+      context.lineWidth = size * 5.2;
+      context.beginPath();
+      context.moveTo(tailX, tailY);
+      context.lineTo(x, y);
+      context.stroke();
+    }
+
+    context.strokeStyle = rgba(color, alpha);
+    context.lineWidth = size;
+    context.beginPath();
+    context.moveTo(tailX, tailY);
+    context.lineTo(x, y);
+    context.stroke();
+  }
+
+  const flareColor = mixVisualizerColors(paletteColor(palette, 0), [255, 255, 255], 0.62);
+  context.strokeStyle = rgba(flareColor, 0.12 + bass * 0.16);
+  context.lineWidth = 0.7 + treble * 1.4;
+  context.beginPath();
+  context.moveTo(centerX - width * (0.08 + bass * 0.06), centerY);
+  context.lineTo(centerX + width * (0.08 + bass * 0.06), centerY);
+  context.stroke();
+  context.restore();
+}
+
+function captureAuroraFrame(values: Uint8Array) {
+  const frame = new Float32Array(auroraBandCount);
+  const bandEdges = [0.02, 0.09, 0.2, 0.38, 0.62, 0.9];
+  for (let band = 0; band < auroraBandCount; band += 1) {
+    frame[band] = averageFrequencyBand(values, bandEdges[band] ?? 0, bandEdges[band + 1] ?? 1);
+  }
+  return frame;
+}
+
+function updateAuroraTimeline(
+  state: AuroraTimelineState,
+  values: Uint8Array,
+  time: number,
+  shouldCapture: boolean,
+  reducedMotion: boolean,
+) {
+  if (!shouldCapture && state.frames.length > 0) return;
+  const captureInterval = reducedMotion ? auroraCaptureIntervalMs * 1.8 : auroraCaptureIntervalMs;
+  if (state.frames.length > 0 && time - state.lastCapturedAt < captureInterval) return;
+
+  const frame = captureAuroraFrame(values);
+  if (state.frames.length === 0) {
+    state.frames = Array.from({ length: auroraFrameCount }, () => frame.slice());
+  } else {
+    state.frames.push(frame);
+    if (state.frames.length > auroraFrameCount) state.frames.shift();
+  }
+  state.lastCapturedAt = time;
+}
+
+function interpolateAuroraEnergy(frame: Float32Array, progress: number) {
+  const position = Math.max(0, Math.min(1, progress)) * (frame.length - 1);
+  const firstIndex = Math.floor(position);
+  const secondIndex = Math.min(frame.length - 1, firstIndex + 1);
+  const amount = position - firstIndex;
+  return (frame[firstIndex] ?? 0) * (1 - amount) + (frame[secondIndex] ?? 0) * amount;
+}
+
+function auroraGradientColor(palette: VisualizerPalette, progress: number) {
+  const position = Math.max(0, Math.min(1, progress)) * (palette.length - 1);
+  const firstIndex = Math.floor(position);
+  const secondIndex = Math.min(palette.length - 1, firstIndex + 1);
+  return mixVisualizerColors(paletteColor(palette, firstIndex), paletteColor(palette, secondIndex), position - firstIndex);
+}
+
+function getAuroraVisualizerPalette(palette: VisualizerPalette, paletteMode: VisualizerPaletteMode): VisualizerPalette {
+  if (paletteMode === "rainbow") return rainbowVisualizerPalette;
+  return [paletteColor(palette, 4), paletteColor(palette, 0), paletteColor(palette, 2), paletteColor(palette, 1)];
+}
+
+function drawAurora(
+  context: CanvasRenderingContext2D,
+  values: Uint8Array,
+  width: number,
+  height: number,
+  time: number,
+  palette: VisualizerPalette,
+  reducedMotion: boolean,
+  timeline: AuroraTimelineState,
+  shouldCapture: boolean,
+  isRainbow: boolean,
+) {
+  updateAuroraTimeline(timeline, values, time, shouldCapture, reducedMotion);
+  const frames = timeline.frames;
+  if (frames.length === 0) return;
+
+  const visibleFrameCount = reducedMotion ? 3 : 5;
+  const visibleFrames = frames.slice(-visibleFrameCount);
+  const motionTime = time * (reducedMotion ? 0.000025 : 0.00009);
+  const filamentCount = reducedMotion ? 34 : 76;
+  const startX = width * 0.025;
+  const endX = width * 0.975;
+  context.save();
+  context.globalCompositeOperation = "lighter";
+  context.lineCap = "round";
+
+  visibleFrames.forEach((frame, historyIndex) => {
+    const historyProgress = historyIndex / Math.max(1, visibleFrames.length - 1);
+    const historyAlpha = isRainbow
+      ? (0.025 + historyProgress * 0.105) * 1.2
+      : (0.035 + historyProgress * 0.14) * 1.18;
+    const historyOffset = (1 - historyProgress) * height * 0.048;
+    const points = Array.from({ length: filamentCount + 1 }, (_, index) => {
+      const progress = index / filamentCount;
+      const energy = interpolateAuroraEnergy(frame, progress);
+      const noise = deterministicNoise(index * 1.73 + historyIndex * 31.7);
+      const ridgeWave = Math.sin(progress * Math.PI * 1.55 + motionTime * 0.72 + historyIndex * 0.16) * height * 0.052
+        + Math.sin(progress * Math.PI * 4.2 - motionTime + historyIndex * 0.11) * height * 0.014;
+      const ridgeY = height * 0.17 + historyOffset + ridgeWave;
+      const length = height * (0.2 + energy * 0.32 + Math.pow(noise, 1.7) * 0.16)
+        * (0.86 + Math.sin(progress * Math.PI * 2.4 - motionTime * 1.2) * 0.12);
+      const x = startX + (endX - startX) * progress
+        + Math.sin(progress * Math.PI * 3.1 + motionTime + historyIndex * 0.18) * width * 0.008
+        + (deterministicNoise(index * 4.93 + historyIndex * 17.1) - 0.5) * width * 0.009;
+      return { energy, progress, ridgeY, x, bottomY: Math.min(height * 0.75, ridgeY + length) };
+    });
+
+    const sheetGradient = context.createLinearGradient(startX, 0, endX, 0);
+    for (let stop = 0; stop <= auroraBandCount; stop += 1) {
+      const progress = stop / auroraBandCount;
+      sheetGradient.addColorStop(progress, rgba(auroraGradientColor(palette, progress), historyAlpha));
+    }
+    context.filter = reducedMotion ? "blur(8px)" : `blur(${6 + (1 - historyProgress) * 10}px)`;
+    context.fillStyle = sheetGradient;
+    context.beginPath();
+    points.forEach((point, index) => {
+      if (index === 0) context.moveTo(point.x, point.ridgeY);
+      else context.lineTo(point.x, point.ridgeY);
+    });
+    for (let index = points.length - 1; index >= 0; index -= 1) {
+      const point = points[index];
+      if (point) context.lineTo(point.x, point.bottomY);
+    }
+    context.closePath();
+    context.fill();
+
+    const detailedHistoryCount = reducedMotion ? 1 : 2;
+    if (historyIndex >= visibleFrames.length - detailedHistoryCount) {
+      points.forEach((point, index) => {
+        if (index === points.length - 1) return;
+        const fold = 0.24 + Math.pow((Math.sin(point.progress * Math.PI * 17 - motionTime * 1.4 + historyIndex) + 1) * 0.5, 2) * 0.76;
+        const color = mixVisualizerColors(auroraGradientColor(palette, point.progress), [255, 255, 255], point.energy * 0.12 + fold * 0.08);
+        const alpha = historyAlpha * (0.58 + point.energy * 1.65) * (0.48 + fold * 1.12);
+        const strokeGradient = context.createLinearGradient(0, point.ridgeY, 0, point.bottomY);
+        strokeGradient.addColorStop(0, rgba(color, alpha * 0.32));
+        strokeGradient.addColorStop(0.12, rgba(color, alpha));
+        strokeGradient.addColorStop(0.58, rgba(color, alpha * 0.72));
+        strokeGradient.addColorStop(0.9, rgba(color, alpha * 0.18));
+        strokeGradient.addColorStop(1, rgba(color, 0));
+        const lowerSway = Math.sin(point.progress * Math.PI * 7.4 - motionTime * 1.8 + historyIndex * 0.3) * width * (0.008 + point.energy * 0.016);
+        context.filter = reducedMotion ? "blur(1.5px)" : `blur(${0.7 + (1 - historyProgress) * 3.5}px)`;
+        context.strokeStyle = strokeGradient;
+        context.lineWidth = 0.38 + point.energy * 1.45 + fold * 0.9;
+        context.beginPath();
+        context.moveTo(point.x, point.ridgeY);
+        context.bezierCurveTo(
+          point.x + Math.sin(motionTime + index) * width * 0.004,
+          point.ridgeY + (point.bottomY - point.ridgeY) * 0.32,
+          point.x + lowerSway * 0.55,
+          point.ridgeY + (point.bottomY - point.ridgeY) * 0.72,
+          point.x + lowerSway,
+          point.bottomY,
+        );
+        context.stroke();
+      });
+    }
+
+    if (historyIndex === visibleFrames.length - 1) {
+      const drawRidge = (alpha: number, blur: number, lineWidth: number) => {
+        const ridgeGradient = context.createLinearGradient(startX, 0, endX, 0);
+        for (let stop = 0; stop <= auroraBandCount; stop += 1) {
+          const progress = stop / auroraBandCount;
+          ridgeGradient.addColorStop(progress, rgba(auroraGradientColor(palette, progress), alpha));
+        }
+        context.filter = `blur(${blur}px)`;
+        context.strokeStyle = ridgeGradient;
+        context.lineWidth = lineWidth;
+        context.beginPath();
+        points.forEach((point, index) => {
+          if (index === 0) context.moveTo(point.x, point.ridgeY);
+          else context.lineTo(point.x, point.ridgeY);
+        });
+        context.stroke();
+      };
+      drawRidge(0.34, reducedMotion ? 3 : 7, Math.max(3, Math.min(width, height) * 0.008));
+      drawRidge(0.68, reducedMotion ? 0.8 : 1.4, Math.max(0.9, Math.min(width, height) * 0.0018));
+    }
+  });
+
+  context.restore();
+}
+
+function captureFrequencyHelixFrame(values: Uint8Array) {
+  const frame = new Float32Array(frequencyHelixBandCount);
+  const usableValueCount = Math.max(1, Math.floor(values.length * 0.72));
+
+  for (let band = 0; band < frequencyHelixBandCount; band += 1) {
+    const startProgress = band / frequencyHelixBandCount;
+    const endProgress = (band + 1) / frequencyHelixBandCount;
+    const start = Math.floor(Math.pow(startProgress, 1.75) * usableValueCount);
+    const end = Math.max(start + 1, Math.floor(Math.pow(endProgress, 1.75) * usableValueCount));
+    let total = 0;
+    for (let index = start; index < Math.min(end, values.length); index += 1) total += values[index] ?? 0;
+    frame[band] = total / Math.max(1, Math.min(end, values.length) - start) / 255;
+  }
+
+  return frame;
+}
+
+function updateFrequencyHelixTimeline(
+  state: FrequencyHelixTimelineState,
+  values: Uint8Array,
+  time: number,
+  shouldCapture: boolean,
+  reducedMotion: boolean,
+) {
+  if (!shouldCapture && state.frames.length > 0) return;
+  const captureInterval = reducedMotion ? frequencyHelixCaptureIntervalMs * 1.8 : frequencyHelixCaptureIntervalMs;
+  if (state.frames.length > 0 && time - state.lastCapturedAt < captureInterval) return;
+
+  const frame = captureFrequencyHelixFrame(values);
+  if (state.frames.length === 0) {
+    state.frames = Array.from({ length: frequencyHelixFrameCount }, () => frame.slice());
+  } else {
+    state.frames.push(frame);
+    if (state.frames.length > frequencyHelixFrameCount) state.frames.shift();
+  }
+  state.lastCapturedAt = time;
+}
+
+function drawFrequencyHelix(
+  context: CanvasRenderingContext2D,
+  values: Uint8Array,
+  width: number,
+  height: number,
+  time: number,
+  palette: VisualizerPalette,
+  reducedMotion: boolean,
+  timeline: FrequencyHelixTimelineState,
+  shouldCapture: boolean,
+) {
+  updateFrequencyHelixTimeline(timeline, values, time, shouldCapture, reducedMotion);
+  const frames = timeline.frames;
+  if (frames.length === 0) return;
+
+  const rowCount = reducedMotion ? 22 : 38;
+  const bandStep = reducedMotion ? 2 : 1;
+  const centerX = width * 0.5;
+  const top = height * 0.16;
+  const bottom = height * 0.72;
+  const amplitude = Math.min(width * 0.31, height * 0.34);
+  const rotation = reducedMotion ? 0.35 : time * 0.00036;
+  const turns = Math.PI * 4.5;
+  const rows = Array.from({ length: rowCount }, (_, row) => {
+    const progress = row / Math.max(1, rowCount - 1);
+    const frameIndex = Math.round(progress * (frames.length - 1));
+    const phase = progress * turns - rotation;
+    const perspective = 0.55 + progress * 0.45;
+    const strandOffset = Math.sin(phase) * amplitude * perspective;
+    return {
+      frame: frames[frameIndex] ?? frames[frames.length - 1]!,
+      leftX: centerX + strandOffset,
+      progress,
+      rightX: centerX - strandOffset,
+      y: top + progress * (bottom - top),
+    };
+  });
+
+  context.save();
+  context.globalCompositeOperation = "lighter";
+  context.lineCap = "round";
+
+  rows.forEach((row, rowIndex) => {
+    const ageAlpha = 0.18 + row.progress * 0.58;
+    const direction = row.rightX >= row.leftX ? 1 : -1;
+    const segmentWidth = Math.abs(row.rightX - row.leftX) / frequencyHelixBandCount;
+
+    context.beginPath();
+    context.moveTo(row.leftX, row.y);
+    context.lineTo(row.rightX, row.y);
+    context.strokeStyle = rgba(paletteColor(palette, rowIndex), 0.045 + ageAlpha * 0.08);
+    context.lineWidth = 0.7 + row.progress * 0.7;
+    context.stroke();
+
+    for (let band = 0; band < frequencyHelixBandCount; band += bandStep) {
+      const energy = row.frame[band] ?? 0;
+      const nextBand = Math.min(frequencyHelixBandCount, band + bandStep);
+      const x1 = row.leftX + direction * segmentWidth * band;
+      const x2 = row.leftX + direction * segmentWidth * nextBand;
+      const color = mixVisualizerColors(paletteColor(palette, band), [255, 255, 255], energy * 0.22);
+      context.beginPath();
+      context.moveTo(x1, row.y);
+      context.lineTo(x2, row.y);
+      context.strokeStyle = rgba(color, (0.08 + energy * 0.82) * ageAlpha);
+      context.lineWidth = 0.8 + energy * 3.1 * (0.65 + row.progress * 0.35);
+      context.stroke();
+    }
+  });
+
+  const drawStrand = (side: "left" | "right", colorIndex: number) => {
+    context.beginPath();
+    rows.forEach((row, index) => {
+      const x = side === "left" ? row.leftX : row.rightX;
+      if (index === 0) context.moveTo(x, row.y);
+      else context.lineTo(x, row.y);
+    });
+    const gradient = context.createLinearGradient(0, top, 0, bottom);
+    gradient.addColorStop(0, rgba(paletteColor(palette, colorIndex), 0.16));
+    gradient.addColorStop(0.55, rgba(paletteColor(palette, colorIndex), 0.62));
+    gradient.addColorStop(1, rgba(paletteColor(palette, colorIndex), 0.86));
+    context.strokeStyle = gradient;
+    context.lineWidth = Math.max(1.4, Math.min(width, height) * 0.004);
+    context.shadowColor = rgba(paletteColor(palette, colorIndex), 0.58);
+    context.shadowBlur = reducedMotion ? 4 : 10;
+    context.stroke();
+  };
+
+  drawStrand("left", 0);
+  drawStrand("right", Math.max(1, Math.floor(palette.length / 2)));
+  context.shadowBlur = 0;
+  context.restore();
+}
+
+function drawInk(
+  context: CanvasRenderingContext2D,
+  values: Uint8Array,
+  width: number,
+  height: number,
+  time: number,
+  palette: VisualizerPalette,
+  reducedMotion: boolean,
+) {
+  const layerCount = reducedMotion ? 4 : 7;
+  context.save();
+  context.globalCompositeOperation = "source-over";
+  context.filter = reducedMotion ? "blur(8px)" : "blur(14px)";
+
+  for (let layer = 0; layer < layerCount; layer += 1) {
+    const start = layer / layerCount;
+    const energy = averageFrequencyBand(values, start, Math.min(1, start + 1 / layerCount));
+    const phase = reducedMotion ? layer * 0.9 : time * (0.00012 + layer * 0.000014) + layer * 1.17;
+    const x = width * (0.5 + Math.sin(phase) * (0.12 + layer * 0.018));
+    const y = height * (0.5 + Math.cos(phase * 0.83) * (0.08 + layer * 0.014));
+    const radius = Math.min(width, height) * (0.1 + layer * 0.025 + energy * 0.14);
+    const color = paletteColor(palette, layer);
+    const gradient = context.createRadialGradient(x, y, radius * 0.08, x, y, radius);
+    gradient.addColorStop(0, rgba(color, 0.24 + energy * 0.24));
+    gradient.addColorStop(0.58, rgba(color, 0.08 + energy * 0.14));
+    gradient.addColorStop(1, rgba(color, 0));
+    context.fillStyle = gradient;
+    context.beginPath();
+    context.ellipse(x, y, radius * (1.3 + Math.sin(phase * 1.4) * 0.24), radius * (0.72 + Math.cos(phase) * 0.15), phase * 0.3, 0, Math.PI * 2);
+    context.fill();
+  }
+  context.filter = "none";
+  context.restore();
+}
+
+function drawVuMeters(
+  context: CanvasRenderingContext2D,
+  values: Uint8Array,
+  width: number,
+  height: number,
+  palette: VisualizerPalette,
+) {
+  const meterCount = width < 700 ? 2 : 3;
+  const panelWidth = Math.min(250, width * (meterCount === 2 ? 0.36 : 0.24));
+  const panelHeight = Math.min(190, height * 0.3);
+  const gap = Math.min(34, width * 0.035);
+  const totalWidth = panelWidth * meterCount + gap * (meterCount - 1);
+  const startX = (width - totalWidth) / 2;
+  const top = height * 0.35;
+
+  context.save();
+  for (let meter = 0; meter < meterCount; meter += 1) {
+    const bandStart = meter / meterCount;
+    const energy = averageFrequencyBand(values, bandStart, (meter + 1) / meterCount);
+    const x = startX + meter * (panelWidth + gap);
+    const color = paletteColor(palette, meter);
+    const panelGradient = context.createLinearGradient(0, top, 0, top + panelHeight);
+    panelGradient.addColorStop(0, "rgba(255, 255, 255, 0.13)");
+    panelGradient.addColorStop(1, rgba(color, 0.08));
+    context.fillStyle = panelGradient;
+    context.strokeStyle = "rgba(255, 255, 255, 0.24)";
+    context.lineWidth = 1.4;
+    context.beginPath();
+    context.roundRect(x, top, panelWidth, panelHeight, 18);
+    context.fill();
+    context.stroke();
+
+    const pivotX = x + panelWidth / 2;
+    const pivotY = top + panelHeight * 0.78;
+    const arcRadius = panelWidth * 0.34;
+    context.strokeStyle = rgba(color, 0.42);
+    context.lineWidth = 5;
+    context.beginPath();
+    context.arc(pivotX, pivotY, arcRadius, Math.PI * 1.12, Math.PI * 1.88);
+    context.stroke();
+
+    for (let tick = 0; tick <= 10; tick += 1) {
+      const angle = Math.PI * (1.12 + tick * 0.076);
+      context.strokeStyle = tick > 7 ? "rgba(255, 104, 92, 0.72)" : "rgba(255, 255, 255, 0.42)";
+      context.lineWidth = tick % 5 === 0 ? 2 : 1;
+      context.beginPath();
+      context.moveTo(pivotX + Math.cos(angle) * arcRadius * 0.86, pivotY + Math.sin(angle) * arcRadius * 0.86);
+      context.lineTo(pivotX + Math.cos(angle) * arcRadius * 1.04, pivotY + Math.sin(angle) * arcRadius * 1.04);
+      context.stroke();
+    }
+
+    const needleAngle = Math.PI * (1.12 + Math.min(1, energy) * 0.76);
+    context.strokeStyle = rgba(mixVisualizerColors(color, [255, 255, 255], 0.38), 0.94);
+    context.lineWidth = 3;
+    context.beginPath();
+    context.moveTo(pivotX, pivotY);
+    context.lineTo(pivotX + Math.cos(needleAngle) * arcRadius * 0.94, pivotY + Math.sin(needleAngle) * arcRadius * 0.94);
+    context.stroke();
+    context.fillStyle = "rgba(245, 245, 248, 0.92)";
+    context.beginPath();
+    context.arc(pivotX, pivotY, 6, 0, Math.PI * 2);
+    context.fill();
+  }
+  context.restore();
+}
+
 function drawChibiCircle(
   context: CanvasRenderingContext2D,
   values: Uint8Array,
@@ -937,6 +1690,7 @@ function drawChibiCircle(
   time: number,
   chibiImages: ChibiCharacterImages[],
   chibiMotion: ChibiCircleMotionState,
+  palette: VisualizerPalette,
 ) {
   const centerX = width / 2;
   const centerY = height * 0.5;
@@ -968,7 +1722,7 @@ function drawChibiCircle(
 
   context.save();
   context.globalCompositeOperation = "source-over";
-  context.strokeStyle = "rgba(255, 255, 255, 0.18)";
+  context.strokeStyle = rgba(paletteColor(palette, 0), 0.22);
   context.lineWidth = 1.4;
   context.beginPath();
   context.arc(centerX, centerY, radius, 0, Math.PI * 2);
@@ -984,6 +1738,13 @@ function drawChibiCircle(
     const upOffset = spriteSize * (0.075 + upWeight * 0.025);
     const tangentOffset = spriteSize * 0.012;
     const rotation = angle + Math.PI / 2;
+    context.save();
+    context.globalCompositeOperation = "lighter";
+    context.fillStyle = rgba(paletteColor(palette, Math.floor(((angle + Math.PI * 2.5) / (Math.PI * 2)) * palette.length)), 0.08 + upWeight * 0.13);
+    context.beginPath();
+    context.arc(x, y, spriteSize * (0.24 + upWeight * 0.08), 0, Math.PI * 2);
+    context.fill();
+    context.restore();
     drawChibiCirclePose(
       context,
       imagePair?.down ?? null,
@@ -1048,6 +1809,10 @@ export function PlayerVisualizerOverlay({
   t,
 }: PlayerVisualizerOverlayProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const auroraCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const auroraWebglVisualizerRef = useRef<AuroraWebGLVisualizer | null>(null);
+  const starfieldCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const starfieldWebglVisualizerRef = useRef<WarpStarfieldWebGLVisualizer | null>(null);
   const analyserRef = useRef<AnalyserNode | null>(null);
   const surfPuchiImagesRef = useRef<SurfPuchiImages>({ paddling: null, standing: null });
   const surfPuchiMotionRef = useRef<SurfPuchiMotionState>({ standingWeight: 0, targetPose: "paddling" });
@@ -1072,11 +1837,22 @@ export function PlayerVisualizerOverlay({
     energyWeights: new Float32Array(orchestraCharacterSources.length),
     playingWeights: new Float32Array(orchestraCharacterSources.length),
   });
+  const frequencyHelixTimelineRef = useRef<FrequencyHelixTimelineState>({ frames: [], lastCapturedAt: 0 });
+  const auroraTimelineRef = useRef<AuroraTimelineState>({ frames: [], lastCapturedAt: 0 });
   const chibiSingleTapTimerRef = useRef<number | null>(null);
   const lastChibiTouchAtRef = useRef(0);
   const suppressNextChibiClickRef = useRef(false);
   const [hasAudioAnalysis, setHasAudioAnalysis] = useState(false);
-  const [mode, setMode] = useState<VisualizerMode>("spectrum");
+  const [mode, setMode] = useState<VisualizerMode>(() => {
+    const storedMode = window.localStorage.getItem(visualizerModeStorageKey);
+    return isVisualizerMode(storedMode) ? storedMode : "spectrum";
+  });
+  const [paletteMode, setPaletteMode] = useState<VisualizerPaletteMode>(() => {
+    const storedPaletteMode = window.localStorage.getItem(visualizerPaletteStorageKey);
+    return isVisualizerPaletteMode(storedPaletteMode) ? storedPaletteMode : "theme";
+  });
+  const [visualizerPalette, setVisualizerPalette] = useState<VisualizerPalette>(() => getThemeVisualizerPalette());
+  const [reducedMotion, setReducedMotion] = useState(() => window.matchMedia("(prefers-reduced-motion: reduce)").matches);
   const [isChibiModeEnabled, setIsChibiModeEnabled] = useState(() => window.localStorage.getItem(chibiModeStorageKey) === "true");
   const [isOrchestraModeEnabled, setIsOrchestraModeEnabled] = useState(false);
   const [surfPuchiGender] = useState<SurfPuchiGender>(() => (Math.random() < 0.5 ? "boy" : "girl"));
@@ -1090,6 +1866,10 @@ export function PlayerVisualizerOverlay({
   const overlayStyle = artworkSrc
     ? ({ "--visualizer-artwork": `url("${artworkSrc.replace(/"/g, '\\"')}")` } as CSSProperties)
     : undefined;
+  const selectVisualizerMode = (nextMode: VisualizerMode) => {
+    setIsOrchestraModeEnabled(false);
+    setMode(nextMode);
+  };
   const activateOrchestraMode = () => {
     if (chibiSingleTapTimerRef.current !== null) {
       window.clearTimeout(chibiSingleTapTimerRef.current);
@@ -1108,10 +1888,7 @@ export function PlayerVisualizerOverlay({
       }
       return;
     }
-
-    if (chibiSingleTapTimerRef.current !== null) {
-      window.clearTimeout(chibiSingleTapTimerRef.current);
-    }
+    if (chibiSingleTapTimerRef.current !== null) window.clearTimeout(chibiSingleTapTimerRef.current);
     chibiSingleTapTimerRef.current = window.setTimeout(() => {
       chibiSingleTapTimerRef.current = null;
       setIsOrchestraModeEnabled(false);
@@ -1124,7 +1901,6 @@ export function PlayerVisualizerOverlay({
   };
   const handleChibiTogglePointerUp = (event: PointerEvent<HTMLButtonElement>) => {
     if (event.pointerType !== "touch") return;
-
     const now = performance.now();
     if (now - lastChibiTouchAtRef.current <= chibiToggleDoubleTapMs) {
       suppressNextChibiClickRef.current = true;
@@ -1132,7 +1908,6 @@ export function PlayerVisualizerOverlay({
       lastChibiTouchAtRef.current = 0;
       return;
     }
-
     lastChibiTouchAtRef.current = now;
   };
 
@@ -1150,10 +1925,58 @@ export function PlayerVisualizerOverlay({
   }, [isChibiModeEnabled]);
 
   useEffect(() => () => {
-    if (chibiSingleTapTimerRef.current !== null) {
-      window.clearTimeout(chibiSingleTapTimerRef.current);
-    }
+    if (chibiSingleTapTimerRef.current !== null) window.clearTimeout(chibiSingleTapTimerRef.current);
   }, []);
+
+  useEffect(() => {
+    window.localStorage.setItem(visualizerModeStorageKey, mode);
+  }, [mode]);
+
+  useEffect(() => {
+    frequencyHelixTimelineRef.current = { frames: [], lastCapturedAt: 0 };
+    auroraTimelineRef.current = { frames: [], lastCapturedAt: 0 };
+  }, [currentTrack?.id]);
+
+  useEffect(() => {
+    window.localStorage.setItem(visualizerPaletteStorageKey, paletteMode);
+  }, [paletteMode]);
+
+  useEffect(() => {
+    const mediaQuery = window.matchMedia("(prefers-reduced-motion: reduce)");
+    const handleChange = () => setReducedMotion(mediaQuery.matches);
+    handleChange();
+    mediaQuery.addEventListener("change", handleChange);
+    return () => mediaQuery.removeEventListener("change", handleChange);
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    const updatePalette = async () => {
+      if (paletteMode === "rainbow") {
+        setVisualizerPalette(rainbowVisualizerPalette);
+        return;
+      }
+      if (paletteMode === "original") {
+        setVisualizerPalette(originalVisualizerPalette);
+        return;
+      }
+      const themePalette = getThemeVisualizerPalette();
+      if (paletteMode === "artwork") {
+        const artworkPalette = await extractArtworkVisualizerPalette(artworkSrc);
+        if (!cancelled) setVisualizerPalette(artworkPalette ?? themePalette);
+        return;
+      }
+      setVisualizerPalette(themePalette);
+    };
+    void updatePalette();
+
+    const observer = new MutationObserver(() => void updatePalette());
+    observer.observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme", "class"] });
+    return () => {
+      cancelled = true;
+      observer.disconnect();
+    };
+  }, [artworkSrc, paletteMode]);
 
   useEffect(() => {
     let isCancelled = false;
@@ -1196,6 +2019,44 @@ export function PlayerVisualizerOverlay({
       isCancelled = true;
     };
   }, []);
+
+  useEffect(() => {
+    if (mode !== "aurora" || !auroraCanvasRef.current) {
+      auroraWebglVisualizerRef.current?.dispose();
+      auroraWebglVisualizerRef.current = null;
+      return;
+    }
+
+    try {
+      auroraWebglVisualizerRef.current = new AuroraWebGLVisualizer(auroraCanvasRef.current);
+    } catch {
+      auroraWebglVisualizerRef.current = null;
+    }
+
+    return () => {
+      auroraWebglVisualizerRef.current?.dispose();
+      auroraWebglVisualizerRef.current = null;
+    };
+  }, [mode]);
+
+  useEffect(() => {
+    if (mode !== "starfield" || !starfieldCanvasRef.current) {
+      starfieldWebglVisualizerRef.current?.dispose();
+      starfieldWebglVisualizerRef.current = null;
+      return;
+    }
+
+    try {
+      starfieldWebglVisualizerRef.current = new WarpStarfieldWebGLVisualizer(starfieldCanvasRef.current);
+    } catch {
+      starfieldWebglVisualizerRef.current = null;
+    }
+
+    return () => {
+      starfieldWebglVisualizerRef.current?.dispose();
+      starfieldWebglVisualizerRef.current = null;
+    };
+  }, [mode]);
 
   useEffect(() => {
     let isCancelled = false;
@@ -1319,26 +2180,66 @@ export function PlayerVisualizerOverlay({
 
     resizeObserver.observe(canvasElement);
 
+    function drawSelectedVisualizer(values: Uint8Array, time: number, isIdle: boolean) {
+      drawingContext.globalCompositeOperation = "source-over";
+      const useOriginalColors = paletteMode === "original";
+      if (isOrchestraModeEnabled) {
+        drawOrchestraVisualizer(drawingContext, values, rect.width, rect.height, time, orchestraImagesRef.current, orchestraMotionRef.current, visualizerPalette);
+      } else if (mode === "wave") {
+        if (isIdle && !isChibiModeEnabled) drawIdleVisualizer(drawingContext, rect.width, rect.height, mode, visualizerPalette, useOriginalColors);
+        else drawWave(drawingContext, values, rect.width, rect.height, time, surfPuchiImagesRef.current, surfPuchiMotionRef.current, isChibiModeEnabled, visualizerPalette, useOriginalColors);
+      } else if (mode === "spectrum") {
+        if (isIdle && !isChibiModeEnabled) drawIdleVisualizer(drawingContext, rect.width, rect.height, mode, visualizerPalette, useOriginalColors);
+        else {
+          drawSpectrum(
+            drawingContext,
+            values,
+            rect.width,
+            rect.height,
+            time,
+            spectrumPeakValues,
+            visualizerPalette,
+            useOriginalColors,
+            isChibiModeEnabled ? chibiSpectrumImagesRef.current : undefined,
+            isChibiModeEnabled ? chibiSpectrumMotionRef.current : undefined,
+          );
+        }
+      } else if (mode === "circle") {
+        if (isChibiModeEnabled) drawChibiCircle(drawingContext, values, rect.width, rect.height, time, chibiImagesRef.current, chibiCircleMotionRef.current, visualizerPalette);
+        else if (isIdle) drawIdleVisualizer(drawingContext, rect.width, rect.height, mode, visualizerPalette, useOriginalColors);
+        else drawCircle(drawingContext, values, rect.width, rect.height, time, visualizerPalette, useOriginalColors);
+      } else if (mode === "mountains") {
+        drawMountains(drawingContext, values, rect.width, rect.height, time, visualizerPalette, reducedMotion);
+      } else if (mode === "aurora") {
+        const auroraPalette = getAuroraVisualizerPalette(visualizerPalette, paletteMode);
+        if (auroraWebglVisualizerRef.current) {
+          auroraWebglVisualizerRef.current.render(values, time, auroraPalette, reducedMotion, !isIdle, paletteMode === "rainbow");
+        } else {
+          drawAurora(drawingContext, values, rect.width, rect.height, time, auroraPalette, reducedMotion, auroraTimelineRef.current, !isIdle, paletteMode === "rainbow");
+        }
+      } else if (mode === "starfield") {
+        if (starfieldWebglVisualizerRef.current) {
+          starfieldWebglVisualizerRef.current.render(values, time, visualizerPalette, reducedMotion, !isIdle);
+        } else {
+          drawStarfield(drawingContext, values, rect.width, rect.height, time, visualizerPalette, reducedMotion);
+        }
+      } else if (mode === "tunnel") {
+        drawFrequencyHelix(drawingContext, values, rect.width, rect.height, time, visualizerPalette, reducedMotion, frequencyHelixTimelineRef.current, !isIdle);
+      } else if (mode === "ink") {
+        drawInk(drawingContext, values, rect.width, rect.height, time, visualizerPalette, reducedMotion);
+      } else {
+        drawVuMeters(drawingContext, values, rect.width, rect.height, visualizerPalette);
+      }
+      drawingContext.globalCompositeOperation = "source-over";
+    }
+
     if (!isVisualizerLive) {
       canvasElement.width = Math.max(1, Math.floor(rect.width * scale));
       canvasElement.height = Math.max(1, Math.floor(rect.height * scale));
       drawingContext.setTransform(scale, 0, 0, scale, 0, 0);
       drawingContext.clearRect(0, 0, rect.width, rect.height);
-      if (isOrchestraModeEnabled) {
-        visualFrequencyValues.fill(0);
-        drawOrchestraVisualizer(drawingContext, visualFrequencyValues, rect.width, rect.height, performance.now(), orchestraImagesRef.current, orchestraMotionRef.current);
-      } else if (isChibiModeEnabled && mode === "wave") {
-        visualFrequencyValues.fill(0);
-        drawWave(drawingContext, visualFrequencyValues, rect.width, rect.height, performance.now(), surfPuchiImagesRef.current, surfPuchiMotionRef.current, true);
-      } else if (isChibiModeEnabled && mode === "circle") {
-        visualFrequencyValues.fill(0);
-        drawChibiCircle(drawingContext, visualFrequencyValues, rect.width, rect.height, performance.now(), chibiImagesRef.current, chibiCircleMotionRef.current);
-      } else if (isChibiModeEnabled && mode === "spectrum") {
-        visualFrequencyValues.fill(0);
-        drawSpectrum(drawingContext, visualFrequencyValues, rect.width, rect.height, performance.now(), spectrumPeakValues, chibiSpectrumImagesRef.current, chibiSpectrumMotionRef.current);
-      } else {
-        drawIdleVisualizer(drawingContext, rect.width, rect.height, mode);
-      }
+      visualFrequencyValues.fill(0);
+      drawSelectedVisualizer(visualFrequencyValues, performance.now(), true);
       return () => resizeObserver.disconnect();
     }
 
@@ -1353,7 +2254,7 @@ export function PlayerVisualizerOverlay({
 
       drawingContext.setTransform(scale, 0, 0, scale, 0, 0);
       drawingContext.clearRect(0, 0, rect.width, rect.height);
-      drawingContext.globalCompositeOperation = preferRemoteAudioAnalysis ? "source-over" : "lighter";
+      drawingContext.globalCompositeOperation = "source-over";
 
       const analyser = analyserRef.current;
       const currentAudioAnalysisPacket = audioAnalysisPacketRef.current;
@@ -1376,30 +2277,7 @@ export function PlayerVisualizerOverlay({
       expandFrequencyDynamics(smoothedFrequencyValues, visualFrequencyValues);
       const drawableFrequencyValues = visualFrequencyValues;
 
-      if (mode === "wave") {
-        drawWave(drawingContext, drawableFrequencyValues, rect.width, rect.height, time, surfPuchiImagesRef.current, surfPuchiMotionRef.current, isChibiModeEnabled);
-      } else if (mode === "circle") {
-        if (isChibiModeEnabled) {
-          drawChibiCircle(drawingContext, drawableFrequencyValues, rect.width, rect.height, time, chibiImagesRef.current, chibiCircleMotionRef.current);
-        } else {
-          drawCircle(drawingContext, drawableFrequencyValues, rect.width, rect.height, time);
-        }
-      } else if (isOrchestraModeEnabled) {
-        drawOrchestraVisualizer(drawingContext, drawableFrequencyValues, rect.width, rect.height, time, orchestraImagesRef.current, orchestraMotionRef.current);
-      } else {
-        drawSpectrum(
-          drawingContext,
-          drawableFrequencyValues,
-          rect.width,
-          rect.height,
-          time,
-          spectrumPeakValues,
-          isChibiModeEnabled ? chibiSpectrumImagesRef.current : undefined,
-          isChibiModeEnabled ? chibiSpectrumMotionRef.current : undefined,
-        );
-      }
-
-      drawingContext.globalCompositeOperation = "source-over";
+      drawSelectedVisualizer(drawableFrequencyValues, time, false);
       animationFrame = window.requestAnimationFrame(render);
     }
 
@@ -1408,112 +2286,128 @@ export function PlayerVisualizerOverlay({
       window.cancelAnimationFrame(animationFrame);
       resizeObserver.disconnect();
     };
-  }, [audioAnalysisPacketRef, characterImageVersion, isChibiModeEnabled, isOrchestraModeEnabled, isVisualizerLive, mode, preferRemoteAudioAnalysis, remotePlaybackClockRef]);
+  }, [audioAnalysisPacketRef, characterImageVersion, isChibiModeEnabled, isOrchestraModeEnabled, isVisualizerLive, mode, paletteMode, preferRemoteAudioAnalysis, reducedMotion, remotePlaybackClockRef, visualizerPalette]);
 
   return (
     <section aria-label={t("player.visualizerLabel")} aria-modal="true" className="player-visualizer-overlay" role="dialog" style={overlayStyle}>
-      <div className="visualizer-artwork-backdrop" aria-hidden="true" />
-      <canvas className="visualizer-canvas" ref={canvasRef} aria-hidden="true" />
-      <div className="visualizer-vignette" aria-hidden="true" />
-      <Button aria-label={t("player.closeVisualizer")} className="visualizer-close-button icon-button" onClick={onClose} title={t("player.closeVisualizer")} type="button" variant="outline">
-        <X />
-      </Button>
+      <div className="visualizer-stage">
+        <div className="visualizer-artwork-backdrop" aria-hidden="true" />
+        <canvas className="visualizer-canvas" ref={canvasRef} aria-hidden="true" />
+        <canvas className={mode === "aurora" ? "visualizer-canvas visualizer-aurora-canvas active" : "visualizer-canvas visualizer-aurora-canvas"} ref={auroraCanvasRef} aria-hidden="true" />
+        <canvas className={mode === "starfield" ? "visualizer-canvas visualizer-starfield-canvas active" : "visualizer-canvas visualizer-starfield-canvas"} ref={starfieldCanvasRef} aria-hidden="true" />
+        <div className="visualizer-vignette" aria-hidden="true" />
+        <Button aria-label={t("player.closeVisualizer")} className="visualizer-close-button icon-button" onClick={onClose} title={t("player.closeVisualizer")} type="button" variant="outline">
+          <X />
+        </Button>
 
-      <div className="visualizer-content">
-        <div className="visualizer-primary">
-          <header className="visualizer-header">
-            <div className="visualizer-now-playing" onMouseEnter={prepareMarquee}>
-              <div className="visualizer-track-artwork" aria-hidden="true">
-                {artworkSrc ? <img alt="" src={artworkSrc} /> : null}
-              </div>
-              <div className="visualizer-track-copy">
-                <p className="eyebrow">{albumTitle || t("player.nowPlaying")}</p>
-                <h2 className="visualizer-track-title marquee-wrap">
-                  <span className="marquee-text">{trackTitle}</span>
-                </h2>
-                <span>{artist}</span>
-              </div>
-            </div>
-          </header>
-
-          {lyricLines.length > 0 ? (
-            <section className="visualizer-lyrics-panel" aria-label={t("player.lyrics")}>
-              <div className="visualizer-lyrics-header">
-                <span>{t("player.lyrics")}</span>
-              </div>
-              <div className="visualizer-lyrics-textbox">
-                {lyricLines.map((line, index) => (
-                  <p key={`${line}-${index}`}>{line}</p>
-                ))}
-              </div>
-            </section>
-          ) : null}
-        </div>
-
-        <aside className="visualizer-queue-panel" aria-label={t("player.queue")}>
-          <div className="visualizer-queue-header">
-            <span>{t("player.queue")}</span>
-            <strong>{t("player.queueCount", { count: queueTracks.length })}</strong>
-          </div>
-          <div className="visualizer-queue-list">
-            {queueTracks.map((track, index) => {
-              const isCurrentTrack = track.id === currentTrack?.id;
-              return (
-                <div className={isCurrentTrack ? "visualizer-queue-row current" : "visualizer-queue-row"} key={track.id}>
-                  <span className="visualizer-queue-index">{index + 1}</span>
-                  <span className="visualizer-queue-copy">
-                    <strong>{localizeLibraryText(track.title, t)}</strong>
-                    <span>{localizeLibraryText(track.artist, t)}</span>
-                  </span>
-                  <Button
-                    aria-label={t("player.play")}
-                    className="visualizer-queue-play-button icon-button musical-ripple-button"
-                    disabled={isCurrentTrack && isPlaying}
-                    onClick={() => {
-                      if (isCurrentTrack) onTogglePlayback();
-                      else onQueueTrackPlay(track);
-                    }}
-                    title={t("player.play")}
-                    type="button"
-                    variant="outline"
-                  >
-                    <Play />
-                  </Button>
+        <div className="visualizer-content">
+          <div className="visualizer-primary">
+            <header className="visualizer-header">
+              <div className="visualizer-now-playing" onMouseEnter={prepareMarquee}>
+                <div className="visualizer-track-artwork" aria-hidden="true">
+                  {artworkSrc ? <img alt="" src={artworkSrc} /> : null}
                 </div>
-              );
-            })}
+                <div className="visualizer-track-copy">
+                  <p className="eyebrow">{albumTitle || t("player.nowPlaying")}</p>
+                  <h2 className="visualizer-track-title marquee-wrap">
+                    <span className="marquee-text">{trackTitle}</span>
+                  </h2>
+                  <span>{artist}</span>
+                </div>
+              </div>
+            </header>
+
+            {lyricLines.length > 0 ? (
+              <section className="visualizer-lyrics-panel" aria-label={t("player.lyrics")}>
+                <div className="visualizer-lyrics-header">
+                  <span>{t("player.lyrics")}</span>
+                </div>
+                <div className="visualizer-lyrics-textbox">
+                  {lyricLines.map((line, index) => (
+                    <p key={`${line}-${index}`}>{line}</p>
+                  ))}
+                </div>
+              </section>
+            ) : null}
           </div>
-        </aside>
+
+          <aside className="visualizer-queue-panel" aria-label={t("player.queue")}>
+            <div className="visualizer-queue-header">
+              <span>{t("player.queue")}</span>
+              <strong>{t("player.queueCount", { count: queueTracks.length })}</strong>
+            </div>
+            <div className="visualizer-queue-list">
+              {queueTracks.map((track, index) => {
+                const isCurrentTrack = track.id === currentTrack?.id;
+                return (
+                  <div className={isCurrentTrack ? "visualizer-queue-row current" : "visualizer-queue-row"} key={track.id}>
+                    <span className="visualizer-queue-index">{index + 1}</span>
+                    <span className="visualizer-queue-copy">
+                      <strong>{localizeLibraryText(track.title, t)}</strong>
+                      <span>{localizeLibraryText(track.artist, t)}</span>
+                    </span>
+                    <Button
+                      aria-label={t("player.play")}
+                      className="visualizer-queue-play-button icon-button musical-ripple-button"
+                      disabled={isCurrentTrack && isPlaying}
+                      onClick={() => {
+                        if (isCurrentTrack) onTogglePlayback();
+                        else onQueueTrackPlay(track);
+                      }}
+                      title={t("player.play")}
+                      type="button"
+                      variant="outline"
+                    >
+                      <Play />
+                    </Button>
+                  </div>
+                );
+              })}
+            </div>
+          </aside>
+        </div>
       </div>
 
       <div className="visualizer-controls" aria-label={t("player.label")}>
         <div className="visualizer-controls-dock">
-          <Button
-            aria-label={isOrchestraModeEnabled ? t("player.orchestraMode") : t("player.chibiMode")}
-            aria-pressed={isChibiModeEnabled || isOrchestraModeEnabled}
-            className={isChibiModeEnabled || isOrchestraModeEnabled ? "visualizer-chibi-toggle icon-button active" : "visualizer-chibi-toggle icon-button"}
-            onClick={handleChibiToggleClick}
-            onDoubleClick={handleChibiToggleDoubleClick}
-            onPointerUp={handleChibiTogglePointerUp}
-            title={isOrchestraModeEnabled ? t("player.orchestraMode") : t("player.chibiMode")}
-            type="button"
-            variant="outline"
-          >
-            <Sparkles aria-hidden="true" />
-          </Button>
-          <div className="visualizer-mode-switch" aria-label={t("player.visualizerMode")} role="group">
-            <Button className={mode === "wave" ? "visualizer-mode-button active" : "visualizer-mode-button"} onClick={() => { setIsOrchestraModeEnabled(false); setMode("wave"); }} type="button" variant="outline">
-              <Waves />
-              {t("player.visualizerWave")}
-            </Button>
-            <Button className={mode === "spectrum" ? "visualizer-mode-button active" : "visualizer-mode-button"} onClick={() => { setIsOrchestraModeEnabled(false); setMode("spectrum"); }} type="button" variant="outline">
-              <RadioTower />
-              {t("player.visualizerSpectrum")}
-            </Button>
-            <Button className={mode === "circle" ? "visualizer-mode-button active" : "visualizer-mode-button"} onClick={() => { setIsOrchestraModeEnabled(false); setMode("circle"); }} type="button" variant="outline">
-              <CircleDot />
-              {t("player.visualizerCircle")}
-            </Button>
+          <div className="visualizer-settings" aria-label={t("player.visualizerSettings")}>
+            <div className="visualizer-mode-cluster">
+              <div className="visualizer-chibi-slot">
+                {mode === "wave" || mode === "spectrum" || mode === "circle" ? (
+                  <Button
+                    aria-label={isOrchestraModeEnabled ? t("player.orchestraMode") : t("player.chibiMode")}
+                    aria-pressed={isChibiModeEnabled || isOrchestraModeEnabled}
+                    className={isChibiModeEnabled || isOrchestraModeEnabled ? "visualizer-chibi-toggle icon-button active" : "visualizer-chibi-toggle icon-button"}
+                    onClick={handleChibiToggleClick}
+                    onDoubleClick={handleChibiToggleDoubleClick}
+                    onPointerUp={handleChibiTogglePointerUp}
+                    title={isOrchestraModeEnabled ? t("player.orchestraMode") : t("player.chibiMode")}
+                    type="button"
+                    variant="outline"
+                  >
+                    <Sparkles aria-hidden="true" />
+                  </Button>
+                ) : null}
+              </div>
+              <div className="visualizer-mode-switch" aria-label={t("player.visualizerMode")} role="group">
+                <Button aria-label={t("player.visualizerWave")} aria-pressed={mode === "wave" && !isOrchestraModeEnabled} className={mode === "wave" && !isOrchestraModeEnabled ? "visualizer-mode-button active" : "visualizer-mode-button"} onClick={() => selectVisualizerMode("wave")} title={t("player.visualizerWave")} type="button" variant="outline"><Waves aria-hidden="true" /></Button>
+                <Button aria-label={t("player.visualizerSpectrum")} aria-pressed={mode === "spectrum" && !isOrchestraModeEnabled} className={mode === "spectrum" && !isOrchestraModeEnabled ? "visualizer-mode-button active" : "visualizer-mode-button"} onClick={() => selectVisualizerMode("spectrum")} title={t("player.visualizerSpectrum")} type="button" variant="outline"><RadioTower aria-hidden="true" /></Button>
+                <Button aria-label={t("player.visualizerCircle")} aria-pressed={mode === "circle" && !isOrchestraModeEnabled} className={mode === "circle" && !isOrchestraModeEnabled ? "visualizer-mode-button active" : "visualizer-mode-button"} onClick={() => selectVisualizerMode("circle")} title={t("player.visualizerCircle")} type="button" variant="outline"><CircleDot aria-hidden="true" /></Button>
+                <Button aria-label={t("player.visualizerMountains")} aria-pressed={mode === "mountains" && !isOrchestraModeEnabled} className={mode === "mountains" && !isOrchestraModeEnabled ? "visualizer-mode-button active" : "visualizer-mode-button"} onClick={() => selectVisualizerMode("mountains")} title={t("player.visualizerMountains")} type="button" variant="outline"><Mountain aria-hidden="true" /></Button>
+                <Button aria-label={t("player.visualizerAurora")} aria-pressed={mode === "aurora" && !isOrchestraModeEnabled} className={mode === "aurora" && !isOrchestraModeEnabled ? "visualizer-mode-button active" : "visualizer-mode-button"} onClick={() => selectVisualizerMode("aurora")} title={t("player.visualizerAurora")} type="button" variant="outline"><Sparkles aria-hidden="true" /></Button>
+                <Button aria-label={t("player.visualizerStarfield")} aria-pressed={mode === "starfield" && !isOrchestraModeEnabled} className={mode === "starfield" && !isOrchestraModeEnabled ? "visualizer-mode-button active" : "visualizer-mode-button"} onClick={() => selectVisualizerMode("starfield")} title={t("player.visualizerStarfield")} type="button" variant="outline"><Stars aria-hidden="true" /></Button>
+                <Button aria-label={t("player.visualizerTunnel")} aria-pressed={mode === "tunnel" && !isOrchestraModeEnabled} className={mode === "tunnel" && !isOrchestraModeEnabled ? "visualizer-mode-button active" : "visualizer-mode-button"} onClick={() => selectVisualizerMode("tunnel")} title={t("player.visualizerTunnel")} type="button" variant="outline"><Dna aria-hidden="true" /></Button>
+                <Button aria-label={t("player.visualizerInk")} aria-pressed={mode === "ink" && !isOrchestraModeEnabled} className={mode === "ink" && !isOrchestraModeEnabled ? "visualizer-mode-button active" : "visualizer-mode-button"} onClick={() => selectVisualizerMode("ink")} title={t("player.visualizerInk")} type="button" variant="outline"><Droplets aria-hidden="true" /></Button>
+                <Button aria-label={t("player.visualizerVu")} aria-pressed={mode === "vu" && !isOrchestraModeEnabled} className={mode === "vu" && !isOrchestraModeEnabled ? "visualizer-mode-button active" : "visualizer-mode-button"} onClick={() => selectVisualizerMode("vu")} title={t("player.visualizerVu")} type="button" variant="outline"><Gauge aria-hidden="true" /></Button>
+              </div>
+            </div>
+            <ArrowRight aria-hidden="true" className="visualizer-settings-arrow" />
+            <div className="visualizer-palette-switch" aria-label={t("player.visualizerPalette")} role="group">
+              <Button aria-label={t("player.visualizerPaletteOriginal")} aria-pressed={paletteMode === "original"} className={paletteMode === "original" ? "visualizer-palette-button active" : "visualizer-palette-button"} onClick={() => setPaletteMode("original")} title={t("player.visualizerPaletteOriginal")} type="button" variant="outline"><span aria-hidden="true" className="visualizer-palette-swatch original" /></Button>
+              <Button aria-label={t("player.visualizerPaletteTheme")} aria-pressed={paletteMode === "theme"} className={paletteMode === "theme" ? "visualizer-palette-button active" : "visualizer-palette-button"} onClick={() => setPaletteMode("theme")} title={t("player.visualizerPaletteTheme")} type="button" variant="outline"><span aria-hidden="true" className="visualizer-palette-swatch theme" /></Button>
+              <Button aria-label={t("player.visualizerPaletteArtwork")} aria-pressed={paletteMode === "artwork"} className={paletteMode === "artwork" ? "visualizer-palette-button active" : "visualizer-palette-button"} onClick={() => setPaletteMode("artwork")} title={t("player.visualizerPaletteArtwork")} type="button" variant="outline"><span aria-hidden="true" className="visualizer-palette-swatch artwork" /></Button>
+              <Button aria-label={t("player.visualizerPaletteRainbow")} aria-pressed={paletteMode === "rainbow"} className={paletteMode === "rainbow" ? "visualizer-palette-button active" : "visualizer-palette-button"} onClick={() => setPaletteMode("rainbow")} title={t("player.visualizerPaletteRainbow")} type="button" variant="outline"><span aria-hidden="true" className="visualizer-palette-swatch rainbow" /></Button>
+            </div>
           </div>
           <div className="visualizer-transport-controls">
             <Button aria-label={t("player.previous")} className="visualizer-control-button icon-button musical-ripple-button" disabled={!currentTrack} onClick={onPreviousTrack} title={t("player.previous")} type="button" variant="outline">

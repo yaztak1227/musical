@@ -9,8 +9,11 @@ use std::{
     collections::{BTreeSet, HashMap},
     fs,
     path::PathBuf,
+    sync::atomic::{AtomicU64, Ordering},
     time::{SystemTime, UNIX_EPOCH},
 };
+
+static NEXT_TEMP_DIR_ID: AtomicU64 = AtomicU64::new(0);
 
 #[test]
 fn preserves_source_indexes_when_playlist_tracks_are_missing() {
@@ -299,5 +302,6 @@ fn unique_temp_dir() -> PathBuf {
         .duration_since(UNIX_EPOCH)
         .expect("system clock after unix epoch")
         .as_nanos();
-    std::env::temp_dir().join(format!("musical-library-test-{nanos}"))
+    let sequence = NEXT_TEMP_DIR_ID.fetch_add(1, Ordering::Relaxed);
+    std::env::temp_dir().join(format!("musical-library-test-{nanos}-{sequence}"))
 }

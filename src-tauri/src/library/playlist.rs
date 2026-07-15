@@ -18,6 +18,7 @@ use super::{
     RenamePlaylistRequest, ReorderPlaylistTrackRequest, TrackRecord, M3U_EXTENSIONS,
     PLAYLIST_EXTENSION, PLS_EXTENSION,
 };
+use crate::atomic_file;
 
 static PLAYLIST_MUTATION_LOCK: Mutex<()> = Mutex::new(());
 
@@ -187,7 +188,7 @@ pub fn delete_playlist(
         .unwrap_or_default()
         .to_owned();
 
-    let _ = fs::remove_file(&playlist_path);
+    fs::remove_file(&playlist_path).map_err(to_error_string)?;
     if let Some(parent) = playlist_path.parent() {
         for extension in ["jpg", "jpeg", "png", "gif", "bmp", "tif", "tiff"] {
             let artwork_path = parent.join(format!("{playlist_stem}.{extension}"));
@@ -275,16 +276,17 @@ pub(super) fn update_playlist_artwork_file(
         .ok_or_else(|| format!("library.error.playlistNotFound\t{}", request.playlist_id))?;
     let artwork_path = playlist_path.with_file_name(format!("{playlist_stem}.{extension}"));
 
-    if let Some(previous_artwork_path) = playlist_file.artwork_path.as_deref() {
+    let previous_artwork_path = playlist_file.artwork_path.clone();
+
+    fs::write(&artwork_path, artwork_bytes).map_err(to_error_string)?;
+    playlist_file.artwork_path = Some(artwork_path.to_string_lossy().into_owned());
+    write_playlist_file(&playlist_path, &playlist_file)?;
+    if let Some(previous_artwork_path) = previous_artwork_path.as_deref() {
         let previous_path = Path::new(previous_artwork_path);
         if previous_path != artwork_path && previous_path.parent() == artwork_path.parent() {
             let _ = fs::remove_file(previous_path);
         }
     }
-
-    fs::write(&artwork_path, artwork_bytes).map_err(to_error_string)?;
-    playlist_file.artwork_path = Some(artwork_path.to_string_lossy().into_owned());
-    write_playlist_file(&playlist_path, &playlist_file)?;
 
     Ok(PlaylistArtworkUpdateResult {
         playlist_id: playlist_file.id,
@@ -316,19 +318,7 @@ pub(super) fn read_mplaylist_file(path: &Path) -> Result<PlaylistFile, String> {
 
 pub(super) fn write_playlist_file(path: &Path, playlist_file: &PlaylistFile) -> Result<(), String> {
     let bytes = serde_json::to_vec_pretty(playlist_file).map_err(to_error_string)?;
-    let file_name = path
-        .file_name()
-        .and_then(|name| name.to_str())
-        .ok_or_else(|| "library.error.invalidPlaylistPath".to_owned())?;
-    let temporary_path =
-        path.with_file_name(format!(".{file_name}.{}.tmp", unix_timestamp_millis()?));
-
-    fs::write(&temporary_path, bytes).map_err(to_error_string)?;
-    if let Err(error) = fs::rename(&temporary_path, path) {
-        let _ = fs::remove_file(&temporary_path);
-        return Err(to_error_string(error));
-    }
-    Ok(())
+    atomic_file::write(path, &bytes).map_err(to_error_string)
 }
 
 pub(super) fn playlist_file_path_for_id(

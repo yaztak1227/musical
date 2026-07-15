@@ -1,6 +1,7 @@
 pub const LOCAL_SERVER_ADDR: &str = "0.0.0.0:1422";
 pub const LOCAL_SERVER_PORT: u16 = 1422;
 pub const MAX_REMOTE_COMMANDS: usize = 200;
+pub const MAX_REQUEST_BODY_BYTES: usize = 1024 * 1024;
 pub const RESPONSE_WRITE_CHUNK_SIZE: usize = 16 * 1024;
 
 pub const AUDIO_ANALYSIS_BUCKETS: usize = 256;

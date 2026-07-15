@@ -1,8 +1,10 @@
+use crate::atomic_file;
 use serde::{Deserialize, Serialize};
-use std::fs;
+use std::{fs, sync::Mutex};
 use tauri::{AppHandle, Manager};
 
 const SETTINGS_FILE_NAME: &str = "settings.json";
+static SETTINGS_LOCK: Mutex<()> = Mutex::new(());
 
 #[derive(Debug, Default, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -12,6 +14,11 @@ pub struct AppSettings {
 }
 
 pub fn load(app: &AppHandle) -> Result<AppSettings, String> {
+    let _guard = SETTINGS_LOCK.lock().map_err(|error| error.to_string())?;
+    load_unlocked(app)
+}
+
+fn load_unlocked(app: &AppHandle) -> Result<AppSettings, String> {
     let path = settings_path(app)?;
     if !path.exists() {
         return Ok(AppSettings::default());
@@ -26,7 +33,18 @@ pub fn load(app: &AppHandle) -> Result<AppSettings, String> {
     Ok(settings)
 }
 
-pub fn save(app: &AppHandle, settings: &AppSettings) -> Result<(), String> {
+pub fn update(
+    app: &AppHandle,
+    update_settings: impl FnOnce(&mut AppSettings),
+) -> Result<AppSettings, String> {
+    let _guard = SETTINGS_LOCK.lock().map_err(|error| error.to_string())?;
+    let mut settings = load_unlocked(app)?;
+    update_settings(&mut settings);
+    save_unlocked(app, &settings)?;
+    Ok(settings)
+}
+
+fn save_unlocked(app: &AppHandle, settings: &AppSettings) -> Result<(), String> {
     let path = settings_path(app)?;
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent).map_err(|error| error.to_string())?;
@@ -41,7 +59,7 @@ pub fn save(app: &AppHandle, settings: &AppSettings) -> Result<(), String> {
     };
     let settings_text =
         serde_json::to_string_pretty(&settings).map_err(|error| error.to_string())?;
-    fs::write(path, settings_text).map_err(|error| error.to_string())
+    atomic_file::write(&path, settings_text.as_bytes()).map_err(|error| error.to_string())
 }
 
 fn settings_path(app: &AppHandle) -> Result<std::path::PathBuf, String> {

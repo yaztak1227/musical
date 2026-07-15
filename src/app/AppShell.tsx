@@ -225,6 +225,7 @@ export function AppShell({ controller }: AppShellProps) {
       albumListMode,
       albums: filteredAlbums,
       albumViewMode,
+      isSidebarCollapsed,
       isPlaying,
       isTauriRuntime: hasRealBackend,
       lyricsOnly,

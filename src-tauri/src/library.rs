@@ -428,9 +428,9 @@ pub fn scan_folder(app: &AppHandle, folder_path: &str) -> Result<ScanSummary, St
         &canonical_root,
         pending_albums.into_values().collect(),
     )?;
-    let mut settings = app_settings::load(app)?;
-    settings.last_library_path = Some(canonical_root.to_string_lossy().into_owned());
-    app_settings::save(app, &settings)?;
+    app_settings::update(app, |settings| {
+        settings.last_library_path = Some(canonical_root.to_string_lossy().into_owned());
+    })?;
 
     emit_library_scan_progress(
         app,

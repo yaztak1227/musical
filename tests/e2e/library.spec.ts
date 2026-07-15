@@ -1,4 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
+import { captureScatteredAngularEnergy, scatteredFrequencyIndexAt } from "../../src/lib/starfieldWebgl";
 
 async function clickFirstAlbumPlayButton(page: Page) {
   await page.locator(".album-card").first().hover();
@@ -12,7 +13,16 @@ async function playTrackFromTrackTable(page: Page, trackTitle: string) {
 }
 
 async function visualizerCanvasSignature(page: Page) {
-  return page.locator(".visualizer-canvas").evaluate((canvasElement) => {
+  const activeWebglCanvas = page.locator(".visualizer-aurora-canvas.active, .visualizer-starfield-canvas.active");
+  if (await activeWebglCanvas.count()) {
+    const screenshot = await activeWebglCanvas.screenshot();
+    let hash = 0;
+    const stride = Math.max(1, Math.floor(screenshot.length / 2400));
+    for (let index = 0; index < screenshot.length; index += stride) hash = (hash * 31 + (screenshot[index] ?? 0)) >>> 0;
+    return { changedPixels: screenshot.length, hash };
+  }
+
+  return page.locator(".visualizer-canvas:not(.visualizer-aurora-canvas):not(.visualizer-starfield-canvas)").evaluate((canvasElement) => {
     const canvas = canvasElement as HTMLCanvasElement;
     const context = canvas.getContext("2d");
     if (!context || canvas.width === 0 || canvas.height === 0) return { changedPixels: 0, hash: 0 };
@@ -32,11 +42,28 @@ async function visualizerCanvasSignature(page: Page) {
   });
 }
 
+async function visualizerCompositeSignature(page: Page) {
+  const screenshot = await page.getByRole("dialog", { name: "Player visualizer" }).screenshot({ animations: "disabled" });
+  let hash = 0;
+  for (let index = 0; index < screenshot.length; index += 1) {
+    hash = (hash * 31 + (screenshot[index] ?? 0)) >>> 0;
+  }
+  return hash;
+}
+
 test("filters albums, selects a track, and opens track details", async ({ page }) => {
   await page.addInitScript(() => window.localStorage.setItem("musical.locale", "en"));
   await page.goto("/");
 
   await expect(page.getByText("13 albums")).toBeVisible();
+  const initialAlbumCards = page.locator(".album-grid.large .album-card");
+  await expect(initialAlbumCards).toHaveCount(13);
+  const initialCardLabels = await initialAlbumCards.allTextContents();
+  expect(new Set(initialCardLabels).size).toBe(initialCardLabels.length);
+  await expect(initialAlbumCards.first()).toHaveAttribute("data-album-index-row", "0");
+  await expect
+    .poll(() => initialAlbumCards.evaluateAll((cards) => cards.every((card) => card.hasAttribute("data-album-index-row"))))
+    .toBe(true);
   await expect(page.getByRole("region", { name: "Album library" }).getByRole("button", { name: /Midnight Transit/ })).toBeVisible();
   await expect(page.getByRole("tab", { name: "Large icons" })).toBeVisible();
   await expect(page.getByRole("region", { name: "Selected album" }).getByRole("button", { name: "Station Lights", exact: true })).toBeVisible();
@@ -97,6 +124,88 @@ test("filters albums, selects a track, and opens track details", async ({ page }
   await expect(page.getByRole("tab", { name: "Info" })).toBeVisible();
   await page.getByRole("tab", { name: "Lyrics" }).click();
   await expect(page.getByText("No lyrics are saved in this track.")).toBeVisible();
+});
+
+test("reflows large album cards when the library panel opens and closes", async ({ page }) => {
+  await page.addInitScript(() => {
+    window.localStorage.setItem("musical.locale", "en");
+    window.localStorage.setItem("musical.sidebarCollapsed", "true");
+  });
+  await page.setViewportSize({ width: 1180, height: 760 });
+  await page.goto("/");
+
+  const albumGrid = page.locator(".album-grid.large");
+  const albumCards = albumGrid.locator(".album-card");
+  const firstCard = albumCards.first();
+  const cardPartsHaveStableSpacing = () =>
+    albumCards.evaluateAll((cards) =>
+      cards.every((card) => {
+        const cardRect = card.getBoundingClientRect();
+        const cover = card.querySelector<HTMLElement>(".album-cover-wrap")?.getBoundingClientRect();
+        const title = card.querySelector<HTMLElement>(".album-card-title")?.getBoundingClientRect();
+        const meta = card.querySelector<HTMLElement>(".album-card-meta")?.getBoundingClientRect();
+        if (!cover || !title || !meta) return false;
+        const coverToTitleGap = title.top - cover.bottom;
+        const titleToMetaGap = meta.top - title.bottom;
+        const expectedMaximumHeight = cover.height + title.height + meta.height + 56;
+        return (
+          coverToTitleGap >= 0 &&
+          coverToTitleGap <= 12 &&
+          titleToMetaGap >= 0 &&
+          titleToMetaGap <= 12 &&
+          cardRect.height <= expectedMaximumHeight
+        );
+      }),
+    );
+
+  await expect(albumGrid).toHaveCSS("grid-template-columns", /\S+ \S+ \S+ \S+/);
+  await expect.poll(cardPartsHaveStableSpacing).toBe(true);
+  await expect(firstCard).toHaveAttribute("data-album-index-row", "0");
+
+  const fontLayout = await firstCard.evaluate(async (card) => {
+    const readGeometry = () => {
+      const cardRect = card.getBoundingClientRect();
+      const titleRect = card.querySelector<HTMLElement>(".album-card-title")?.getBoundingClientRect();
+      return {
+        cardHeight: cardRect.height,
+        titleTop: titleRect?.top ?? 0,
+      };
+    };
+    const before = readGeometry();
+    await document.fonts.ready;
+    const after = readGeometry();
+    return {
+      after,
+      before,
+      fontFamily: getComputedStyle(card).fontFamily,
+    };
+  });
+  expect(fontLayout.fontFamily).toMatch(/Inter|system-ui|-apple-system|sans-serif/);
+  expect(Math.abs(fontLayout.after.cardHeight - fontLayout.before.cardHeight)).toBeLessThan(1);
+  expect(Math.abs(fontLayout.after.titleTop - fontLayout.before.titleTop)).toBeLessThan(1);
+
+  for (let cycle = 0; cycle < 2; cycle += 1) {
+    await page.getByRole("button", { name: "Expand library panel" }).click();
+    await expect(albumGrid).toHaveCSS("grid-template-columns", /\S+ \S+/);
+    await expect.poll(cardPartsHaveStableSpacing).toBe(true);
+    await expect(firstCard).toHaveAttribute("data-album-index-row", "0");
+
+    await page.getByRole("button", { name: "Collapse library panel" }).click();
+    await expect(albumGrid).toHaveCSS("grid-template-columns", /\S+ \S+ \S+ \S+/);
+    await expect.poll(cardPartsHaveStableSpacing).toBe(true);
+    await expect(firstCard).toHaveAttribute("data-album-index-row", "0");
+  }
+
+  for (const width of [1040, 1100, 1120, 1160, 1200, 1280]) {
+    await page.setViewportSize({ width, height: 760 });
+    await expect.poll(cardPartsHaveStableSpacing).toBe(true);
+
+    await page.getByRole("button", { name: "Expand library panel" }).click();
+    await expect.poll(cardPartsHaveStableSpacing).toBe(true);
+
+    await page.getByRole("button", { name: "Collapse library panel" }).click();
+    await expect.poll(cardPartsHaveStableSpacing).toBe(true);
+  }
 });
 
 test("switches the interface language", async ({ page }) => {
@@ -455,6 +564,7 @@ test("shows and toggles the player queue popover", async ({ page }) => {
 });
 
 test("renders animated mock audio analysis in player mode", async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 800 });
   await page.addInitScript(() => window.localStorage.setItem("musical.locale", "en"));
   await page.goto("/");
 
@@ -462,15 +572,135 @@ test("renders animated mock audio analysis in player mode", async ({ page }) => 
   await expect(page.getByLabel("Player").getByRole("button", { name: "Pause" })).toBeVisible();
   await page.getByLabel("Player").getByRole("button", { name: "Player mode" }).click();
   await expect(page.getByRole("dialog", { name: "Player visualizer" })).toBeVisible();
-  await expect(page.locator(".visualizer-canvas")).toBeVisible();
+  const closeButton = page.getByRole("button", { name: "Close player mode" });
+  await expect(closeButton).toHaveCSS("z-index", "5");
+  await closeButton.click();
+  await expect(page.getByRole("dialog", { name: "Player visualizer" })).not.toBeVisible();
+  await page.getByLabel("Player").getByRole("button", { name: "Player mode" }).click();
+  await expect(page.getByRole("dialog", { name: "Player visualizer" })).toBeVisible();
+  const visualizerCanvas = page.locator(".visualizer-canvas:not(.visualizer-aurora-canvas):not(.visualizer-starfield-canvas)");
+  await expect(visualizerCanvas).toBeVisible();
+  await expect(visualizerCanvas).toHaveCSS("z-index", "2");
+  await expect(visualizerCanvas).toHaveCSS("pointer-events", "none");
+
+  const visualizerStage = page.locator(".visualizer-stage");
+  const visualizerControls = page.locator(".visualizer-controls");
+  const visualizerSettings = page.locator(".visualizer-settings");
+  const transportControls = page.locator(".visualizer-transport-controls");
+  const modeSwitch = page.getByRole("group", { name: "Visualizer mode" });
+  const paletteSwitch = page.getByRole("group", { name: "Colors" });
+  const settingsArrow = page.locator(".visualizer-settings-arrow");
+  const [stageBox, canvasBox, controlsBox, settingsBox, transportBox] = await Promise.all([
+    visualizerStage.boundingBox(),
+    visualizerCanvas.boundingBox(),
+    visualizerControls.boundingBox(),
+    visualizerSettings.boundingBox(),
+    transportControls.boundingBox(),
+  ]);
+  expect(stageBox).not.toBeNull();
+  expect(canvasBox).not.toBeNull();
+  expect(controlsBox).not.toBeNull();
+  expect(settingsBox).not.toBeNull();
+  expect(transportBox).not.toBeNull();
+  expect((canvasBox?.y ?? 0) + (canvasBox?.height ?? 0)).toBeLessThanOrEqual((controlsBox?.y ?? 0) + 1);
+  expect((stageBox?.y ?? 0) + (stageBox?.height ?? 0)).toBeLessThanOrEqual((controlsBox?.y ?? 0) + 1);
+  expect((settingsBox?.y ?? 0) + (settingsBox?.height ?? 0)).toBeLessThanOrEqual(transportBox?.y ?? 0);
+  expect(stageBox?.height ?? 0).toBeGreaterThanOrEqual(660);
+  expect(controlsBox?.height ?? Number.POSITIVE_INFINITY).toBeLessThanOrEqual(140);
+  expect(settingsBox?.width ?? Number.POSITIVE_INFINITY).toBeLessThanOrEqual(600);
+  expect(await modeSwitch.evaluate((element) => getComputedStyle(element).gridTemplateColumns.split(" ").length)).toBe(9);
+  expect(await paletteSwitch.evaluate((element) => getComputedStyle(element).gridTemplateColumns.split(" ").length)).toBe(4);
+  await expect(modeSwitch.getByRole("button")).toHaveCount(9);
+  await expect(paletteSwitch.getByRole("button")).toHaveCount(4);
+  await expect(settingsArrow).toBeVisible();
+  expect(await modeSwitch.getByRole("button").allTextContents()).toEqual(Array(9).fill(""));
+  expect(await paletteSwitch.getByRole("button").allTextContents()).toEqual(Array(4).fill(""));
+
+  await page.setViewportSize({ width: 900, height: 700 });
+  const [mediumStageBox, mediumCanvasBox, mediumControlsBox, mediumSettingsBox, mediumTransportBox] = await Promise.all([
+    visualizerStage.boundingBox(),
+    visualizerCanvas.boundingBox(),
+    visualizerControls.boundingBox(),
+    visualizerSettings.boundingBox(),
+    transportControls.boundingBox(),
+  ]);
+  expect((mediumCanvasBox?.y ?? 0) + (mediumCanvasBox?.height ?? 0)).toBeLessThanOrEqual((mediumControlsBox?.y ?? 0) + 1);
+  expect((mediumStageBox?.y ?? 0) + (mediumStageBox?.height ?? 0)).toBeLessThanOrEqual((mediumControlsBox?.y ?? 0) + 1);
+  expect((mediumSettingsBox?.y ?? 0) + (mediumSettingsBox?.height ?? 0)).toBeLessThanOrEqual(mediumTransportBox?.y ?? 0);
+  expect(mediumStageBox?.height ?? 0).toBeGreaterThanOrEqual(560);
+  expect(mediumControlsBox?.height ?? Number.POSITIVE_INFINITY).toBeLessThanOrEqual(140);
+
+  await page.setViewportSize({ width: 1280, height: 800 });
+
+  await page.addStyleTag({
+    content: ".visualizer-content, .visualizer-controls, .visualizer-close-button { visibility: hidden !important; }",
+  });
 
   await page.waitForTimeout(450);
   const firstSignature = await visualizerCanvasSignature(page);
+  const firstCompositeSignature = await visualizerCompositeSignature(page);
   await page.waitForTimeout(700);
   const secondSignature = await visualizerCanvasSignature(page);
+  const secondCompositeSignature = await visualizerCompositeSignature(page);
 
   expect(firstSignature.changedPixels).toBeGreaterThan(0);
   expect(secondSignature.hash).not.toBe(firstSignature.hash);
+  expect(secondCompositeSignature).not.toBe(firstCompositeSignature);
+});
+
+test("scatters adjacent starfield frequency buckets across angular sectors", () => {
+  const order = Array.from({ length: 6 }, (_, position) => scatteredFrequencyIndexAt(position, 100));
+  expect(order).toEqual([0, 32, 64, 1, 33, 65]);
+
+  const values = new Uint8Array(96);
+  values[0] = 255;
+  values[1] = 255;
+  values[2] = 255;
+  const activeSectors = Array.from(captureScatteredAngularEnergy(values))
+    .map((energy, sector) => ({ energy, sector }))
+    .filter(({ energy }) => energy > 0)
+    .map(({ sector }) => sector);
+  expect(activeSectors).toEqual([0, 3, 6]);
+});
+
+test("switches every player visualizer mode and persists its color palette", async ({ page }) => {
+  await page.addInitScript(() => window.localStorage.setItem("musical.locale", "en"));
+  await page.goto("/");
+
+  await page.getByLabel("Player").getByRole("button", { name: "Play", exact: true }).click();
+  await page.getByLabel("Player").getByRole("button", { name: "Player mode" }).click();
+
+  const modeNames = ["Wave", "Spectrum", "Circle", "Peaks", "Aurora", "Starfield", "DNA Helix", "Flowing ink", "VU meters"];
+  const modeGroup = page.getByRole("group", { name: "Visualizer mode" });
+  await expect(modeGroup.getByRole("button", { name: "Chibi orchestra mode", exact: true })).toHaveCount(0);
+
+  for (const modeName of modeNames) {
+    const modeButton = page.getByRole("button", { name: modeName, exact: true });
+    await modeButton.click();
+    await expect(modeButton).toHaveAttribute("aria-pressed", "true");
+    await page.waitForTimeout(80);
+    const firstSignature = await visualizerCanvasSignature(page);
+    expect(firstSignature.changedPixels).toBeGreaterThan(0);
+    if (modeName === "Aurora" || modeName === "Starfield" || modeName === "DNA Helix") {
+      await page.waitForTimeout(180);
+      expect((await visualizerCanvasSignature(page)).hash).not.toBe(firstSignature.hash);
+    }
+  }
+
+  for (const paletteName of ["Original", "Theme", "Artwork", "Rainbow"]) {
+    const paletteButton = page.getByRole("button", { name: paletteName, exact: true });
+    await paletteButton.click();
+    await expect(paletteButton).toHaveAttribute("aria-pressed", "true");
+  }
+
+  await page.getByRole("button", { name: "Spectrum", exact: true }).click();
+  await page.getByRole("button", { name: "Chibi character mode", exact: true }).dblclick();
+  await expect(page.getByRole("button", { name: "Chibi orchestra mode", exact: true })).toBeVisible();
+  expect((await visualizerCanvasSignature(page)).changedPixels).toBeGreaterThan(0);
+  await page.getByRole("button", { name: "VU meters", exact: true }).click();
+
+  await expect.poll(() => page.evaluate(() => window.localStorage.getItem("musical.visualizerMode"))).toBe("vu");
+  await expect.poll(() => page.evaluate(() => window.localStorage.getItem("musical.visualizerPalette"))).toBe("rainbow");
 });
 
 test("collapses and expands the mobile album panel with vertical swipes", async ({ page }) => {

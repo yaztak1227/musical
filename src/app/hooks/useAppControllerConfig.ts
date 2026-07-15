@@ -18,6 +18,7 @@ export const {
   durationPaddingSeconds: remoteAudioAnalysisDurationPaddingSeconds,
   fallbackDurationSeconds: remoteAudioAnalysisFallbackDurationSeconds,
   maxCachedPackets: remoteAudioAnalysisMaxCachedPackets,
+  retryDelaysMs: remoteAudioAnalysisRetryDelaysMs,
 } = remoteAudioAnalysisConfig;
 export const {
   clockSnapThresholdSeconds: remotePlaybackClockSnapThresholdSeconds,
