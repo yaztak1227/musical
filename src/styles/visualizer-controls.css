@@ -16,6 +16,10 @@
   flex: 0 0 auto;
 }
 
+.visualizer-mode-glyph {
+  overflow: visible;
+}
+
 .visualizer-mode-button:hover,
 .visualizer-mode-button.active {
   border-color: rgba(255, 255, 255, 0.72);

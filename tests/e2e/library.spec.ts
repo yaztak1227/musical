@@ -1,4 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
+import { resolveAuroraVisualProfile } from "../../src/lib/auroraWebgl";
 import { captureScatteredAngularEnergy, scatteredFrequencyIndexAt } from "../../src/lib/starfieldWebgl";
 
 async function clickFirstAlbumPlayButton(page: Page) {
@@ -663,7 +664,31 @@ test("scatters adjacent starfield frequency buckets across angular sectors", () 
   expect(activeSectors).toEqual([0, 3, 6]);
 });
 
+test("uses the mist profile only for original and artwork aurora palettes", () => {
+  expect(resolveAuroraVisualProfile("original")).toBe("mist");
+  expect(resolveAuroraVisualProfile("artwork")).toBe("mist");
+  expect(resolveAuroraVisualProfile("theme")).toBe("standard");
+  expect(resolveAuroraVisualProfile("rainbow")).toBe("rainbow");
+});
+
 test("switches every player visualizer mode and persists its color palette", async ({ page }) => {
+  test.setTimeout(45_000);
+  await page.addInitScript(() => {
+    const clearCountWindow = window as Window & { __musicalBaseVisualizerClearCount?: number };
+    const originalClearRect = CanvasRenderingContext2D.prototype.clearRect;
+    clearCountWindow.__musicalBaseVisualizerClearCount = 0;
+    CanvasRenderingContext2D.prototype.clearRect = function clearRect(x, y, width, height) {
+      const canvas = this.canvas;
+      if (
+        canvas.classList.contains("visualizer-canvas")
+        && !canvas.classList.contains("visualizer-aurora-canvas")
+        && !canvas.classList.contains("visualizer-starfield-canvas")
+      ) {
+        clearCountWindow.__musicalBaseVisualizerClearCount = (clearCountWindow.__musicalBaseVisualizerClearCount ?? 0) + 1;
+      }
+      originalClearRect.call(this, x, y, width, height);
+    };
+  });
   await page.addInitScript(() => window.localStorage.setItem("musical.locale", "en"));
   await page.goto("/");
 
@@ -673,6 +698,8 @@ test("switches every player visualizer mode and persists its color palette", asy
   const modeNames = ["Wave", "Spectrum", "Circle", "Peaks", "Aurora", "Starfield", "DNA Helix", "Flowing ink", "VU meters"];
   const modeGroup = page.getByRole("group", { name: "Visualizer mode" });
   await expect(modeGroup.getByRole("button", { name: "Chibi orchestra mode", exact: true })).toHaveCount(0);
+  await expect(modeGroup.locator("svg.visualizer-mode-glyph")).toHaveCount(9);
+  await expect(page.getByRole("button", { name: "Artwork", exact: true }).locator("svg.visualizer-palette-artwork-icon")).toHaveCount(1);
 
   for (const modeName of modeNames) {
     const modeButton = page.getByRole("button", { name: modeName, exact: true });
@@ -682,15 +709,26 @@ test("switches every player visualizer mode and persists its color palette", asy
     const firstSignature = await visualizerCanvasSignature(page);
     expect(firstSignature.changedPixels).toBeGreaterThan(0);
     if (modeName === "Aurora" || modeName === "Starfield" || modeName === "DNA Helix") {
+      const baseCanvasClearCount = await page.evaluate(() => (window as Window & { __musicalBaseVisualizerClearCount?: number }).__musicalBaseVisualizerClearCount ?? 0);
       await page.waitForTimeout(180);
       expect((await visualizerCanvasSignature(page)).hash).not.toBe(firstSignature.hash);
+      if (modeName === "Aurora" || modeName === "Starfield") {
+        expect(await page.evaluate(() => (window as Window & { __musicalBaseVisualizerClearCount?: number }).__musicalBaseVisualizerClearCount ?? 0)).toBe(baseCanvasClearCount);
+      }
     }
   }
 
+  await page.getByRole("button", { name: "Aurora", exact: true }).click();
   for (const paletteName of ["Original", "Theme", "Artwork", "Rainbow"]) {
     const paletteButton = page.getByRole("button", { name: paletteName, exact: true });
     await paletteButton.click();
     await expect(paletteButton).toHaveAttribute("aria-pressed", "true");
+    const auroraCanvasSize = await page.locator(".visualizer-aurora-canvas.active").evaluate((canvasElement) => {
+      const canvas = canvasElement as HTMLCanvasElement;
+      return { height: canvas.height, width: canvas.width };
+    });
+    expect(auroraCanvasSize.width).toBeGreaterThan(0);
+    expect(auroraCanvasSize.height).toBeGreaterThan(0);
   }
 
   await page.getByRole("button", { name: "Spectrum", exact: true }).click();

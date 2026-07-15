@@ -1,5 +1,5 @@
-import { type CSSProperties, type MouseEvent, type PointerEvent, type RefObject, useEffect, useRef, useState } from "react";
-import { ArrowRight, ChevronLeft, ChevronRight, CircleDot, Dna, Droplets, Gauge, Mountain, Pause, Play, RadioTower, Sparkles, Stars, Waves, X } from "lucide-react";
+import { type CSSProperties, type MouseEvent, type PointerEvent, type RefObject, useEffect, useMemo, useRef, useState } from "react";
+import { ArrowRight, ChevronLeft, ChevronRight, Pause, Play, Sparkles, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import chibiCatHoodieBoyHandsDownSrc from "@/assets/chibi-cat-hoodie-boy-hands-down.png";
 import chibiCatHoodieBoyHandsUpSrc from "@/assets/chibi-cat-hoodie-boy-hands-up.png";
@@ -77,7 +77,7 @@ import type { Album, EntityId, Track } from "@/types/audio";
 import type { TFunction } from "@/types/app";
 import { chibiSpectrumConfig } from "@/config/appConfig";
 import { getAudioVisualizerNode } from "@/lib/audioAnalysis";
-import { AuroraWebGLVisualizer } from "@/lib/auroraWebgl";
+import { AuroraWebGLVisualizer, resolveAuroraVisualProfile, type AuroraVisualProfile } from "@/lib/auroraWebgl";
 import { getArtworkSrc, localizeLibraryText } from "@/lib/libraryUtils";
 import { prepareMarquee } from "@/lib/marqueeUtils";
 import { captureScatteredAngularEnergy, warpAngularSectorCount, WarpStarfieldWebGLVisualizer } from "@/lib/starfieldWebgl";
@@ -103,6 +103,58 @@ type ChibiCharacterSource = {
 };
 type ChibiSpectrumPose = "raised" | "swing" | "impact" | "collapsed";
 type ChibiSpectrumImages = Record<ChibiSpectrumPose, HTMLImageElement | null>;
+
+function VisualizerModeIcon({ mode }: { mode: VisualizerMode }) {
+  const sharedProps = {
+    "aria-hidden": true,
+    className: "visualizer-mode-glyph",
+    fill: "none",
+    stroke: "currentColor",
+    strokeLinecap: "round" as const,
+    strokeLinejoin: "round" as const,
+    strokeWidth: 1.7,
+    viewBox: "0 0 24 24",
+  };
+
+  if (mode === "wave") {
+    return <svg {...sharedProps}><path d="M3 8.5c2.2-2.7 4.3-2.7 6.4 0s4.3 2.7 6.4 0 3.9-2.5 5.2-.8" /><path d="M3 15.5c2.2-2.7 4.3-2.7 6.4 0s4.3 2.7 6.4 0 3.9-2.5 5.2-.8" opacity=".7" /></svg>;
+  }
+  if (mode === "spectrum") {
+    return <svg {...sharedProps}><path d="M4 18v-5M8 18V9m4 9V5m4 13v-7m4 7v-3" /><path d="M3 20h18" opacity=".55" /></svg>;
+  }
+  if (mode === "circle") {
+    return <svg {...sharedProps}><circle cx="12" cy="12" r="7.5" /><circle cx="12" cy="12" r="2" /><path d="M12 2.5v3M21.5 12h-3M12 21.5v-3M2.5 12h3M5.3 5.3l2.1 2.1M18.7 5.3l-2.1 2.1M18.7 18.7l-2.1-2.1M5.3 18.7l2.1-2.1" opacity=".72" /></svg>;
+  }
+  if (mode === "mountains") {
+    return <svg {...sharedProps}><path d="M2.5 19 8.2 8.5l3.1 5 2.8-4.2L21.5 19Z" /><path d="m6.5 11.7 1.7 1.7 1.5-1.5M12.6 11.5l1.5 1.6 1.7-1.8" opacity=".7" /></svg>;
+  }
+  if (mode === "aurora") {
+    return <svg {...sharedProps}><path d="M3 6.5c3.2-2.6 5.8 1.8 9-.3s5.7 1.3 9-.6" /><path d="M5.2 6.2c-1.4 4.3 1.6 7.6-.7 12.1M10.1 6.8c-1.7 3.7 1.9 7.7-.5 12M15.1 6.2c-1.4 4.4 1.8 7.9-.3 12.3M19.4 6.1c-1.1 3.8 1.2 7.2-.8 11.2" opacity=".82" /></svg>;
+  }
+  if (mode === "starfield") {
+    return <svg {...sharedProps}><circle cx="12" cy="12" r="1.35" fill="currentColor" stroke="none" /><path d="m10 10-6.5-5M14 10l5-6.5M14 14l6.5 5M10 14l-5 6.5M8.6 12H2.5M15.4 12h6.1M12 8.6V2.5M12 15.4v6.1" /><path d="m6.7 7.2-2.3-.8m12.9 10.4 2.4.8M17 7l1.5-2.1" opacity=".58" /></svg>;
+  }
+  if (mode === "tunnel") {
+    return <svg {...sharedProps}><path d="M7 3c7 3.1 7 14.9 0 18M17 3c-7 3.1-7 14.9 0 18" /><path d="M8.4 6h7.2M7.1 10h9.8M7.1 14h9.8M8.4 18h7.2" opacity=".7" /></svg>;
+  }
+  if (mode === "ink") {
+    return <svg {...sharedProps}><path d="M4 14.2c1.3-5.9 10.2-7.6 13.8-3.1 2.8 3.6-.6 8.4-4.8 7.1-3.1-1-2.7-5.3.3-5.7 2-.2 2.8 2.1 1.2 3.1" /><path d="M6.3 7.2c-.9-1.6.1-3.2 1.2-4.5 1.1 1.3 2.1 2.9 1.2 4.5-.5.9-1.9.9-2.4 0Z" opacity=".72" /></svg>;
+  }
+  return <svg {...sharedProps}><path d="M3 17a6 6 0 0 1 12 0M13 17a4 4 0 0 1 8 0" /><path d="m9 15 2.7-3.4M17 16l1.7-2.2" /><path d="M3 20h18" opacity=".55" /></svg>;
+}
+
+function ArtworkPaletteIcon() {
+  return (
+    <svg aria-hidden="true" className="visualizer-palette-artwork-icon" viewBox="0 0 24 24">
+      <rect x="3" y="3" width="18" height="13" rx="2.5" />
+      <circle cx="8" cy="8" r="1.5" />
+      <path d="m5.5 14 4-4 3.1 3 2.5-2.2 3.4 3.2" />
+      <circle className="artwork-color-dot cyan" cx="7" cy="20" r="2" />
+      <circle className="artwork-color-dot violet" cx="12" cy="20" r="2" />
+      <circle className="artwork-color-dot rose" cx="17" cy="20" r="2" />
+    </svg>
+  );
+}
 type ChibiSpectrumSource = Record<ChibiSpectrumPose, string>;
 type ChibiSpectrumMotionState = {
   collapsedUntil: Float64Array;
@@ -506,6 +558,21 @@ function estimateRemotePlaybackTime(clock: RemotePlaybackClock | null) {
   return Math.max(0, clock.currentTime + elapsed);
 }
 
+function findFirstTimecodeAtOrAfter(frameTimecodes: readonly number[], currentTime: number) {
+  // Remote analysis packets keep timecodes sorted, so this matches findIndex's first >= result.
+  let lowerIndex = 0;
+  let upperIndex = frameTimecodes.length;
+
+  while (lowerIndex < upperIndex) {
+    const middleIndex = Math.floor((lowerIndex + upperIndex) / 2);
+    const timecode = frameTimecodes[middleIndex];
+    if (timecode !== undefined && timecode >= currentTime) upperIndex = middleIndex;
+    else lowerIndex = middleIndex + 1;
+  }
+
+  return lowerIndex < frameTimecodes.length ? lowerIndex : -1;
+}
+
 function copyRemoteAnalysisFrame(
   packet: RemoteAudioAnalysisPacket,
   time: number,
@@ -526,7 +593,7 @@ function copyRemoteAnalysisFrame(
   let blend = 0;
 
   if (frameTimecodes.length === frameCount) {
-    let upperIndex = frameTimecodes.findIndex((timecode) => timecode >= currentTime);
+    let upperIndex = findFirstTimecodeAtOrAfter(frameTimecodes, currentTime);
     if (upperIndex < 0) upperIndex = frameCount - 1;
     secondFrameIndex = upperIndex;
     firstFrameIndex = Math.max(0, upperIndex - 1);
@@ -1338,8 +1405,10 @@ function drawAurora(
   reducedMotion: boolean,
   timeline: AuroraTimelineState,
   shouldCapture: boolean,
-  isRainbow: boolean,
+  profile: AuroraVisualProfile,
 ) {
+  const isRainbow = profile === "rainbow";
+  const isMist = profile === "mist";
   updateAuroraTimeline(timeline, values, time, shouldCapture, reducedMotion);
   const frames = timeline.frames;
   if (frames.length === 0) return;
@@ -1358,7 +1427,7 @@ function drawAurora(
     const historyProgress = historyIndex / Math.max(1, visibleFrames.length - 1);
     const historyAlpha = isRainbow
       ? (0.025 + historyProgress * 0.105) * 1.2
-      : (0.035 + historyProgress * 0.14) * 1.18;
+      : (0.035 + historyProgress * 0.14) * 1.18 * (isMist ? 0.68 : 1);
     const historyOffset = (1 - historyProgress) * height * 0.048;
     const points = Array.from({ length: filamentCount + 1 }, (_, index) => {
       const progress = index / filamentCount;
@@ -1380,7 +1449,9 @@ function drawAurora(
       const progress = stop / auroraBandCount;
       sheetGradient.addColorStop(progress, rgba(auroraGradientColor(palette, progress), historyAlpha));
     }
-    context.filter = reducedMotion ? "blur(8px)" : `blur(${6 + (1 - historyProgress) * 10}px)`;
+    context.filter = reducedMotion
+      ? `blur(${isMist ? 11 : 8}px)`
+      : `blur(${(isMist ? 10 : 6) + (1 - historyProgress) * (isMist ? 14 : 10)}px)`;
     context.fillStyle = sheetGradient;
     context.beginPath();
     points.forEach((point, index) => {
@@ -1399,8 +1470,9 @@ function drawAurora(
       points.forEach((point, index) => {
         if (index === points.length - 1) return;
         const fold = 0.24 + Math.pow((Math.sin(point.progress * Math.PI * 17 - motionTime * 1.4 + historyIndex) + 1) * 0.5, 2) * 0.76;
-        const color = mixVisualizerColors(auroraGradientColor(palette, point.progress), [255, 255, 255], point.energy * 0.12 + fold * 0.08);
-        const alpha = historyAlpha * (0.58 + point.energy * 1.65) * (0.48 + fold * 1.12);
+        const whiteMix = (point.energy * 0.12 + fold * 0.08) * (isMist ? 0.18 : 1);
+        const color = mixVisualizerColors(auroraGradientColor(palette, point.progress), [255, 255, 255], whiteMix);
+        const alpha = historyAlpha * (0.58 + point.energy * 1.65) * (0.48 + fold * 1.12) * (isMist ? 0.7 : 1);
         const strokeGradient = context.createLinearGradient(0, point.ridgeY, 0, point.bottomY);
         strokeGradient.addColorStop(0, rgba(color, alpha * 0.32));
         strokeGradient.addColorStop(0.12, rgba(color, alpha));
@@ -1408,7 +1480,9 @@ function drawAurora(
         strokeGradient.addColorStop(0.9, rgba(color, alpha * 0.18));
         strokeGradient.addColorStop(1, rgba(color, 0));
         const lowerSway = Math.sin(point.progress * Math.PI * 7.4 - motionTime * 1.8 + historyIndex * 0.3) * width * (0.008 + point.energy * 0.016);
-        context.filter = reducedMotion ? "blur(1.5px)" : `blur(${0.7 + (1 - historyProgress) * 3.5}px)`;
+        context.filter = reducedMotion
+          ? `blur(${isMist ? 2.5 : 1.5}px)`
+          : `blur(${(isMist ? 1.4 : 0.7) + (1 - historyProgress) * (isMist ? 4.5 : 3.5)}px)`;
         context.strokeStyle = strokeGradient;
         context.lineWidth = 0.38 + point.energy * 1.45 + fold * 0.9;
         context.beginPath();
@@ -1442,8 +1516,8 @@ function drawAurora(
         });
         context.stroke();
       };
-      drawRidge(0.34, reducedMotion ? 3 : 7, Math.max(3, Math.min(width, height) * 0.008));
-      drawRidge(0.68, reducedMotion ? 0.8 : 1.4, Math.max(0.9, Math.min(width, height) * 0.0018));
+      drawRidge(isMist ? 0.18 : 0.34, reducedMotion ? (isMist ? 5 : 3) : (isMist ? 10 : 7), Math.max(3, Math.min(width, height) * 0.008));
+      drawRidge(isMist ? 0.34 : 0.68, reducedMotion ? (isMist ? 1.6 : 0.8) : (isMist ? 2.4 : 1.4), Math.max(0.9, Math.min(width, height) * 0.0018));
     }
   });
 
@@ -1863,6 +1937,13 @@ export function PlayerVisualizerOverlay({
   const artworkSrc = currentAlbum ? getArtworkSrc(currentAlbum) : "";
   const lyricLines = currentLyrics ? currentLyrics.replace(/\r\n/g, "\n").split("\n") : [];
   const isVisualizerLive = isPlaying && (hasAudioAnalysis || preferRemoteAudioAnalysis || Boolean(audioAnalysisPacketRef.current?.frames.length));
+  // The live loop reads image refs directly; only an idle one-shot needs an image-load refresh.
+  const idleCharacterImageVersion = isVisualizerLive ? 0 : characterImageVersion;
+  const auroraVisualizerPalette = useMemo(
+    () => getAuroraVisualizerPalette(visualizerPalette, paletteMode),
+    [paletteMode, visualizerPalette],
+  );
+  const auroraVisualProfile = resolveAuroraVisualProfile(paletteMode);
   const overlayStyle = artworkSrc
     ? ({ "--visualizer-artwork": `url("${artworkSrc.replace(/"/g, '\\"')}")` } as CSSProperties)
     : undefined;
@@ -2165,10 +2246,22 @@ export function PlayerVisualizerOverlay({
     const smoothedFrequencyValues = new Uint8Array(256);
     const visualFrequencyValues = new Uint8Array(256);
     const spectrumPeakValues = new Float32Array(48);
+    const auroraWebglVisualizer = mode === "aurora" ? auroraWebglVisualizerRef.current : null;
+    const starfieldWebglVisualizer = mode === "starfield" ? starfieldWebglVisualizerRef.current : null;
+    const usesDedicatedWebglCanvas = Boolean(auroraWebglVisualizer || starfieldWebglVisualizer);
+
+    // Remove the previous 2D frame once, then leave the transparent base canvas untouched.
+    if (usesDedicatedWebglCanvas) {
+      drawingContext.save();
+      drawingContext.setTransform(1, 0, 0, 1, 0, 0);
+      drawingContext.clearRect(0, 0, canvasElement.width, canvasElement.height);
+      drawingContext.restore();
+    }
 
     const resizeObserver = new ResizeObserver(() => {
       rect = canvasElement.getBoundingClientRect();
       scale = Math.min(window.devicePixelRatio || 1, maxCanvasScale);
+      if (usesDedicatedWebglCanvas) return;
       const width = Math.max(1, Math.floor(rect.width * scale));
       const height = Math.max(1, Math.floor(rect.height * scale));
 
@@ -2181,6 +2274,15 @@ export function PlayerVisualizerOverlay({
     resizeObserver.observe(canvasElement);
 
     function drawSelectedVisualizer(values: Uint8Array, time: number, isIdle: boolean) {
+      if (auroraWebglVisualizer) {
+        auroraWebglVisualizer.render(values, time, auroraVisualizerPalette, reducedMotion, !isIdle, auroraVisualProfile);
+        return;
+      }
+      if (starfieldWebglVisualizer) {
+        starfieldWebglVisualizer.render(values, time, visualizerPalette, reducedMotion, !isIdle);
+        return;
+      }
+
       drawingContext.globalCompositeOperation = "source-over";
       const useOriginalColors = paletteMode === "original";
       if (isOrchestraModeEnabled) {
@@ -2211,18 +2313,9 @@ export function PlayerVisualizerOverlay({
       } else if (mode === "mountains") {
         drawMountains(drawingContext, values, rect.width, rect.height, time, visualizerPalette, reducedMotion);
       } else if (mode === "aurora") {
-        const auroraPalette = getAuroraVisualizerPalette(visualizerPalette, paletteMode);
-        if (auroraWebglVisualizerRef.current) {
-          auroraWebglVisualizerRef.current.render(values, time, auroraPalette, reducedMotion, !isIdle, paletteMode === "rainbow");
-        } else {
-          drawAurora(drawingContext, values, rect.width, rect.height, time, auroraPalette, reducedMotion, auroraTimelineRef.current, !isIdle, paletteMode === "rainbow");
-        }
+        drawAurora(drawingContext, values, rect.width, rect.height, time, auroraVisualizerPalette, reducedMotion, auroraTimelineRef.current, !isIdle, auroraVisualProfile);
       } else if (mode === "starfield") {
-        if (starfieldWebglVisualizerRef.current) {
-          starfieldWebglVisualizerRef.current.render(values, time, visualizerPalette, reducedMotion, !isIdle);
-        } else {
-          drawStarfield(drawingContext, values, rect.width, rect.height, time, visualizerPalette, reducedMotion);
-        }
+        drawStarfield(drawingContext, values, rect.width, rect.height, time, visualizerPalette, reducedMotion);
       } else if (mode === "tunnel") {
         drawFrequencyHelix(drawingContext, values, rect.width, rect.height, time, visualizerPalette, reducedMotion, frequencyHelixTimelineRef.current, !isIdle);
       } else if (mode === "ink") {
@@ -2234,27 +2327,31 @@ export function PlayerVisualizerOverlay({
     }
 
     if (!isVisualizerLive) {
-      canvasElement.width = Math.max(1, Math.floor(rect.width * scale));
-      canvasElement.height = Math.max(1, Math.floor(rect.height * scale));
-      drawingContext.setTransform(scale, 0, 0, scale, 0, 0);
-      drawingContext.clearRect(0, 0, rect.width, rect.height);
+      if (!usesDedicatedWebglCanvas) {
+        canvasElement.width = Math.max(1, Math.floor(rect.width * scale));
+        canvasElement.height = Math.max(1, Math.floor(rect.height * scale));
+        drawingContext.setTransform(scale, 0, 0, scale, 0, 0);
+        drawingContext.clearRect(0, 0, rect.width, rect.height);
+      }
       visualFrequencyValues.fill(0);
       drawSelectedVisualizer(visualFrequencyValues, performance.now(), true);
       return () => resizeObserver.disconnect();
     }
 
     function render(time: number) {
-      const width = Math.max(1, Math.floor(rect.width * scale));
-      const height = Math.max(1, Math.floor(rect.height * scale));
+      if (!usesDedicatedWebglCanvas) {
+        const width = Math.max(1, Math.floor(rect.width * scale));
+        const height = Math.max(1, Math.floor(rect.height * scale));
 
-      if (canvasElement.width !== width || canvasElement.height !== height) {
-        canvasElement.width = width;
-        canvasElement.height = height;
+        if (canvasElement.width !== width || canvasElement.height !== height) {
+          canvasElement.width = width;
+          canvasElement.height = height;
+        }
+
+        drawingContext.setTransform(scale, 0, 0, scale, 0, 0);
+        drawingContext.clearRect(0, 0, rect.width, rect.height);
+        drawingContext.globalCompositeOperation = "source-over";
       }
-
-      drawingContext.setTransform(scale, 0, 0, scale, 0, 0);
-      drawingContext.clearRect(0, 0, rect.width, rect.height);
-      drawingContext.globalCompositeOperation = "source-over";
 
       const analyser = analyserRef.current;
       const currentAudioAnalysisPacket = audioAnalysisPacketRef.current;
@@ -2286,7 +2383,7 @@ export function PlayerVisualizerOverlay({
       window.cancelAnimationFrame(animationFrame);
       resizeObserver.disconnect();
     };
-  }, [audioAnalysisPacketRef, characterImageVersion, isChibiModeEnabled, isOrchestraModeEnabled, isVisualizerLive, mode, paletteMode, preferRemoteAudioAnalysis, reducedMotion, remotePlaybackClockRef, visualizerPalette]);
+  }, [audioAnalysisPacketRef, auroraVisualProfile, auroraVisualizerPalette, idleCharacterImageVersion, isChibiModeEnabled, isOrchestraModeEnabled, isVisualizerLive, mode, paletteMode, preferRemoteAudioAnalysis, reducedMotion, remotePlaybackClockRef, visualizerPalette]);
 
   return (
     <section aria-label={t("player.visualizerLabel")} aria-modal="true" className="player-visualizer-overlay" role="dialog" style={overlayStyle}>
@@ -2390,22 +2487,22 @@ export function PlayerVisualizerOverlay({
                 ) : null}
               </div>
               <div className="visualizer-mode-switch" aria-label={t("player.visualizerMode")} role="group">
-                <Button aria-label={t("player.visualizerWave")} aria-pressed={mode === "wave" && !isOrchestraModeEnabled} className={mode === "wave" && !isOrchestraModeEnabled ? "visualizer-mode-button active" : "visualizer-mode-button"} onClick={() => selectVisualizerMode("wave")} title={t("player.visualizerWave")} type="button" variant="outline"><Waves aria-hidden="true" /></Button>
-                <Button aria-label={t("player.visualizerSpectrum")} aria-pressed={mode === "spectrum" && !isOrchestraModeEnabled} className={mode === "spectrum" && !isOrchestraModeEnabled ? "visualizer-mode-button active" : "visualizer-mode-button"} onClick={() => selectVisualizerMode("spectrum")} title={t("player.visualizerSpectrum")} type="button" variant="outline"><RadioTower aria-hidden="true" /></Button>
-                <Button aria-label={t("player.visualizerCircle")} aria-pressed={mode === "circle" && !isOrchestraModeEnabled} className={mode === "circle" && !isOrchestraModeEnabled ? "visualizer-mode-button active" : "visualizer-mode-button"} onClick={() => selectVisualizerMode("circle")} title={t("player.visualizerCircle")} type="button" variant="outline"><CircleDot aria-hidden="true" /></Button>
-                <Button aria-label={t("player.visualizerMountains")} aria-pressed={mode === "mountains" && !isOrchestraModeEnabled} className={mode === "mountains" && !isOrchestraModeEnabled ? "visualizer-mode-button active" : "visualizer-mode-button"} onClick={() => selectVisualizerMode("mountains")} title={t("player.visualizerMountains")} type="button" variant="outline"><Mountain aria-hidden="true" /></Button>
-                <Button aria-label={t("player.visualizerAurora")} aria-pressed={mode === "aurora" && !isOrchestraModeEnabled} className={mode === "aurora" && !isOrchestraModeEnabled ? "visualizer-mode-button active" : "visualizer-mode-button"} onClick={() => selectVisualizerMode("aurora")} title={t("player.visualizerAurora")} type="button" variant="outline"><Sparkles aria-hidden="true" /></Button>
-                <Button aria-label={t("player.visualizerStarfield")} aria-pressed={mode === "starfield" && !isOrchestraModeEnabled} className={mode === "starfield" && !isOrchestraModeEnabled ? "visualizer-mode-button active" : "visualizer-mode-button"} onClick={() => selectVisualizerMode("starfield")} title={t("player.visualizerStarfield")} type="button" variant="outline"><Stars aria-hidden="true" /></Button>
-                <Button aria-label={t("player.visualizerTunnel")} aria-pressed={mode === "tunnel" && !isOrchestraModeEnabled} className={mode === "tunnel" && !isOrchestraModeEnabled ? "visualizer-mode-button active" : "visualizer-mode-button"} onClick={() => selectVisualizerMode("tunnel")} title={t("player.visualizerTunnel")} type="button" variant="outline"><Dna aria-hidden="true" /></Button>
-                <Button aria-label={t("player.visualizerInk")} aria-pressed={mode === "ink" && !isOrchestraModeEnabled} className={mode === "ink" && !isOrchestraModeEnabled ? "visualizer-mode-button active" : "visualizer-mode-button"} onClick={() => selectVisualizerMode("ink")} title={t("player.visualizerInk")} type="button" variant="outline"><Droplets aria-hidden="true" /></Button>
-                <Button aria-label={t("player.visualizerVu")} aria-pressed={mode === "vu" && !isOrchestraModeEnabled} className={mode === "vu" && !isOrchestraModeEnabled ? "visualizer-mode-button active" : "visualizer-mode-button"} onClick={() => selectVisualizerMode("vu")} title={t("player.visualizerVu")} type="button" variant="outline"><Gauge aria-hidden="true" /></Button>
+                <Button aria-label={t("player.visualizerWave")} aria-pressed={mode === "wave" && !isOrchestraModeEnabled} className={mode === "wave" && !isOrchestraModeEnabled ? "visualizer-mode-button active" : "visualizer-mode-button"} onClick={() => selectVisualizerMode("wave")} title={t("player.visualizerWave")} type="button" variant="outline"><VisualizerModeIcon mode="wave" /></Button>
+                <Button aria-label={t("player.visualizerSpectrum")} aria-pressed={mode === "spectrum" && !isOrchestraModeEnabled} className={mode === "spectrum" && !isOrchestraModeEnabled ? "visualizer-mode-button active" : "visualizer-mode-button"} onClick={() => selectVisualizerMode("spectrum")} title={t("player.visualizerSpectrum")} type="button" variant="outline"><VisualizerModeIcon mode="spectrum" /></Button>
+                <Button aria-label={t("player.visualizerCircle")} aria-pressed={mode === "circle" && !isOrchestraModeEnabled} className={mode === "circle" && !isOrchestraModeEnabled ? "visualizer-mode-button active" : "visualizer-mode-button"} onClick={() => selectVisualizerMode("circle")} title={t("player.visualizerCircle")} type="button" variant="outline"><VisualizerModeIcon mode="circle" /></Button>
+                <Button aria-label={t("player.visualizerMountains")} aria-pressed={mode === "mountains" && !isOrchestraModeEnabled} className={mode === "mountains" && !isOrchestraModeEnabled ? "visualizer-mode-button active" : "visualizer-mode-button"} onClick={() => selectVisualizerMode("mountains")} title={t("player.visualizerMountains")} type="button" variant="outline"><VisualizerModeIcon mode="mountains" /></Button>
+                <Button aria-label={t("player.visualizerAurora")} aria-pressed={mode === "aurora" && !isOrchestraModeEnabled} className={mode === "aurora" && !isOrchestraModeEnabled ? "visualizer-mode-button active" : "visualizer-mode-button"} onClick={() => selectVisualizerMode("aurora")} title={t("player.visualizerAurora")} type="button" variant="outline"><VisualizerModeIcon mode="aurora" /></Button>
+                <Button aria-label={t("player.visualizerStarfield")} aria-pressed={mode === "starfield" && !isOrchestraModeEnabled} className={mode === "starfield" && !isOrchestraModeEnabled ? "visualizer-mode-button active" : "visualizer-mode-button"} onClick={() => selectVisualizerMode("starfield")} title={t("player.visualizerStarfield")} type="button" variant="outline"><VisualizerModeIcon mode="starfield" /></Button>
+                <Button aria-label={t("player.visualizerTunnel")} aria-pressed={mode === "tunnel" && !isOrchestraModeEnabled} className={mode === "tunnel" && !isOrchestraModeEnabled ? "visualizer-mode-button active" : "visualizer-mode-button"} onClick={() => selectVisualizerMode("tunnel")} title={t("player.visualizerTunnel")} type="button" variant="outline"><VisualizerModeIcon mode="tunnel" /></Button>
+                <Button aria-label={t("player.visualizerInk")} aria-pressed={mode === "ink" && !isOrchestraModeEnabled} className={mode === "ink" && !isOrchestraModeEnabled ? "visualizer-mode-button active" : "visualizer-mode-button"} onClick={() => selectVisualizerMode("ink")} title={t("player.visualizerInk")} type="button" variant="outline"><VisualizerModeIcon mode="ink" /></Button>
+                <Button aria-label={t("player.visualizerVu")} aria-pressed={mode === "vu" && !isOrchestraModeEnabled} className={mode === "vu" && !isOrchestraModeEnabled ? "visualizer-mode-button active" : "visualizer-mode-button"} onClick={() => selectVisualizerMode("vu")} title={t("player.visualizerVu")} type="button" variant="outline"><VisualizerModeIcon mode="vu" /></Button>
               </div>
             </div>
             <ArrowRight aria-hidden="true" className="visualizer-settings-arrow" />
             <div className="visualizer-palette-switch" aria-label={t("player.visualizerPalette")} role="group">
               <Button aria-label={t("player.visualizerPaletteOriginal")} aria-pressed={paletteMode === "original"} className={paletteMode === "original" ? "visualizer-palette-button active" : "visualizer-palette-button"} onClick={() => setPaletteMode("original")} title={t("player.visualizerPaletteOriginal")} type="button" variant="outline"><span aria-hidden="true" className="visualizer-palette-swatch original" /></Button>
               <Button aria-label={t("player.visualizerPaletteTheme")} aria-pressed={paletteMode === "theme"} className={paletteMode === "theme" ? "visualizer-palette-button active" : "visualizer-palette-button"} onClick={() => setPaletteMode("theme")} title={t("player.visualizerPaletteTheme")} type="button" variant="outline"><span aria-hidden="true" className="visualizer-palette-swatch theme" /></Button>
-              <Button aria-label={t("player.visualizerPaletteArtwork")} aria-pressed={paletteMode === "artwork"} className={paletteMode === "artwork" ? "visualizer-palette-button active" : "visualizer-palette-button"} onClick={() => setPaletteMode("artwork")} title={t("player.visualizerPaletteArtwork")} type="button" variant="outline"><span aria-hidden="true" className="visualizer-palette-swatch artwork" /></Button>
+              <Button aria-label={t("player.visualizerPaletteArtwork")} aria-pressed={paletteMode === "artwork"} className={paletteMode === "artwork" ? "visualizer-palette-button active" : "visualizer-palette-button"} onClick={() => setPaletteMode("artwork")} title={t("player.visualizerPaletteArtwork")} type="button" variant="outline"><ArtworkPaletteIcon /></Button>
               <Button aria-label={t("player.visualizerPaletteRainbow")} aria-pressed={paletteMode === "rainbow"} className={paletteMode === "rainbow" ? "visualizer-palette-button active" : "visualizer-palette-button"} onClick={() => setPaletteMode("rainbow")} title={t("player.visualizerPaletteRainbow")} type="button" variant="outline"><span aria-hidden="true" className="visualizer-palette-swatch rainbow" /></Button>
             </div>
           </div>

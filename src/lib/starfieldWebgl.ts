@@ -17,9 +17,14 @@ import { UnrealBloomPass } from "three/addons/postprocessing/UnrealBloomPass.js"
 
 type WarpColor = readonly [number, number, number];
 export type WarpPalette = readonly WarpColor[];
+type WarpColorsUniform = { value: Color[]; needsUpdate?: boolean };
 
 const bandCount = 5;
 export const warpAngularSectorCount = 32;
+const bandEdges = [0.02, 0.09, 0.2, 0.38, 0.62, 0.9] as const;
+const defaultAngularPeakScratch = new Float32Array(warpAngularSectorCount);
+const fallbackWarpColor: WarpColor = [99, 230, 255];
+const paletteColorIndices = [0, 2, 1, 0] as const;
 
 const vertexShader = `
   varying vec2 vUv;
@@ -130,16 +135,22 @@ const fragmentShader = `
       float angularPosition = normalizedAngle * rayCount;
       float cell = floor(angularPosition);
       float starId = cell + layerValue * 719.37;
-      float angularJitter = (hash11(starId + 4.1) - 0.5) * 0.72;
-      float angularDistance = abs(fract(angularPosition) - 0.5 - angularJitter);
       float distributedEnergy = scatteredAngularEnergy(normalizedAngle, layer);
-      float energy = max(0.025, mix(bandEnergy(layer), distributedEnergy, 0.76));
       float densityEnergy = clamp(distributedEnergy * 1.26 + uActivity * 0.18 + uTransient * 0.48, 0.0, 1.0);
       float densityThreshold = mix(0.045, 0.94, pow(densityEnergy, 0.72));
       float presenceSeed = hash11(starId + 107.7);
       float presence = 1.0 - smoothstep(densityThreshold - 0.085, densityThreshold + 0.025, presenceSeed);
+      if (presence == 0.0) continue;
+
+      float angularJitter = (hash11(starId + 4.1) - 0.5) * 0.72;
+      float angularDistance = abs(fract(angularPosition) - 0.5 - angularJitter);
       float cycleSpeed = acceleration * (0.72 + layerValue * 0.17 + hash11(starId + 9.7) * 0.42);
       float cycle = fract(hash11(starId + 21.3) + uTime * cycleSpeed);
+      float rayWidth = mix(0.115, 0.028, cycle) * (0.74 + hash11(starId + 33.0) * 0.42 + distributedEnergy * 0.34);
+      float rayHalo = 1.0 - smoothstep(rayWidth * 1.8, rayWidth * 6.2, angularDistance);
+      if (rayHalo == 0.0) continue;
+
+      float energy = max(0.025, mix(bandEnergy(layer), distributedEnergy, 0.76));
       float headRadius = 0.018 + pow(cycle, 1.78) * 1.28;
       float edgeGrowth = pow(cycle, 2.45);
       float trailLength = (0.006 + edgeGrowth * (0.075 + bass * 0.13 + distributedEnergy * 0.22 + uTransient * 0.08))
@@ -149,9 +160,7 @@ const fragmentShader = `
       float radialTrail = smoothstep(tailRadius - feather, tailRadius + feather, radius)
         * (1.0 - smoothstep(headRadius, headRadius + feather * 0.68, radius));
       float head = exp(-abs(radius - headRadius) / max(0.0012, 0.0035 + edgeGrowth * 0.004));
-      float rayWidth = mix(0.115, 0.028, cycle) * (0.74 + hash11(starId + 33.0) * 0.42 + distributedEnergy * 0.34);
       float rayMask = 1.0 - smoothstep(rayWidth, rayWidth * 2.7, angularDistance);
-      float rayHalo = 1.0 - smoothstep(rayWidth * 1.8, rayWidth * 6.2, angularDistance);
       float tailFade = smoothstep(tailRadius, headRadius, radius);
       float twinkle = 0.62 + (0.24 + treble * 0.18) * sin(uTime * (2.0 + hash11(starId) * 3.0) + starId);
       float intensity = rayMask * (radialTrail * (0.38 + tailFade * 0.72) + head * 0.88)
@@ -206,7 +215,7 @@ const fragmentShader = `
 `;
 
 function paletteColor(palette: WarpPalette, index: number): WarpColor {
-  return palette[((index % palette.length) + palette.length) % palette.length] ?? [99, 230, 255];
+  return palette[((index % palette.length) + palette.length) % palette.length] ?? fallbackWarpColor;
 }
 
 function averageBand(values: Uint8Array, startProgress: number, endProgress: number) {
@@ -217,9 +226,11 @@ function averageBand(values: Uint8Array, startProgress: number, endProgress: num
   return total / Math.max(1, Math.min(end, values.length) - start) / 255;
 }
 
-function captureBands(values: Uint8Array) {
-  const edges = [0.02, 0.09, 0.2, 0.38, 0.62, 0.9];
-  return Float32Array.from({ length: bandCount }, (_, band) => averageBand(values, edges[band] ?? 0, edges[band + 1] ?? 1));
+function captureBands(values: Uint8Array, target: Float32Array) {
+  for (let band = 0; band < bandCount; band += 1) {
+    target[band] = averageBand(values, bandEdges[band] ?? 0, bandEdges[band + 1] ?? 1);
+  }
+  return target;
 }
 
 export function scatteredFrequencyIndexAt(position: number, sampleCount: number) {
@@ -231,10 +242,13 @@ export function scatteredFrequencyIndexAt(position: number, sampleCount: number)
   return frequencyOffset + row * warpAngularSectorCount;
 }
 
-export function captureScatteredAngularEnergy(values: Uint8Array, target = new Float32Array(warpAngularSectorCount)) {
+export function captureScatteredAngularEnergy(
+  values: Uint8Array,
+  target = new Float32Array(warpAngularSectorCount),
+  peaks = defaultAngularPeakScratch,
+) {
   target.fill(0);
-  const peaks = new Float32Array(warpAngularSectorCount);
-  const counts = new Uint16Array(warpAngularSectorCount);
+  peaks.fill(0);
   const usableLength = Math.floor(values.length / warpAngularSectorCount) * warpAngularSectorCount;
 
   if (usableLength === 0) return target;
@@ -243,11 +257,11 @@ export function captureScatteredAngularEnergy(values: Uint8Array, target = new F
     const sector = position % warpAngularSectorCount;
     target[sector] = (target[sector] ?? 0) + value * value;
     peaks[sector] = Math.max(peaks[sector] ?? 0, value);
-    counts[sector] = (counts[sector] ?? 0) + 1;
   }
 
+  const countPerSector = (usableLength / warpAngularSectorCount) & 0xffff;
   for (let sector = 0; sector < warpAngularSectorCount; sector += 1) {
-    const rms = Math.sqrt((target[sector] ?? 0) / Math.max(1, counts[sector] ?? 0));
+    const rms = Math.sqrt((target[sector] ?? 0) / Math.max(1, countPerSector));
     target[sector] = Math.min(1, rms * 0.72 + (peaks[sector] ?? 0) * 0.38);
   }
   return target;
@@ -269,16 +283,32 @@ export class WarpStarfieldWebGLVisualizer {
   private readonly bandUniform = new Float32Array(bandCount);
   private readonly angularEnergyUniform = new Float32Array(warpAngularSectorCount);
   private readonly rawAngularEnergy = new Float32Array(warpAngularSectorCount);
+  private readonly angularPeakScratch = new Float32Array(warpAngularSectorCount);
   private readonly previousAngularEnergy = new Float32Array(warpAngularSectorCount);
+  private readonly paletteChannels = new Float64Array(paletteColorIndices.length * 3);
+  private readonly resizeObserver: ResizeObserver;
   private activity = 0;
   private transient = 0;
   private hasAudioFrame = false;
+  private hasPalette = false;
+  private hasConfiguredSize = false;
+  private colorsNeedUpload = true;
+  private sizeNeedsUpdate = true;
+  private lastObservedPixelRatio = Number.NaN;
+  private appliedPixelRatio = 1;
+  private readonly handleContextRestored = () => {
+    this.colorsNeedUpload = true;
+    this.sizeNeedsUpdate = true;
+    const colorsUniform = this.material.uniforms.uColors as WarpColorsUniform | undefined;
+    if (colorsUniform) colorsUniform.needsUpdate = true;
+  };
 
   constructor(private readonly canvas: HTMLCanvasElement) {
     this.renderer = new WebGLRenderer({
       alpha: true,
       antialias: false,
       canvas,
+      depth: false,
       powerPreference: "high-performance",
       premultipliedAlpha: false,
     });
@@ -311,37 +341,73 @@ export class WarpStarfieldWebGLVisualizer {
     this.bloomPass = new UnrealBloomPass(new Vector2(1, 1), 0.54, 0.76, 0.32);
     this.outputPass = new OutputPass();
     this.composer = new EffectComposer(this.renderer);
+    this.composer.renderTarget1.depthBuffer = false;
+    this.composer.renderTarget2.depthBuffer = false;
+    this.bloomPass.renderTargetBright.depthBuffer = false;
+    for (const target of this.bloomPass.renderTargetsHorizontal) target.depthBuffer = false;
+    for (const target of this.bloomPass.renderTargetsVertical) target.depthBuffer = false;
     this.composer.addPass(renderPass);
     this.composer.addPass(this.bloomPass);
     this.composer.addPass(this.outputPass);
+    this.resizeObserver = new ResizeObserver(() => {
+      this.sizeNeedsUpdate = true;
+    });
+    this.resizeObserver.observe(canvas);
+    canvas.addEventListener("webglcontextrestored", this.handleContextRestored);
   }
 
   private updateSize() {
+    const pixelRatio = Math.min(window.devicePixelRatio || 1, 1.2);
+    if (!this.sizeNeedsUpdate && this.lastObservedPixelRatio === pixelRatio) return;
+    this.sizeNeedsUpdate = false;
+    this.lastObservedPixelRatio = pixelRatio;
     const width = Math.max(1, this.canvas.clientWidth);
     const height = Math.max(1, this.canvas.clientHeight);
-    const pixelRatio = Math.min(window.devicePixelRatio || 1, 1.2);
     const targetWidth = Math.floor(width * pixelRatio);
     const targetHeight = Math.floor(height * pixelRatio);
-    if (this.canvas.width === targetWidth && this.canvas.height === targetHeight) return;
-    this.renderer.setPixelRatio(pixelRatio);
+    if (this.hasConfiguredSize && this.canvas.width === targetWidth && this.canvas.height === targetHeight) return;
+    const pixelRatioChanged = this.appliedPixelRatio !== pixelRatio;
+    if (pixelRatioChanged) this.renderer.setPixelRatio(pixelRatio);
     this.renderer.setSize(width, height, false);
-    this.composer.setPixelRatio(pixelRatio);
+    if (pixelRatioChanged) this.composer.setPixelRatio(pixelRatio);
     this.composer.setSize(width, height);
+    this.appliedPixelRatio = pixelRatio;
     (this.material.uniforms.uResolution?.value as Vector2).set(targetWidth, targetHeight);
+    this.hasConfiguredSize = true;
   }
 
   private updatePalette(palette: WarpPalette) {
-    const indices = [0, 2, 1, 0];
-    const colors = this.material.uniforms.uColors?.value as Color[];
-    indices.forEach((paletteIndex, index) => {
-      const color = paletteColor(palette, paletteIndex);
-      colors[index]?.setRGB(color[0] / 255, color[1] / 255, color[2] / 255);
-    });
+    const colorsUniform = this.material.uniforms.uColors as WarpColorsUniform | undefined;
+    const colors = colorsUniform?.value;
+    let didChange = !this.hasPalette;
+
+    for (let index = 0; index < paletteColorIndices.length; index += 1) {
+      const color = paletteColor(palette, paletteColorIndices[index] ?? 0);
+      const offset = index * 3;
+      if (
+        this.hasPalette
+        && this.paletteChannels[offset] === color[0]
+        && this.paletteChannels[offset + 1] === color[1]
+        && this.paletteChannels[offset + 2] === color[2]
+      ) continue;
+
+      this.paletteChannels[offset] = color[0];
+      this.paletteChannels[offset + 1] = color[1];
+      this.paletteChannels[offset + 2] = color[2];
+      colors?.[index]?.setRGB(color[0] / 255, color[1] / 255, color[2] / 255);
+      didChange = true;
+    }
+
+    this.hasPalette = true;
+    if (didChange) {
+      this.colorsNeedUpload = true;
+      if (colorsUniform) colorsUniform.needsUpdate = true;
+    }
   }
 
   render(values: Uint8Array, time: number, palette: WarpPalette, reducedMotion: boolean, isActive = true) {
     this.updateSize();
-    this.bandUniform.set(captureBands(values));
+    captureBands(values, this.bandUniform);
     if (!isActive) {
       this.angularEnergyUniform.fill(0);
       this.rawAngularEnergy.fill(0);
@@ -350,7 +416,7 @@ export class WarpStarfieldWebGLVisualizer {
       this.transient = 0;
       this.hasAudioFrame = false;
     } else {
-      captureScatteredAngularEnergy(values, this.rawAngularEnergy);
+      captureScatteredAngularEnergy(values, this.rawAngularEnergy, this.angularPeakScratch);
       let energySquares = 0;
       let positiveDelta = 0;
       for (let sector = 0; sector < warpAngularSectorCount; sector += 1) {
@@ -374,9 +440,16 @@ export class WarpStarfieldWebGLVisualizer {
     this.material.uniforms.uTransient!.value = reducedMotion ? this.transient * 0.28 : this.transient;
     this.bloomPass.strength = reducedMotion ? 0.2 : 0.38 + this.activity * 0.24 + this.transient * 0.26;
     this.composer.render();
+    if (this.colorsNeedUpload) {
+      this.colorsNeedUpload = false;
+      const colorsUniform = this.material.uniforms.uColors as WarpColorsUniform | undefined;
+      if (colorsUniform) colorsUniform.needsUpdate = false;
+    }
   }
 
   dispose() {
+    this.resizeObserver.disconnect();
+    this.canvas.removeEventListener("webglcontextrestored", this.handleContextRestored);
     this.geometry.dispose();
     this.material.dispose();
     this.bloomPass.dispose();
