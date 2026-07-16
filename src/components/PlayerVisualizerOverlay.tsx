@@ -2204,6 +2204,15 @@ export function PlayerVisualizerOverlay({
   }, []);
 
   useEffect(() => {
+    // Tauri and synchronized browser playback already receive analysis frames from
+    // the local backend. Do not reroute the media element through Web Audio: a
+    // suspended AudioContext in Windows WebView2 would otherwise silence playback.
+    if (preferRemoteAudioAnalysis) {
+      analyserRef.current = null;
+      setHasAudioAnalysis(false);
+      return;
+    }
+
     const audio = audioRef.current;
     if (!audio) {
       analyserRef.current = null;
@@ -2227,7 +2236,7 @@ export function PlayerVisualizerOverlay({
       analyserRef.current = null;
       setHasAudioAnalysis(false);
     }
-  }, [audioRef, currentTrack, isPlaying]);
+  }, [audioRef, currentTrack, isPlaying, preferRemoteAudioAnalysis]);
 
   useEffect(() => {
     const visualizerCanvas = canvasRef.current;

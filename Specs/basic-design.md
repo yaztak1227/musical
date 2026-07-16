@@ -345,7 +345,7 @@ sequenceDiagram
 ## 7. エラーとフォールバック
 
 - 解析失敗時も再生、キュー、Player mode を壊さない。
-- Remote/offline analysis がなければ Web Audio analyser、または idle 表示へ落とす。
+- Remote/offline analysis を優先する Tauri/同期ブラウザでは、再生中の HTML audio を Web Audio の `AudioContext` へ接続しない。これにより Windows WebView2 で suspended context が音声出力を止めることを防ぐ。remote frames が未取得なら idle 表示へ落とす。remote analysis を使わない直接ブラウザ再生だけは Web Audio analyser を fallback とする。
 - Browser backend では Tauri native 機能を desktop-only として扱う。
 - Fire TV server discovery に失敗した場合は fallback URL と Settings を表示する。
 - 保存済み Fire TV library が見つからない場合は自動で先頭 library を選ばず、明示選択を待つ。

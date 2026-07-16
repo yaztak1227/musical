@@ -66,10 +66,10 @@ overlay 内の背景、アートワーク背景、装飾レイヤー、Canvas、
 描画データは以下の優先順で使う。
 
 1. `audioAnalysisPacketRef.current.frames`: ローカルサーバーから取得した解析フレーム
-2. `AnalyserNode`: アプリ内 `<audio>` から作る Web Audio analyser
+2. `AnalyserNode`: remote analysis を使わない直接ブラウザ再生時だけ、アプリ内 `<audio>` から作る Web Audio analyser
 3. idle 描画: 再生していない、または解析データがない場合の静止表示
 
-Tauri/ブラウザ同期では remote 解析フレームが主経路。アプリ内では Web Audio analyser が fallback として機能する。
+Tauri/ブラウザ同期では remote 解析フレームが主経路であり、`AudioContext`/`createMediaElementSource` を作らない。Windows WebView2 で suspended AudioContext が再生音を止めることを防ぐため、remote frames が未取得なら idle 表示へ落とす。remote analysis を使わない直接ブラウザ再生だけは Web Audio analyser が fallback として機能する。
 
 remote packet の `frameTimecodes` は昇順として扱い、推定再生時刻以上となる最初の frame を lower-bound 二分探索で求める。見つけた frame と直前 frame の補間方法は変更せず、曲末まで毎フレーム先頭から線形走査しない。
 
@@ -152,7 +152,7 @@ sequenceDiagram
 - Chibi mode ボタンのダブルクリック/ダブルタップでちびキャラオーケストラへ切り替わり、通常モードボタンを押すと解除される
 - オリジナル、テーマ、アートワーク、レインボーの配色を選択できる
 - モードと配色の選択がプレイヤーモードを閉じた後も復元される
-- 解析が未完了または失敗しても、可能なら Web Audio analyser fallback で動く
+- 解析が未完了または失敗しても、remote analysis を使う Tauri/同期ブラウザでは再生音を維持して idle 表示へ落とし、直接ブラウザ再生では Web Audio analyser fallback で動く
 - 再生停止中は idle 表示になる
 
 ## ブラウザ版シーケンス

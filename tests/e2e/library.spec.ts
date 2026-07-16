@@ -566,6 +566,17 @@ test("shows and toggles the player queue popover", async ({ page }) => {
 
 test("renders animated mock audio analysis in player mode", async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 800 });
+  await page.addInitScript(() => {
+    const testWindow = window as Window & { __musicalAudioContextCreateCount?: number };
+    testWindow.__musicalAudioContextCreateCount = 0;
+    Object.defineProperty(window, "AudioContext", {
+      configurable: true,
+      value: function RemoteAnalysisMustNotCreateAudioContext() {
+        testWindow.__musicalAudioContextCreateCount = (testWindow.__musicalAudioContextCreateCount ?? 0) + 1;
+        throw new Error("Remote analysis must not reroute playback through AudioContext");
+      },
+    });
+  });
   await page.addInitScript(() => window.localStorage.setItem("musical.locale", "en"));
   await page.goto("/");
 
@@ -647,6 +658,7 @@ test("renders animated mock audio analysis in player mode", async ({ page }) => 
   expect(firstSignature.changedPixels).toBeGreaterThan(0);
   expect(secondSignature.hash).not.toBe(firstSignature.hash);
   expect(secondCompositeSignature).not.toBe(firstCompositeSignature);
+  expect(await page.evaluate(() => (window as Window & { __musicalAudioContextCreateCount?: number }).__musicalAudioContextCreateCount)).toBe(0);
 });
 
 test("scatters adjacent starfield frequency buckets across angular sectors", () => {
