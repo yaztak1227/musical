@@ -78,11 +78,13 @@ import type { TFunction } from "@/types/app";
 import { chibiSpectrumConfig } from "@/config/appConfig";
 import { getAudioVisualizerNode } from "@/lib/audioAnalysis";
 import { AuroraWebGLVisualizer, resolveAuroraVisualProfile, type AuroraVisualProfile } from "@/lib/auroraWebgl";
+import { FrequencyHelixWebGLVisualizer } from "@/lib/helixWebgl";
 import { getArtworkSrc, localizeLibraryText } from "@/lib/libraryUtils";
 import { prepareMarquee } from "@/lib/marqueeUtils";
 import { captureScatteredAngularEnergy, warpAngularSectorCount, WarpStarfieldWebGLVisualizer } from "@/lib/starfieldWebgl";
+import { WarpHoleWebGLVisualizer } from "@/lib/warpHoleWebgl";
 
-type VisualizerMode = "wave" | "spectrum" | "circle" | "mountains" | "aurora" | "starfield" | "tunnel" | "ink" | "vu";
+type VisualizerMode = "wave" | "spectrum" | "circle" | "mountains" | "aurora" | "starfield" | "tunnel" | "ink" | "vu" | "warp";
 type VisualizerPaletteMode = "theme" | "artwork" | "rainbow" | "original";
 type VisualizerColor = readonly [number, number, number];
 type VisualizerPalette = readonly VisualizerColor[];
@@ -136,6 +138,9 @@ function VisualizerModeIcon({ mode }: { mode: VisualizerMode }) {
   }
   if (mode === "tunnel") {
     return <svg {...sharedProps}><path d="M7 3c7 3.1 7 14.9 0 18M17 3c-7 3.1-7 14.9 0 18" /><path d="M8.4 6h7.2M7.1 10h9.8M7.1 14h9.8M8.4 18h7.2" opacity=".7" /></svg>;
+  }
+  if (mode === "warp") {
+    return <svg {...sharedProps}><ellipse cx="12" cy="12" rx="8.8" ry="4.9" /><ellipse cx="12" cy="12" rx="4.4" ry="2.3" opacity=".78" /><path d="M3.6 9.2c2.6-4.1 7.3-6.1 11.8-4.3M20.4 14.8c-2.5 4.1-7.2 6-11.7 4.3M7 14.6c1.7 1.7 4.6 2.1 6.9.9M17 9.4c-1.8-1.7-4.6-2.1-6.9-.9" opacity=".72" /><circle cx="12" cy="12" r="1.1" fill="currentColor" stroke="none" /></svg>;
   }
   if (mode === "ink") {
     return <svg {...sharedProps}><path d="M4 14.2c1.3-5.9 10.2-7.6 13.8-3.1 2.8 3.6-.6 8.4-4.8 7.1-3.1-1-2.7-5.3.3-5.7 2-.2 2.8 2.1 1.2 3.1" /><path d="M6.3 7.2c-.9-1.6.1-3.2 1.2-4.5 1.1 1.3 2.1 2.9 1.2 4.5-.5.9-1.9.9-2.4 0Z" opacity=".72" /></svg>;
@@ -242,7 +247,7 @@ const auroraBandCount = 5;
 const auroraFrameCount = 7;
 const auroraCaptureIntervalMs = 120;
 
-const visualizerModes = ["wave", "spectrum", "circle", "mountains", "aurora", "starfield", "tunnel", "ink", "vu"] as const;
+const visualizerModes = ["wave", "spectrum", "circle", "mountains", "aurora", "starfield", "tunnel", "ink", "vu", "warp"] as const;
 const visualizerPaletteModes = ["theme", "artwork", "rainbow", "original"] as const;
 const rainbowVisualizerPalette: VisualizerPalette = [
   [154, 232, 91],
@@ -1655,6 +1660,99 @@ function drawFrequencyHelix(
   context.restore();
 }
 
+function drawWarpHole(
+  context: CanvasRenderingContext2D,
+  values: Uint8Array,
+  width: number,
+  height: number,
+  time: number,
+  palette: VisualizerPalette,
+  reducedMotion: boolean,
+) {
+  const bass = averageFrequencyBand(values, 0, 0.09);
+  const mid = averageFrequencyBand(values, 0.09, 0.38);
+  const high = averageFrequencyBand(values, 0.38, 0.76);
+  const activity = bass * 0.48 + mid * 0.34 + high * 0.18;
+  const centerX = width * 0.5;
+  const centerY = height * 0.44;
+  const outerRadius = Math.max(42, Math.min(width * 0.38, height * 0.48));
+  const innerRadius = outerRadius * (0.1 + bass * 0.035);
+  const rotation = time * (reducedMotion ? 0.000035 : 0.00014);
+  const verticalScale = 0.58;
+
+  context.save();
+  context.translate(centerX, centerY);
+  context.scale(1, verticalScale);
+
+  const shadow = context.createRadialGradient(0, 0, innerRadius * 0.22, 0, 0, outerRadius * 0.58);
+  shadow.addColorStop(0, "rgba(0, 0, 0, 0.92)");
+  shadow.addColorStop(0.35, "rgba(0, 0, 0, 0.76)");
+  shadow.addColorStop(1, "rgba(0, 0, 0, 0)");
+  context.fillStyle = shadow;
+  context.beginPath();
+  context.arc(0, 0, outerRadius * 0.72, 0, Math.PI * 2);
+  context.fill();
+
+  context.globalCompositeOperation = "lighter";
+  context.lineCap = "round";
+  const armCount = reducedMotion ? 3 : 5;
+  const pointCount = reducedMotion ? 30 : 52;
+  for (let arm = 0; arm < armCount; arm += 1) {
+    const color = paletteColor(palette, arm * 2);
+    const armPhase = rotation + (arm / armCount) * Math.PI * 2;
+    context.beginPath();
+    for (let point = 0; point < pointCount; point += 1) {
+      const progress = point / Math.max(1, pointCount - 1);
+      const frequencyIndex = Math.min(values.length - 1, Math.floor(Math.pow(progress, 1.5) * values.length * 0.72));
+      const energy = (values[frequencyIndex] ?? 0) / 255;
+      const radius = innerRadius + Math.pow(progress, 0.72) * (outerRadius - innerRadius) * (0.92 + energy * 0.08);
+      const angle = armPhase + progress * Math.PI * (2.55 + mid * 0.95) + Math.sin(progress * 15 + time * 0.0005) * energy * 0.06;
+      const x = Math.cos(angle) * radius;
+      const y = Math.sin(angle) * radius;
+      if (point === 0) context.moveTo(x, y);
+      else context.lineTo(x, y);
+    }
+    context.strokeStyle = rgba(color, 0.11 + activity * 0.28);
+    context.lineWidth = 1.2 + activity * 2.2;
+    context.shadowColor = rgba(color, 0.32 + activity * 0.32);
+    context.shadowBlur = reducedMotion ? 5 : 11;
+    context.stroke();
+  }
+
+  context.shadowBlur = 0;
+  const streakCount = reducedMotion ? 14 : 28;
+  for (let streak = 0; streak < streakCount; streak += 1) {
+    const noise = deterministicNoise(streak * 2.37 + 11.4);
+    const energy = (values[Math.min(values.length - 1, Math.floor(noise * values.length * 0.7))] ?? 0) / 255;
+    const angle = rotation * (0.65 + noise * 0.55) + noise * Math.PI * 2 + streak * 2.399;
+    const radius = innerRadius * 1.3 + Math.pow(deterministicNoise(streak * 4.11 + 2.8), 0.62) * (outerRadius - innerRadius * 1.3);
+    const tail = 0.025 + energy * 0.1 + high * 0.035;
+    const color = paletteColor(palette, streak);
+    context.beginPath();
+    context.arc(0, 0, radius, angle - tail, angle + tail * 0.25);
+    context.strokeStyle = rgba(color, 0.1 + energy * 0.52);
+    context.lineWidth = 0.55 + energy * 1.65;
+    context.stroke();
+  }
+
+  const horizon = context.createRadialGradient(0, 0, innerRadius * 0.7, 0, 0, innerRadius * 2.4);
+  horizon.addColorStop(0, "rgba(0, 0, 0, 0)");
+  horizon.addColorStop(0.42, rgba(paletteColor(palette, 0), 0.08 + bass * 0.18));
+  horizon.addColorStop(0.6, rgba(paletteColor(palette, Math.floor(palette.length / 2)), 0.22 + activity * 0.34));
+  horizon.addColorStop(0.74, "rgba(0, 0, 0, 0)");
+  context.fillStyle = horizon;
+  context.beginPath();
+  context.arc(0, 0, innerRadius * 2.55, 0, Math.PI * 2);
+  context.fill();
+
+  context.globalCompositeOperation = "source-over";
+  context.fillStyle = "rgba(0, 0, 0, 0.9)";
+  context.beginPath();
+  context.arc(0, 0, innerRadius * 0.86, 0, Math.PI * 2);
+  context.fill();
+  context.restore();
+}
+
 function drawInk(
   context: CanvasRenderingContext2D,
   values: Uint8Array,
@@ -1887,6 +1985,10 @@ export function PlayerVisualizerOverlay({
   const auroraWebglVisualizerRef = useRef<AuroraWebGLVisualizer | null>(null);
   const starfieldCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const starfieldWebglVisualizerRef = useRef<WarpStarfieldWebGLVisualizer | null>(null);
+  const helixCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const helixWebglVisualizerRef = useRef<FrequencyHelixWebGLVisualizer | null>(null);
+  const warpHoleCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const warpHoleWebglVisualizerRef = useRef<WarpHoleWebGLVisualizer | null>(null);
   const analyserRef = useRef<AnalyserNode | null>(null);
   const surfPuchiImagesRef = useRef<SurfPuchiImages>({ paddling: null, standing: null });
   const surfPuchiMotionRef = useRef<SurfPuchiMotionState>({ standingWeight: 0, targetPose: "paddling" });
@@ -2015,6 +2117,8 @@ export function PlayerVisualizerOverlay({
 
   useEffect(() => {
     frequencyHelixTimelineRef.current = { frames: [], lastCapturedAt: 0 };
+    helixWebglVisualizerRef.current?.reset();
+    warpHoleWebglVisualizerRef.current?.reset();
     auroraTimelineRef.current = { frames: [], lastCapturedAt: 0 };
   }, [currentTrack?.id]);
 
@@ -2140,6 +2244,44 @@ export function PlayerVisualizerOverlay({
   }, [mode]);
 
   useEffect(() => {
+    if (mode !== "tunnel" || !helixCanvasRef.current) {
+      helixWebglVisualizerRef.current?.dispose();
+      helixWebglVisualizerRef.current = null;
+      return;
+    }
+
+    try {
+      helixWebglVisualizerRef.current = new FrequencyHelixWebGLVisualizer(helixCanvasRef.current);
+    } catch {
+      helixWebglVisualizerRef.current = null;
+    }
+
+    return () => {
+      helixWebglVisualizerRef.current?.dispose();
+      helixWebglVisualizerRef.current = null;
+    };
+  }, [mode]);
+
+  useEffect(() => {
+    if (mode !== "warp" || !warpHoleCanvasRef.current) {
+      warpHoleWebglVisualizerRef.current?.dispose();
+      warpHoleWebglVisualizerRef.current = null;
+      return;
+    }
+
+    try {
+      warpHoleWebglVisualizerRef.current = new WarpHoleWebGLVisualizer(warpHoleCanvasRef.current);
+    } catch {
+      warpHoleWebglVisualizerRef.current = null;
+    }
+
+    return () => {
+      warpHoleWebglVisualizerRef.current?.dispose();
+      warpHoleWebglVisualizerRef.current = null;
+    };
+  }, [mode]);
+
+  useEffect(() => {
     let isCancelled = false;
     const nextImages = chibiSpectrumSources.map(() => ({ raised: null, swing: null, impact: null, collapsed: null } satisfies ChibiSpectrumImages));
 
@@ -2257,7 +2399,9 @@ export function PlayerVisualizerOverlay({
     const spectrumPeakValues = new Float32Array(48);
     const auroraWebglVisualizer = mode === "aurora" ? auroraWebglVisualizerRef.current : null;
     const starfieldWebglVisualizer = mode === "starfield" ? starfieldWebglVisualizerRef.current : null;
-    const usesDedicatedWebglCanvas = Boolean(auroraWebglVisualizer || starfieldWebglVisualizer);
+    const helixWebglVisualizer = mode === "tunnel" ? helixWebglVisualizerRef.current : null;
+    const warpHoleWebglVisualizer = mode === "warp" ? warpHoleWebglVisualizerRef.current : null;
+    const usesDedicatedWebglCanvas = Boolean(auroraWebglVisualizer || starfieldWebglVisualizer || helixWebglVisualizer || warpHoleWebglVisualizer);
 
     // Remove the previous 2D frame once, then leave the transparent base canvas untouched.
     if (usesDedicatedWebglCanvas) {
@@ -2289,6 +2433,14 @@ export function PlayerVisualizerOverlay({
       }
       if (starfieldWebglVisualizer) {
         starfieldWebglVisualizer.render(values, time, visualizerPalette, reducedMotion, !isIdle);
+        return;
+      }
+      if (helixWebglVisualizer) {
+        helixWebglVisualizer.render(values, time, visualizerPalette, reducedMotion, !isIdle);
+        return;
+      }
+      if (warpHoleWebglVisualizer) {
+        warpHoleWebglVisualizer.render(values, time, visualizerPalette, reducedMotion, !isIdle);
         return;
       }
 
@@ -2327,6 +2479,8 @@ export function PlayerVisualizerOverlay({
         drawStarfield(drawingContext, values, rect.width, rect.height, time, visualizerPalette, reducedMotion);
       } else if (mode === "tunnel") {
         drawFrequencyHelix(drawingContext, values, rect.width, rect.height, time, visualizerPalette, reducedMotion, frequencyHelixTimelineRef.current, !isIdle);
+      } else if (mode === "warp") {
+        drawWarpHole(drawingContext, values, rect.width, rect.height, time, visualizerPalette, reducedMotion);
       } else if (mode === "ink") {
         drawInk(drawingContext, values, rect.width, rect.height, time, visualizerPalette, reducedMotion);
       } else {
@@ -2401,6 +2555,8 @@ export function PlayerVisualizerOverlay({
         <canvas className="visualizer-canvas" ref={canvasRef} aria-hidden="true" />
         <canvas className={mode === "aurora" ? "visualizer-canvas visualizer-aurora-canvas active" : "visualizer-canvas visualizer-aurora-canvas"} ref={auroraCanvasRef} aria-hidden="true" />
         <canvas className={mode === "starfield" ? "visualizer-canvas visualizer-starfield-canvas active" : "visualizer-canvas visualizer-starfield-canvas"} ref={starfieldCanvasRef} aria-hidden="true" />
+        <canvas className={mode === "tunnel" ? "visualizer-canvas visualizer-helix-canvas active" : "visualizer-canvas visualizer-helix-canvas"} ref={helixCanvasRef} aria-hidden="true" />
+        <canvas className={mode === "warp" ? "visualizer-canvas visualizer-warp-hole-canvas active" : "visualizer-canvas visualizer-warp-hole-canvas"} ref={warpHoleCanvasRef} aria-hidden="true" />
         <div className="visualizer-vignette" aria-hidden="true" />
         <Button aria-label={t("player.closeVisualizer")} className="visualizer-close-button icon-button" onClick={onClose} title={t("player.closeVisualizer")} type="button" variant="outline">
           <X />
@@ -2505,6 +2661,7 @@ export function PlayerVisualizerOverlay({
                 <Button aria-label={t("player.visualizerTunnel")} aria-pressed={mode === "tunnel" && !isOrchestraModeEnabled} className={mode === "tunnel" && !isOrchestraModeEnabled ? "visualizer-mode-button active" : "visualizer-mode-button"} onClick={() => selectVisualizerMode("tunnel")} title={t("player.visualizerTunnel")} type="button" variant="outline"><VisualizerModeIcon mode="tunnel" /></Button>
                 <Button aria-label={t("player.visualizerInk")} aria-pressed={mode === "ink" && !isOrchestraModeEnabled} className={mode === "ink" && !isOrchestraModeEnabled ? "visualizer-mode-button active" : "visualizer-mode-button"} onClick={() => selectVisualizerMode("ink")} title={t("player.visualizerInk")} type="button" variant="outline"><VisualizerModeIcon mode="ink" /></Button>
                 <Button aria-label={t("player.visualizerVu")} aria-pressed={mode === "vu" && !isOrchestraModeEnabled} className={mode === "vu" && !isOrchestraModeEnabled ? "visualizer-mode-button active" : "visualizer-mode-button"} onClick={() => selectVisualizerMode("vu")} title={t("player.visualizerVu")} type="button" variant="outline"><VisualizerModeIcon mode="vu" /></Button>
+                <Button aria-label={t("player.visualizerWarp")} aria-pressed={mode === "warp" && !isOrchestraModeEnabled} className={mode === "warp" && !isOrchestraModeEnabled ? "visualizer-mode-button active" : "visualizer-mode-button"} onClick={() => selectVisualizerMode("warp")} title={t("player.visualizerWarp")} type="button" variant="outline"><VisualizerModeIcon mode="warp" /></Button>
               </div>
             </div>
             <ArrowRight aria-hidden="true" className="visualizer-settings-arrow" />

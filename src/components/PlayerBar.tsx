@@ -449,56 +449,55 @@ export const PlayerBar = forwardRef<PlayerBarHandle, PlayerBarProps>(function Pl
             value={[volume]}
           />
         </label>
-        <div className="queue-actions-row">
-          <div
-            className={isQueueOpen ? "queue-popover-wrap open" : "queue-popover-wrap"}
-            onMouseEnter={() => setIsQueueHovered(true)}
-            onMouseLeave={() => setIsQueueHovered(false)}
-          >
-            <button
-              aria-controls={queuePopoverId}
-              aria-expanded={isQueueOpen}
-              aria-label={t("player.queueToggle")}
-              className="queue-count"
-              onClick={() => {
-                setIsQueueHovered(false);
-                setIsQueuePinnedOpen((value) => !value);
-              }}
-              type="button"
-            >
-              {t("player.queue")} / {t("player.queueCount", { count: queueLength })}
-            </button>
-            <div className="queue-popover" id={queuePopoverId} role="region" aria-label={t("player.queue")}>
-              <div className="queue-popover-list">
-                {queueTracks.map((track, index) => {
-                  const isCurrentTrack = currentTrack?.id === track.id;
-                  return (
-                    <div className={isCurrentTrack ? "queue-popover-row current" : "queue-popover-row"} key={track.id}>
-                      <span className="queue-track-index">{index + 1}</span>
-                      <span className="queue-track-copy">
-                        <strong>{localizeLibraryText(track.title, t)}</strong>
-                        <span>{localizeLibraryText(track.artist, t)}</span>
-                      </span>
-                      <span className="queue-track-duration">{formatTrackDuration(track)}</span>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
+      </div>
+      <div
+        className={isQueueOpen ? "queue-popover-wrap open" : "queue-popover-wrap"}
+        onMouseEnter={() => setIsQueueHovered(true)}
+        onMouseLeave={() => setIsQueueHovered(false)}
+      >
+        <button
+          aria-controls={queuePopoverId}
+          aria-expanded={isQueueOpen}
+          aria-label={t("player.queueToggle")}
+          className="queue-count"
+          onClick={() => {
+            setIsQueueHovered(false);
+            setIsQueuePinnedOpen((value) => !value);
+          }}
+          type="button"
+        >
+          {t("player.queue")} / {t("player.queueCount", { count: queueLength })}
+        </button>
+        <div className="queue-popover" id={queuePopoverId} role="region" aria-label={t("player.queue")}>
+          <div className="queue-popover-list">
+            {queueTracks.map((track, index) => {
+              const isCurrentTrack = currentTrack?.id === track.id;
+              return (
+                <div className={isCurrentTrack ? "queue-popover-row current" : "queue-popover-row"} key={track.id}>
+                  <span className="queue-track-index">{index + 1}</span>
+                  <span className="queue-track-copy">
+                    <strong>{localizeLibraryText(track.title, t)}</strong>
+                    <span>{localizeLibraryText(track.artist, t)}</span>
+                  </span>
+                  <span className="queue-track-duration">{formatTrackDuration(track)}</span>
+                </div>
+              );
+            })}
           </div>
-          <Button
-            className="visualizer-open-icon-button icon-button musical-ripple-button"
-            disabled={!currentTrack}
-            onClick={onOpenVisualizer}
-            title={t("player.openVisualizer")}
-            type="button"
-            variant="outline"
-          >
-            <Maximize2 />
-            <span className="sr-only">{t("player.openVisualizer")}</span>
-          </Button>
         </div>
       </div>
+      <Button
+        aria-label={t("player.openVisualizerAccessible")}
+        className="visualizer-open-icon-button icon-button musical-ripple-button"
+        disabled={!currentTrack}
+        onClick={onOpenVisualizer}
+        title={t("player.openVisualizer")}
+        type="button"
+        variant="outline"
+      >
+        <Maximize2 />
+        <span className="sr-only">{t("player.openVisualizer")}</span>
+      </Button>
     </section>
   );
 });

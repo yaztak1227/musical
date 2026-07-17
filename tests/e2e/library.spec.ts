@@ -14,7 +14,7 @@ async function playTrackFromTrackTable(page: Page, trackTitle: string) {
 }
 
 async function visualizerCanvasSignature(page: Page) {
-  const activeWebglCanvas = page.locator(".visualizer-aurora-canvas.active, .visualizer-starfield-canvas.active");
+  const activeWebglCanvas = page.locator(".visualizer-aurora-canvas.active, .visualizer-starfield-canvas.active, .visualizer-helix-canvas.active, .visualizer-warp-hole-canvas.active");
   if (await activeWebglCanvas.count()) {
     const screenshot = await activeWebglCanvas.screenshot();
     let hash = 0;
@@ -23,7 +23,7 @@ async function visualizerCanvasSignature(page: Page) {
     return { changedPixels: screenshot.length, hash };
   }
 
-  return page.locator(".visualizer-canvas:not(.visualizer-aurora-canvas):not(.visualizer-starfield-canvas)").evaluate((canvasElement) => {
+  return page.locator(".visualizer-canvas:not(.visualizer-aurora-canvas):not(.visualizer-starfield-canvas):not(.visualizer-helix-canvas):not(.visualizer-warp-hole-canvas)").evaluate((canvasElement) => {
     const canvas = canvasElement as HTMLCanvasElement;
     const context = canvas.getContext("2d");
     if (!context || canvas.width === 0 || canvas.height === 0) return { changedPixels: 0, hash: 0 };
@@ -543,6 +543,51 @@ test("keeps playback entry points visible on desktop and mobile", async ({ page 
   await expect(page.getByRole("region", { name: "Selected album" }).getByRole("button", { name: "Play Station Lights" })).toBeVisible();
 });
 
+test("keeps the player mode entry visible and keyboard reachable at Tauri-sized widths", async ({ page }) => {
+  await page.addInitScript(() => window.localStorage.setItem("musical.locale", "ja"));
+
+  for (const viewport of [
+    { width: 1180, height: 768 },
+    { width: 1226, height: 768 },
+    { width: 900, height: 768 },
+    { width: 390, height: 800 },
+  ]) {
+    await page.setViewportSize(viewport);
+    await page.goto("/");
+
+    const player = page.getByLabel("プレイヤー");
+    const queueButton = player.getByRole("button", { name: "キューの表示を切り替え" });
+    const playerModeButton = player.getByRole("button", { name: "ビジュアライザーを開く" });
+    await expect(queueButton).toBeVisible();
+    await expect(playerModeButton).toBeVisible();
+    await expect(playerModeButton).toHaveAccessibleName("ビジュアライザーを開く");
+
+    const bounds = await playerModeButton.boundingBox();
+    const playerBounds = await player.boundingBox();
+    expect(bounds).not.toBeNull();
+    expect(playerBounds).not.toBeNull();
+    expect(bounds!.width).toBe(34);
+    expect(bounds!.height).toBe(34);
+    await expect(playerModeButton).toHaveCSS("position", "absolute");
+    const queueBounds = await queueButton.boundingBox();
+    expect(queueBounds).not.toBeNull();
+    expect(queueBounds!.x + queueBounds!.width).toBeLessThanOrEqual(bounds!.x);
+
+    await queueButton.focus();
+    await page.keyboard.press("Tab");
+    await expect(playerModeButton).toBeFocused();
+    await expect(playerModeButton).toHaveCSS("outline-style", "solid");
+    await expect(playerModeButton).toHaveCSS("outline-width", "3px");
+    const focusOuterMargin = 5;
+    expect(bounds!.x - focusOuterMargin).toBeGreaterThanOrEqual(playerBounds!.x);
+    expect(bounds!.y - focusOuterMargin).toBeGreaterThanOrEqual(playerBounds!.y);
+    expect(bounds!.x + bounds!.width + focusOuterMargin).toBeLessThanOrEqual(playerBounds!.x + playerBounds!.width);
+    expect(bounds!.y + bounds!.height + focusOuterMargin).toBeLessThanOrEqual(playerBounds!.y + playerBounds!.height);
+    await page.keyboard.press("Enter");
+    await expect(page.getByRole("dialog", { name: "プレイヤービジュアライザ" })).toBeVisible();
+  }
+});
+
 test("shows and toggles the player queue popover", async ({ page }) => {
   await page.addInitScript(() => window.localStorage.setItem("musical.locale", "en"));
   await page.goto("/");
@@ -582,15 +627,15 @@ test("renders animated mock audio analysis in player mode", async ({ page }) => 
 
   await page.getByLabel("Player").getByRole("button", { name: "Play", exact: true }).click();
   await expect(page.getByLabel("Player").getByRole("button", { name: "Pause" })).toBeVisible();
-  await page.getByLabel("Player").getByRole("button", { name: "Player mode" }).click();
+  await page.getByLabel("Player").getByRole("button", { name: "Open visualizer" }).click();
   await expect(page.getByRole("dialog", { name: "Player visualizer" })).toBeVisible();
   const closeButton = page.getByRole("button", { name: "Close player mode" });
   await expect(closeButton).toHaveCSS("z-index", "5");
   await closeButton.click();
   await expect(page.getByRole("dialog", { name: "Player visualizer" })).not.toBeVisible();
-  await page.getByLabel("Player").getByRole("button", { name: "Player mode" }).click();
+  await page.getByLabel("Player").getByRole("button", { name: "Open visualizer" }).click();
   await expect(page.getByRole("dialog", { name: "Player visualizer" })).toBeVisible();
-  const visualizerCanvas = page.locator(".visualizer-canvas:not(.visualizer-aurora-canvas):not(.visualizer-starfield-canvas)");
+  const visualizerCanvas = page.locator(".visualizer-canvas:not(.visualizer-aurora-canvas):not(.visualizer-starfield-canvas):not(.visualizer-helix-canvas):not(.visualizer-warp-hole-canvas)");
   await expect(visualizerCanvas).toBeVisible();
   await expect(visualizerCanvas).toHaveCSS("z-index", "2");
   await expect(visualizerCanvas).toHaveCSS("pointer-events", "none");
@@ -620,12 +665,12 @@ test("renders animated mock audio analysis in player mode", async ({ page }) => 
   expect(stageBox?.height ?? 0).toBeGreaterThanOrEqual(660);
   expect(controlsBox?.height ?? Number.POSITIVE_INFINITY).toBeLessThanOrEqual(140);
   expect(settingsBox?.width ?? Number.POSITIVE_INFINITY).toBeLessThanOrEqual(600);
-  expect(await modeSwitch.evaluate((element) => getComputedStyle(element).gridTemplateColumns.split(" ").length)).toBe(9);
+  expect(await modeSwitch.evaluate((element) => getComputedStyle(element).gridTemplateColumns.split(" ").length)).toBe(10);
   expect(await paletteSwitch.evaluate((element) => getComputedStyle(element).gridTemplateColumns.split(" ").length)).toBe(4);
-  await expect(modeSwitch.getByRole("button")).toHaveCount(9);
+  await expect(modeSwitch.getByRole("button")).toHaveCount(10);
   await expect(paletteSwitch.getByRole("button")).toHaveCount(4);
   await expect(settingsArrow).toBeVisible();
-  expect(await modeSwitch.getByRole("button").allTextContents()).toEqual(Array(9).fill(""));
+  expect(await modeSwitch.getByRole("button").allTextContents()).toEqual(Array(10).fill(""));
   expect(await paletteSwitch.getByRole("button").allTextContents()).toEqual(Array(4).fill(""));
 
   await page.setViewportSize({ width: 900, height: 700 });
@@ -684,7 +729,7 @@ test("uses the mist profile only for original and artwork aurora palettes", () =
 });
 
 test("switches every player visualizer mode and persists its color palette", async ({ page }) => {
-  test.setTimeout(45_000);
+  test.setTimeout(60_000);
   await page.addInitScript(() => {
     const clearCountWindow = window as Window & { __musicalBaseVisualizerClearCount?: number };
     const originalClearRect = CanvasRenderingContext2D.prototype.clearRect;
@@ -695,6 +740,8 @@ test("switches every player visualizer mode and persists its color palette", asy
         canvas.classList.contains("visualizer-canvas")
         && !canvas.classList.contains("visualizer-aurora-canvas")
         && !canvas.classList.contains("visualizer-starfield-canvas")
+        && !canvas.classList.contains("visualizer-helix-canvas")
+        && !canvas.classList.contains("visualizer-warp-hole-canvas")
       ) {
         clearCountWindow.__musicalBaseVisualizerClearCount = (clearCountWindow.__musicalBaseVisualizerClearCount ?? 0) + 1;
       }
@@ -705,12 +752,12 @@ test("switches every player visualizer mode and persists its color palette", asy
   await page.goto("/");
 
   await page.getByLabel("Player").getByRole("button", { name: "Play", exact: true }).click();
-  await page.getByLabel("Player").getByRole("button", { name: "Player mode" }).click();
+  await page.getByLabel("Player").getByRole("button", { name: "Open visualizer" }).click();
 
-  const modeNames = ["Wave", "Spectrum", "Circle", "Peaks", "Aurora", "Starfield", "DNA Helix", "Flowing ink", "VU meters"];
+  const modeNames = ["Wave", "Spectrum", "Circle", "Peaks", "Aurora", "Starfield", "DNA Helix", "Flowing ink", "VU meters", "Warp Hole"];
   const modeGroup = page.getByRole("group", { name: "Visualizer mode" });
   await expect(modeGroup.getByRole("button", { name: "Chibi orchestra mode", exact: true })).toHaveCount(0);
-  await expect(modeGroup.locator("svg.visualizer-mode-glyph")).toHaveCount(9);
+  await expect(modeGroup.locator("svg.visualizer-mode-glyph")).toHaveCount(10);
   await expect(page.getByRole("button", { name: "Artwork", exact: true }).locator("svg.visualizer-palette-artwork-icon")).toHaveCount(1);
 
   for (const modeName of modeNames) {
@@ -720,13 +767,17 @@ test("switches every player visualizer mode and persists its color palette", asy
     await page.waitForTimeout(80);
     const firstSignature = await visualizerCanvasSignature(page);
     expect(firstSignature.changedPixels).toBeGreaterThan(0);
-    if (modeName === "Aurora" || modeName === "Starfield" || modeName === "DNA Helix") {
+    if (modeName === "Aurora" || modeName === "Starfield" || modeName === "DNA Helix" || modeName === "Warp Hole") {
+      if (modeName === "DNA Helix") {
+        await expect(page.locator(".visualizer-helix-canvas.active")).toBeVisible();
+      }
+      if (modeName === "Warp Hole") {
+        await expect(page.locator(".visualizer-warp-hole-canvas.active")).toBeVisible();
+      }
       const baseCanvasClearCount = await page.evaluate(() => (window as Window & { __musicalBaseVisualizerClearCount?: number }).__musicalBaseVisualizerClearCount ?? 0);
       await page.waitForTimeout(180);
       expect((await visualizerCanvasSignature(page)).hash).not.toBe(firstSignature.hash);
-      if (modeName === "Aurora" || modeName === "Starfield") {
-        expect(await page.evaluate(() => (window as Window & { __musicalBaseVisualizerClearCount?: number }).__musicalBaseVisualizerClearCount ?? 0)).toBe(baseCanvasClearCount);
-      }
+      expect(await page.evaluate(() => (window as Window & { __musicalBaseVisualizerClearCount?: number }).__musicalBaseVisualizerClearCount ?? 0)).toBe(baseCanvasClearCount);
     }
   }
 

@@ -251,6 +251,7 @@
   <message key="player.queueToggle">キューの表示を切り替え</message>
   <message key="player.lyrics">歌詞</message>
   <message key="player.openVisualizer">プレイヤーモード</message>
+  <message key="player.openVisualizerAccessible">ビジュアライザーを開く</message>
   <message key="player.closeVisualizer">プレイヤーモードを閉じる</message>
   <message key="player.visualizerLabel">プレイヤービジュアライザ</message>
   <message key="player.visualizerMode">ビジュアライザーモード</message>
@@ -263,6 +264,7 @@
   <message key="player.visualizerTunnel">DNA螺旋</message>
   <message key="player.visualizerInk">墨流し</message>
   <message key="player.visualizerVu">VUメーター</message>
+  <message key="player.visualizerWarp">ワープホール</message>
   <message key="player.visualizerSettings">ビジュアライザ設定</message>
   <message key="player.visualizerPalette">配色</message>
   <message key="player.visualizerPaletteOriginal">オリジナル</message>

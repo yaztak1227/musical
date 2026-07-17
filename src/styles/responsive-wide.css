@@ -22,9 +22,14 @@
   }
 
   .player-bar {
-    grid-template-columns: minmax(0, 0.75fr) minmax(320px, 1.6fr) minmax(0, 0.85fr);
+    grid-template-columns: minmax(0, 0.75fr) minmax(320px, 1.6fr) minmax(0, 0.85fr) 72px;
     gap: 12px;
-    padding-inline: 20px;
+    padding-inline: 20px 70px;
+  }
+
+  .visualizer-open-icon-button.icon-button {
+    top: 50%;
+    right: 20px;
   }
 
   .control-button,

@@ -14,12 +14,13 @@
   grid-template-columns:
     minmax(180px, 0.8fr)
     minmax(360px, 1.8fr)
-    minmax(220px, 0.9fr);
+    minmax(220px, 0.9fr)
+    88px;
   align-items: center;
   gap: 16px;
   min-width: 0;
   min-height: 116px;
-  padding: 14px 28px;
+  padding: 14px 78px 14px 28px;
   color: var(--app-on-player);
   background:
     linear-gradient(90deg, var(--app-player-strong), var(--app-player) 58%, color-mix(in oklch, var(--primary), var(--foreground) 42%));
@@ -251,11 +252,19 @@
 }
 
 .player-options {
-  flex-wrap: wrap;
-  justify-content: flex-end;
+  display: grid;
+  grid-template-columns: minmax(0, 0.88fr) minmax(0, 1.12fr);
+  align-items: center;
+  width: 100%;
+}
+
+.player-options > .option-button {
+  width: 100%;
 }
 
 .volume-control {
+  grid-column: 1 / -1;
+  width: 100%;
   color: color-mix(in oklch, var(--app-on-player), transparent 22%);
   font-size: 0.86rem;
   font-weight: 800;
@@ -263,7 +272,7 @@
 
 .volume-slider {
   flex: 1;
-  min-width: 96px;
+  min-width: 0;
   max-width: 160px;
   min-height: 24px;
 }
@@ -274,12 +283,16 @@
 
 .queue-count {
   width: 100%;
+  min-width: 0;
   border: 0;
   margin: 0;
   padding: 0;
+  overflow: hidden;
   font-size: 0.82rem;
   font-weight: 800;
   text-align: right;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   background: transparent;
   cursor: pointer;
 }
@@ -293,17 +306,14 @@
 .queue-popover-wrap {
   position: relative;
   width: 100%;
-}
-
-.queue-actions-row {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 34px;
-  align-items: center;
-  gap: 8px;
   min-width: 0;
 }
 
 .visualizer-open-icon-button.icon-button {
+  position: absolute;
+  top: 50%;
+  right: 28px;
+  z-index: 2;
   width: 34px;
   min-width: 34px;
   height: 34px;
@@ -311,11 +321,18 @@
   border-color: color-mix(in oklch, var(--app-on-player), transparent 64%);
   color: var(--app-on-player);
   background: color-mix(in oklch, var(--app-on-player), transparent 92%);
+  transform: translateY(-50%);
 }
 
 .visualizer-open-icon-button svg {
   width: 16px;
   height: 16px;
+}
+
+.visualizer-open-icon-button.icon-button:focus-visible {
+  outline: 3px solid var(--app-on-player);
+  outline-offset: 2px;
+  box-shadow: 0 0 0 2px color-mix(in oklch, var(--app-player-strong), transparent 12%);
 }
 
 .queue-popover {
@@ -407,4 +424,3 @@
 .queue-track-copy span {
   font-size: 0.76rem;
 }
-

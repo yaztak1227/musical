@@ -56,14 +56,18 @@
 }
 
 .visualizer-aurora-canvas,
-.visualizer-starfield-canvas {
+.visualizer-starfield-canvas,
+.visualizer-helix-canvas,
+.visualizer-warp-hole-canvas {
   opacity: 0;
   pointer-events: none;
   transition: opacity 360ms ease;
 }
 
 .visualizer-aurora-canvas.active,
-.visualizer-starfield-canvas.active {
+.visualizer-starfield-canvas.active,
+.visualizer-helix-canvas.active,
+.visualizer-warp-hole-canvas.active {
   opacity: 1;
 }
 
@@ -280,7 +284,7 @@
   grid-template-columns: auto auto auto;
   align-items: center;
   justify-content: center;
-  gap: 8px;
+  gap: 6px;
   width: auto;
   max-width: 100%;
   min-width: 0;
@@ -290,7 +294,7 @@
   display: grid;
   grid-template-columns: 26px auto;
   align-items: center;
-  gap: 6px;
+  gap: 4px;
   min-width: 0;
 }
 
@@ -304,7 +308,7 @@
 .visualizer-mode-switch,
 .visualizer-palette-switch {
   display: grid;
-  gap: 4px;
+  gap: 3px;
   width: max-content;
   min-width: 0;
   padding: 5px;
@@ -316,7 +320,7 @@
 }
 
 .visualizer-mode-switch {
-  grid-template-columns: repeat(9, 34px);
+  grid-template-columns: repeat(10, 34px);
 }
 
 .visualizer-palette-switch {

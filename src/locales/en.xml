@@ -251,6 +251,7 @@
   <message key="player.queueToggle">Show or hide queue</message>
   <message key="player.lyrics">Lyrics</message>
   <message key="player.openVisualizer">Player mode</message>
+  <message key="player.openVisualizerAccessible">Open visualizer</message>
   <message key="player.closeVisualizer">Close player mode</message>
   <message key="player.visualizerLabel">Player visualizer</message>
   <message key="player.visualizerMode">Visualizer mode</message>
@@ -263,6 +264,7 @@
   <message key="player.visualizerTunnel">DNA Helix</message>
   <message key="player.visualizerInk">Flowing ink</message>
   <message key="player.visualizerVu">VU meters</message>
+  <message key="player.visualizerWarp">Warp Hole</message>
   <message key="player.visualizerSettings">Visualizer settings</message>
   <message key="player.visualizerPalette">Colors</message>
   <message key="player.visualizerPaletteOriginal">Original</message>
