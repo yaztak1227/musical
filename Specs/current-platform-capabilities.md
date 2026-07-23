@@ -230,8 +230,7 @@ Music-analysis timing:
 - Analysis bucket count is 256.
 - Backend FFT size is 512.
 - Backend analyser range is `-88 dB` to `-18 dB` with smoothing constant `0.58`.
-- Frontend remote-analysis requests use chunks of 30 seconds.
-- Requested analysis duration is `max(15 minutes, track duration + 2 seconds)`.
+- Frontend remote-analysis requests load one complete track packet.
 - Frontend retains at most 5 completed analysis packets in memory.
 - When `currentTrack` changes:
   - Playback error is cleared.
@@ -244,35 +243,20 @@ Music-analysis timing:
   - If a completed packet for that track is already cached in memory, it is
     reused and rebased to the current playback time.
   - If the same track is already loading, no duplicate frontend load is started.
-  - Otherwise the track is requested in 30-second chunks from
-    `/api/track_analysis`.
-  - After every returned chunk, a partial packet is written to
-    `audioAnalysisPacketRef`, allowing the visualizer to start moving before the
-    whole track request is finished.
+  - Otherwise the complete track is requested once from
+    `/api/track_analysis_bytes`, with JSON `/api/track_analysis` as fallback.
   - Only a completed packet is stored in the in-memory packet cache.
 - When `isPlaying` changes to false, or when there is no current track:
   - `audioAnalysisPacketRef` is cleared.
   - The active analysis load state is cleared.
   - The loaded analysis track marker is cleared.
-  - The completed packet cache is cleared.
-  - This means pause/stop intentionally removes the cached visualizer packet
-    from frontend memory.
-- While Tauri desktop playback is active:
-  - The current track analysis cache is warmed best-effort.
-  - The next queue item after the current track is warmed best-effort.
-  - Warmup is skipped when there is no current track, playback is stopped, or the
-    track is already warming.
-  - Warmup errors are ignored so playback continues.
+  - Completed packets remain in the bounded memory cache for reuse after resume.
 - Backend `/api/track_analysis` behavior:
-  - Reads `trackId`, `from`, `duration`, optional `totalDuration`, and optional
-    `compact`.
-  - Clamps `duration` to 0.25 seconds through 4 hours.
-  - Clamps `totalDuration` to at least `duration` and at most 4 hours.
-  - If a complete cache entry exists for the requested file/version/duration, it
-    returns cached frames and marks `isComplete: true`.
-  - If no complete cache exists, it decodes/analyzes from the start for the
-    requested total duration, saves the result, and returns `isComplete: true`
-    from that request path.
+  - Reads only `trackId` and always returns the complete track analysis.
+  - Cache identity uses track UUID, audio-stream MD5, file path, modified time,
+    and analysis version; requested duration is not part of cache validity.
+  - If no matching complete cache exists, it decodes/analyzes the whole audio
+    stream through EOF and saves the result.
   - Concurrent analysis requests for the same track are deduplicated through
     `active_track_analysis_loads`; later requests wait for the first to finish
     and then read the cache.
@@ -281,7 +265,7 @@ Music-analysis timing:
 - Backend next-track prefetch:
   - Runs only when `player_state` exists and the requested/analyzed track has a
     following track in that queue.
-  - Uses track duration + 2 seconds.
+  - Always warms the complete track analysis.
   - Deduplicates active prefetches with `active_track_analysis_prefetches`.
   - Logs and skips errors without failing the original analysis request.
 - Mock web mode:
@@ -356,6 +340,8 @@ Updates and local services:
   lifecycle, and reverse proxy.
 - Protect the MCP sidecar and internal bridge with loopback binding plus a
   per-process `X-Musical-MCP-Token`.
+- Keep a dedicated stdin pipe from Tauri to the MCP sidecar. The sidecar exits
+  on EOF so an abrupt Tauri exit cannot leave an orphan Node process behind.
 - Validate MCP tool discovery and `structuredContent` through `@ai-sdk/mcp`
   without requiring a provider API key.
 - MCP exposes 43 tools covering playback transport, album/track/artist search,
@@ -453,7 +439,7 @@ Mock browser controls and visualizer:
 - Mock analysis is generated once per current track/play state change from
   `getMockAudioAnalysisSegment(currentTrack.id, 0, duration)`.
 - Mock analysis duration uses the same frontend rule as desktop remote analysis:
-  `max(15 minutes, track duration + 2 seconds)`.
+  the current track duration, with a 15-minute fallback only when duration is unknown.
 - Stopping playback or clearing the current track clears the mock packet.
 - Desktop-only buttons:
   - Folder picker is disabled.
@@ -655,16 +641,12 @@ Fire TV audio and analysis timing:
   - Analysis loading restarts for the new track.
 - Analysis fetch for the current track:
   - Runs immediately on track selection/change.
-  - Repeats every 2 seconds while the track remains current.
-  - Requests a 4-second window from `max(0, currentTime - 0.5)`.
-  - Sends `totalDuration` as current audio duration, track duration, or `1`.
-  - Tries `/api/track_analysis_bytes?compact=true` first.
-  - Falls back to `/api/track_analysis?compact=true` if bytes loading fails.
+  - Loads the complete track once rather than polling arbitrary-duration windows.
+  - Tries `/api/track_analysis_bytes` first.
+  - Falls back to `/api/track_analysis` if bytes loading fails.
   - Aborts the in-flight request when the track changes or the component effect
     is cleaned up.
-  - Prevents overlapping analysis loads with an `isLoadingAnalysis` guard.
-  - Merges new frames into the retained frame window around the current time.
-  - On fetch failure, retains only the current visible analysis window.
+  - Clears analysis frames when the complete-track fetch fails.
 - Fire TV visualizer rendering:
   - Draws at a target maximum of 30 fps.
   - Caps canvas size to 1280 x 720 and device scale no higher than 1.
@@ -723,25 +705,23 @@ app still satisfies the relevant platform items below.
 - Player mode visualizer renders nonblank animated content and lyrics/queue
   panels remain usable.
 - Opening Player mode during playback starts or continues current-track analysis
-  and the canvas begins moving before the full-track analysis is necessarily
-  complete.
+  and uses the complete-track packet when it arrives.
 - Opening Player mode while paused shows idle visualization and does not display
   stale moving bars from the last play state.
 - Pressing play after pause reloads/reuses analysis for the current track.
-- Pressing pause clears the frontend analysis packet/cache and returns the
-  visualizer to idle behavior.
+- Pressing pause clears the displayed analysis packet and returns the visualizer
+  to idle behavior while retaining the bounded completed-packet cache.
 - Pressing next clears stale current-track frames, resets player position, starts
-  analysis for the new current track, and warms the next queue item.
-- Pressing previous after more than 3 seconds seeks to 0 and clears the current
-  analysis packet.
+  analysis for the new current track.
+- Pressing previous after more than 3 seconds seeks to 0 and reuses the complete
+  current-track analysis packet.
 - Pressing previous at the start of a track switches tracks and starts analysis
   for the new current track.
-- Seeking clears stale analysis packets and the next analysis load/rebase matches
+- Seeking retains the complete-track packet and immediately selects frames for
   the new playback time.
 - Current-track analysis requests must not duplicate while the same track is
   already loading.
-- Partial analysis chunks must be visible to the visualizer before complete
-  analysis is cached.
+- Analysis endpoints return one complete-track packet rather than partial chunks.
 - Narrow layout remains flush to the viewport and the album panel can collapse
   and expand.
 - Track detail opens from desktop interaction and mobile long press.
@@ -818,9 +798,8 @@ app still satisfies the relevant platform items below.
   lyrics exist.
 - Visualizer data loads from compact bytes or JSON analysis endpoints and
   remains bounded for Fire TV performance.
-- Fire TV clears frames on track change and requests a fresh 4-second analysis
-  window immediately.
-- Fire TV repeats analysis-window requests every 2 seconds for the current track.
+- Fire TV clears frames on track change and requests the complete track analysis
+  once.
 - Fire TV visualizer continues to animate at up to 30 fps while playing when
   frames exist near the current playback time.
 - Fire TV visualizer decays/clears instead of showing stale frames when frames

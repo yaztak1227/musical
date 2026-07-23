@@ -1,0 +1,21 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Musical AI Test",
+  "identifier": "com.circularmoonray.musical.ai-test",
+  "build": {
+    "devUrl": "http://localhost:1430"
+  },
+  "app": {
+    "windows": [
+      {
+        "focus": false,
+        "title": "Musical AI Test",
+        "width": 1180,
+        "height": 760,
+        "minWidth": 920,
+        "minHeight": 620,
+        "visible": false
+      }
+    ]
+  }
+}

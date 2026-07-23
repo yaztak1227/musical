@@ -8,6 +8,36 @@ import {
   startMcpSidecar,
 } from "./helpers.mjs";
 
+test("sidecar exits when its parent lifecycle pipe closes", async () => {
+  const token = `test-${Date.now()}`;
+  const bridge = await createFakeBridge({ token, handlers: {} });
+  const mcpPort = await reservePort();
+  const sidecar = await startMcpSidecar({
+    bridgePort: bridge.port,
+    mcpPort,
+    parentWatchdog: true,
+    token,
+  });
+
+  try {
+    sidecar.child.stdin.end();
+    let timeout;
+    const exitCode = await Promise.race([
+      new Promise((resolve) => sidecar.child.once("exit", resolve)),
+      new Promise((_, reject) => {
+        timeout = setTimeout(
+          () => reject(new Error("MCP sidecar remained after its parent pipe closed")),
+          2000,
+        );
+      }),
+    ]).finally(() => clearTimeout(timeout));
+    assert.equal(exitCode, 0);
+  } finally {
+    await sidecar.stop();
+    await bridge.close();
+  }
+});
+
 test("AI SDK V7 client discovers tools and receives structuredContent", async () => {
   const token = `test-${Date.now()}`;
   const bridge = await createFakeBridge({

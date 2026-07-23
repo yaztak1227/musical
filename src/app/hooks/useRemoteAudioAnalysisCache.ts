@@ -5,21 +5,16 @@ import { getHeapUsageMb, logRenderDiagnostic } from "../../lib/renderDiagnostics
 import { type PlayerBarHandle } from "../../components/PlayerBar";
 import {
   makeAudioAnalysisPacketFromFrames,
-  mergeRemoteAudioAnalysisFrames,
   rebaseAudioAnalysisPacketPlaybackTime,
-  type RemoteAudioAnalysisFrameEntry,
   type RemoteAudioAnalysisPacket,
 } from "../../features/remote-player/domain/audioAnalysisPacket";
 import {
   estimateRemotePlaybackTime,
   type RemotePlaybackClock,
 } from "../../features/remote-player/domain/remotePlaybackClock";
-import { getRemoteTrackAnalysisSegment } from "../../features/remote-player/infrastructure/remotePlayerRepository";
+import { getRemoteTrackAnalysis } from "../../features/remote-player/infrastructure/remotePlayerRepository";
 import {
   audioAnalysisSampleIntervalMs,
-  remoteAudioAnalysisChunkDurationSeconds,
-  remoteAudioAnalysisDurationPaddingSeconds,
-  remoteAudioAnalysisFallbackDurationSeconds,
   remoteAudioAnalysisMaxCachedPackets,
   remoteAudioAnalysisRetryDelaysMs,
 } from "./useAppControllerConfig";
@@ -34,12 +29,6 @@ type RemoteAudioAnalysisCacheOptions = {
   remotePlaybackClockRef: RefObject<RemotePlaybackClock | null>;
 };
 
-export function getTrackAnalysisRequestDuration(track: Track) {
-  return track.durationSeconds && track.durationSeconds > 0
-    ? track.durationSeconds + remoteAudioAnalysisDurationPaddingSeconds
-    : remoteAudioAnalysisFallbackDurationSeconds;
-}
-
 export function useRemoteAudioAnalysisCache({
   currentTrack,
   currentTrackIndex,
@@ -50,7 +39,6 @@ export function useRemoteAudioAnalysisCache({
   const audioAnalysisPacketRef = useRef<RemoteAudioAnalysisPacket | null>(null);
   const remoteAudioAnalysisLoadStateRef = useRef<RemoteAudioAnalysisLoadState | null>(null);
   const remoteAudioAnalysisPacketsByTrackRef = useRef(new Map<EntityId, RemoteAudioAnalysisPacket>());
-  const activeRemoteAudioAnalysisWarmupsRef = useRef(new Set<EntityId>());
   const loadedRemoteAudioAnalysisTrackIdRef = useRef<EntityId | null>(null);
   const retryTrackAnalysisRef = useRef<(track: Track) => void>(() => undefined);
   const remoteAudioAnalysisRetryRef = useRef<{ attempt: number; timer: number | null; trackId: EntityId } | null>(null);
@@ -143,12 +131,11 @@ export function useRemoteAudioAnalysisCache({
     const clock = remotePlaybackClockRef.current;
     if (isBrowserBackendRuntime && clock && clock.trackId !== track.id) return;
 
-    const duration = getTrackAnalysisRequestDuration(track);
     const cachedPacket = remoteAudioAnalysisPacketsByTrackRef.current.get(track.id);
     if (cachedPacket) {
       clearRemoteAudioAnalysisRetry();
       console.debug(
-        `[remote-audio-analysis] memory cache hit trackId=${String(track.id)} frames=${cachedPacket.frames.length} duration=${duration.toFixed(2)}s`,
+        `[remote-audio-analysis] memory cache hit trackId=${String(track.id)} frames=${cachedPacket.frames.length}`,
       );
       remoteAudioAnalysisPacketsByTrackRef.current.delete(track.id);
       remoteAudioAnalysisPacketsByTrackRef.current.set(track.id, cachedPacket);
@@ -167,57 +154,17 @@ export function useRemoteAudioAnalysisCache({
     if (remoteAudioAnalysisLoadStateRef.current?.trackId === track.id) return;
 
     console.debug(
-      `[remote-audio-analysis] load start trackId=${String(track.id)} trackDuration=${track.durationSeconds ?? "unknown"}s requestDuration=${duration.toFixed(2)}s`,
+      `[remote-audio-analysis] load start trackId=${String(track.id)} trackDuration=${track.durationSeconds ?? "unknown"}s`,
     );
     const requestId = (remoteAudioAnalysisLoadStateRef.current?.requestId ?? 0) + 1;
-    const chunkCount = Math.max(1, Math.ceil(duration / remoteAudioAnalysisChunkDurationSeconds));
     remoteAudioAnalysisLoadStateRef.current = { requestId, trackId: track.id };
     loadedRemoteAudioAnalysisTrackIdRef.current = null;
 
     void (async () => {
-      let frames: RemoteAudioAnalysisFrameEntry[] = [];
-      let frameIntervalMs = audioAnalysisSampleIntervalMs;
-
-      for (let chunkIndex = 0; chunkIndex < chunkCount; chunkIndex += 1) {
-        if (
-          remoteAudioAnalysisLoadStateRef.current?.requestId !== requestId ||
-          (isBrowserBackendRuntime && remotePlaybackClockRef.current && remotePlaybackClockRef.current.trackId !== track.id)
-        ) {
-          return;
-        }
-
-        const from = chunkIndex * remoteAudioAnalysisChunkDurationSeconds;
-        const chunkDuration = Math.min(remoteAudioAnalysisChunkDurationSeconds, duration - from);
-        const segment = await getRemoteTrackAnalysisSegment(track.id, from, chunkDuration, duration);
-        console.debug(
-          `[remote-audio-analysis] segment trackId=${String(track.id)} chunk=${chunkIndex + 1}/${chunkCount} from=${from.toFixed(2)}s duration=${chunkDuration.toFixed(2)}s frames=${segment.frames.length} complete=${segment.isComplete}`,
-        );
-        if (
-          segment.trackId !== track.id ||
-          remoteAudioAnalysisLoadStateRef.current?.requestId !== requestId ||
-          (isBrowserBackendRuntime && remotePlaybackClockRef.current && remotePlaybackClockRef.current.trackId !== track.id)
-        ) {
-          return;
-        }
-
-        frameIntervalMs = segment.frameIntervalMs;
-        frames = mergeRemoteAudioAnalysisFrames(frames, segment.frames, audioAnalysisSampleIntervalMs);
-        const partialPacket = makeAudioAnalysisPacketFromFrames(
-          track.id,
-          frames,
-          frameIntervalMs,
-          isTauriRuntime
-            ? playerBarRef.current?.getCurrentTime() ?? 0
-            : estimateRemotePlaybackTime(remotePlaybackClockRef.current, performance.now()),
-          audioAnalysisSampleIntervalMs,
-          performance.now(),
-        );
-      if (partialPacket) audioAnalysisPacketRef.current = partialPacket;
-
-        if (segment.isComplete) break;
-      }
+      const analysis = await getRemoteTrackAnalysis(track.id);
 
       if (
+        analysis.trackId !== track.id ||
         remoteAudioAnalysisLoadStateRef.current?.requestId !== requestId ||
         (isBrowserBackendRuntime && remotePlaybackClockRef.current && remotePlaybackClockRef.current.trackId !== track.id)
       ) {
@@ -226,8 +173,8 @@ export function useRemoteAudioAnalysisCache({
 
       const completePacket = makeAudioAnalysisPacketFromFrames(
         track.id,
-        frames,
-        frameIntervalMs,
+        analysis.frames,
+        analysis.frameIntervalMs,
         isTauriRuntime
           ? playerBarRef.current?.getCurrentTime() ?? 0
           : estimateRemotePlaybackTime(remotePlaybackClockRef.current, performance.now()),
@@ -267,29 +214,10 @@ export function useRemoteAudioAnalysisCache({
           remoteAudioAnalysisRetryRef.current = { attempt, timer, trackId: track.id };
         }
       }
-      // Partial analysis is intentionally not cached unless every chunk completes.
+      // A failed whole-track load is never added to the completed packet cache.
     });
   });
   retryTrackAnalysisRef.current = loadTrackAnalysis;
-
-  const warmTrackAnalysisCache = useEffectEvent((track: Track | null) => {
-    if (!track || activeRemoteAudioAnalysisWarmupsRef.current.has(track.id)) return;
-
-    const duration = getTrackAnalysisRequestDuration(track);
-    activeRemoteAudioAnalysisWarmupsRef.current.add(track.id);
-    console.debug(
-      `[remote-audio-analysis] warmup start trackId=${String(track.id)} trackDuration=${track.durationSeconds ?? "unknown"}s requestDuration=${duration.toFixed(2)}s`,
-    );
-    void getRemoteTrackAnalysisSegment(track.id, 0, duration, duration)
-      .catch((error: unknown) => {
-        console.debug(`[remote-audio-analysis] warmup failed trackId=${String(track.id)} error=${String(error)}`);
-        // Cache warmup is best-effort; playback and browser sync should keep running.
-      })
-      .finally(() => {
-        console.debug(`[remote-audio-analysis] warmup finished trackId=${String(track.id)}`);
-        activeRemoteAudioAnalysisWarmupsRef.current.delete(track.id);
-      });
-  });
 
   return {
     audioAnalysisPacketRef,
@@ -297,6 +225,5 @@ export function useRemoteAudioAnalysisCache({
     clearRemoteAudioAnalysisPacketCache,
     loadTrackAnalysis,
     resetAudioAnalysisLoad,
-    warmTrackAnalysisCache,
   };
 }

@@ -2,7 +2,9 @@
 
 - When adding or changing UI copy, update only the English and Japanese locale files (`src/locales/en.xml` and `src/locales/ja.xml`) during normal implementation.
 - Run the app against the real Tauri/local backend by default. Enable mock data only for validation/test runs by setting `VITE_MOCK_DATA=true`.
-- At the end of implementation work, start the app with the real Tauri/local backend (`npm run tauri dev`, without `VITE_MOCK_DATA=true`) and confirm that the development build completes and the app launches without dependency-resolution errors. Stop the dev process after verification.
+- For tasks with a graphics or visual-quality goal, verify against the real Tauri app. Before starting anything, check whether port `1420` or this workspace's `target/debug/musical` is already running. If the existing process is the real Tauri app for this workspace, reuse it and do not start another instance; only run `npm run tauri dev` when no reusable real app exists.
+- For routine launch, dependency-resolution, or non-visual smoke checks, use the isolated mock Tauri app (`npm run tauri:dev:ai-test`) on port `1430` instead of starting the real app. This test app runs hidden and unfocused in the background, uses mock data and a separate app identifier, never opens the dev browser, and does not start the local server or MCP sidecar on port `1422`.
+- Stop only the dev process started by the current task after verification. Never stop a reused process owned by another task or the user.
 - When changing features, behavior, UI/UX, APIs, data structures, or runtime responsibilities, update the matching specs/docs in the same change set. Use `Specs/feature-list.md` for feature inventory changes, `Specs/basic-design.md` for basic design changes, and the relevant detailed `Specs/*.md` or `docs/*.md` file for behavior-specific changes.
 - When preparing a push, read `.codex/push.md` and apply its push-only checklist. For tag pushes, validate every locale file under `src/locales/`, not only English and Japanese.
 - Name release tags using `v{major version}.{minor version}.{bugfix version}` (for example, `v1.2.3`).

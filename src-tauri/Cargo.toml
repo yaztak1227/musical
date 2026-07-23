@@ -1,6 +1,6 @@
 [package]
 name = "musical"
-version = "0.4.4"
+version = "0.5.0"
 description = "Lightweight cross-platform music player and album manager"
 authors = ["circularmoonray"]
 edition = "2021"

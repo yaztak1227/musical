@@ -233,24 +233,6 @@ fn load_track_file_path_from_connection(
         .ok_or_else(|| format!("library.error.trackNotFound\t{track_id}"))
 }
 
-pub fn load_track_file_path_and_duration(
-    app: &AppHandle,
-    track_id: &str,
-) -> Result<(String, i64), String> {
-    let database_path = required_app_database_path(app)?;
-    let connection = open_database_for_read(&database_path)?;
-
-    connection
-        .query_row(
-            "SELECT file_path, duration_seconds FROM tracks WHERE uuid = ?1",
-            [track_id],
-            |row| Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?)),
-        )
-        .optional()
-        .map_err(to_error_string)?
-        .ok_or_else(|| format!("library.error.trackNotFound\t{track_id}"))
-}
-
 pub fn scan_folder(app: &AppHandle, folder_path: &str) -> Result<ScanSummary, String> {
     let canonical_root = normalize_windows_extended_path(
         fs::canonicalize(folder_path)

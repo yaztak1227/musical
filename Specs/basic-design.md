@@ -41,6 +41,7 @@ flowchart LR
 | React main UI | `src/App.tsx`, `src/app/AppShell.tsx` | デスクトップ/ブラウザ共通 UI |
 | React feature hooks | `src/features/**` | library, playback, remote-player, tag-editing, tv-display の責務分割 |
 | Tauri backend | `src-tauri/src/lib.rs` | Tauri command と plugin setup |
+| AI test Tauri app | `src-tauri/tauri.ai-test.conf.json`, `scripts/ai-init-test.mjs` | Mockデータによる分離起動確認。非表示・非フォーカスでバックグラウンド実行し、frontendは`1430`を使い、local server、MCP sidecar、dev browserは起動しない |
 | Library backend | `src-tauri/src/library.rs`, `src-tauri/src/library/**` | scan, snapshot, playlist, tag, artwork, storage |
 | Audio analysis backend | `src-tauri/src/audio_analysis.rs` | FFT bucket 生成と cache |
 | Local server | `src-tauri/src/local_server.rs` | `/api/*`, `/tv`, WebSocket, media streaming, MCP sidecar lifecycle/proxy |
@@ -60,7 +61,7 @@ flowchart LR
 - `AlbumBrowser`: アルバム/曲/プレイリストの一覧、検索、ソート、再生入口。
 - `SelectedAlbumPanel`: 選択アルバムの曲、タグ編集導線、詳細表示導線。
 - `SelectedPlaylistPanel`: プレイリスト曲の表示、追加、削除、並べ替え。
-- `PlayerBar`: 再生状態、キュー、シーク、音量、Player mode 導線。キューは可変幅オプションから分離し、Player mode入口はグリッド自動配置から外してPlayerBar右端へ固定する。通常幅、Tauriの1226×768前後、タブレット、モバイルで常時表示し、キュー領域には入口とフォーカス外枠分の右余白を確保する。入口は明示的なaccessible name、キーボード操作、可視の `focus-visible` 外枠を持つ。
+- `PlayerBar`: 再生状態、キュー、シーク、音量、Player mode 導線。キューは可変幅オプションから分離し、Player mode入口はグリッド自動配置から外してPlayerBar右端へ固定する。通常幅、Tauriの1226×768前後、タブレット、モバイルで常時表示し、キュー領域には入口とフォーカス外枠分の右余白を確保する。入口は明示的なaccessible name、キーボード操作、可視の `focus-visible` 外枠を持つ。開発版では現在曲の変更時に Performance API の measure entries が50万件以上か確認し、上限到達時だけ消去する。
 - `PlayerVisualizerOverlay`: Player mode、ビジュアライザ、歌詞、キュー。
 - `TrackDetailDialog`: 曲情報、歌詞、アートワーク候補検索、アートワーク、タグ編集。
 - `ArtworkCandidateDialog`: MusicBrainz / Cover Art Archive 由来の候補検索、検索中の進捗表示、候補比較、preview、保存導線。
@@ -140,6 +141,7 @@ Tauri setup 時に local server を開始し、desktop/browser/Fire TV の接続
 - MCP sidecar は `@modelcontextprotocol/sdk` の Streamable HTTP server を使い、AI SDK V7 `@ai-sdk/mcp` client から `mcpClient.tools()` / `callTool()` で検証する。
 - `dev:public` は Vite 起動前に MCP sidecar を build し、production build は Vite が `dist` を生成した後に `dist/mcp/server.js` を出力する。これにより Vite の出力 cleanup で sidecar が欠落しないようにする。
 - MCP internal bridge API は sidecar に渡した per-process token (`X-Musical-MCP-Token`) を要求する。
+- Tauri は MCP sidecar の stdin pipe を保持し、sidecar は pipe の EOF を親プロセス終了として扱って即時終了する。これにより Tauri の異常終了時にも orphan Node process を残さない。
 - media は server が公開した file/API 経由でのみ取得できる。
 - アートワーク候補検索と候補画像 download は Tauri command 専用で、local server API には公開しない。
 
@@ -260,6 +262,8 @@ sequenceDiagram
 
 iTunes由来の `ID3v2 + RIFF/RMP3` wrapper は、ID3 header の syncsafe size からタグ終端へ seek し、`data` chunk 以降をMP3としてprobeする。ブラウザ側の解析取得が一時失敗した場合は上限付きbackoffで再試行し、停止・曲変更時に再試行を解除する。
 
+音声解析は曲単位でEOFまで実行し、音声stream MD5、file path、modified time、track UUID、analysis versionが一致する完全cacheだけを再利用する。APIは任意durationの部分解析を持たず、要求長をcache validityへ含めない。フロントエンドは曲全体のcompact bytesを1回取得し、JSONをfallbackとする。
+
 ```mermaid
 sequenceDiagram
   participant UI as React UI
@@ -281,7 +285,7 @@ sequenceDiagram
   UI->>Viz: render by playback time
 ```
 
-`PlayerVisualizerOverlay` は解析 bucket を共通入力として、波、スペクトラム、サークル、山脈、墨流し、VU メーターを Canvas 2D で描画する。オーロラ、スターフィールド、DNA 螺旋、ワープホールはそれぞれ専用の Three.js/WebGL2 canvas で GLSL シェーダーを実行し、WebGL 初期化に失敗した場合だけ Canvas 2D 描画へ fallback する。ちびキャラオーケストラは通常のモードボタンへ出さず、Chibi mode ボタンのダブルクリック/ダブルタップで一時的に切り替える。山脈は下端へ閉じる面の起伏として描く。
+`PlayerVisualizerOverlay` は解析 bucket を共通入力として、波、スペクトラム、サークル、山脈、夢幻流、VU メーターを Canvas 2D で描画する。夢幻流は複数の半透明な水玉を周波数帯域ごとに膨縮させ、固定ペアの表面間距離が近い場合だけ、接近度とenergyに応じた短い混色膜と接点光を水玉の上へ低い不透明度で描く。接点の周囲と各水玉の内側には、異なる位相で明滅する小さな光点を不均一に散らし、水玉の穏やかな運動を主役として維持する。内部モードID `ink` は保存済み設定との互換性のため維持する。オーロラ、スターフィールド、DNA 螺旋、ワープホールはそれぞれ専用の Three.js/WebGL2 canvas で GLSL シェーダーを実行し、WebGL 初期化に失敗した場合だけ Canvas 2D 描画へ fallback する。ちびキャラオーケストラは通常のモードボタンへ出さず、Chibi mode ボタンのダブルクリック/ダブルタップで一時的に切り替える。山脈は下端へ閉じる面の起伏として描く。
 
 overlay の stacking context はブラウザ間で同じ合成結果になるよう、アートワーク背景、装飾背景、Canvas、vignette、操作 UI、closeボタンの順を非負の `z-index` で明示する。Canvasと装飾レイヤーは `pointer-events: none` とし、closeボタンを常にクリック可能な最前面へ置く。Canvas 内部のピクセル検査に加え、overlay 全体の screenshot が再生中に変化することとcloseボタンでoverlayを閉じられることをブラウザ回帰テストで検証し、親背景の背面へ Canvas が隠れる不具合と透明レイヤーが操作を遮る不具合を検出する。
 
@@ -291,7 +295,17 @@ overlay の stacking context はブラウザ間で同じ合成結果になるよ
 
 オーロラは解析 bucket を低域から高域まで5帯域へ要約し、横方向へ連続する色・エネルギーマップとして補間する。GPU シェーダーは5フレームの周波数履歴、FBM ノイズ、蛇行する発光上端、多数の縦フィラメント、半透明の面光、暗部へ溶ける不規則な下端を合成する。色は横方向のオーロラパレットに加え、上端の淡い色から下端の隣接色相へ移る縦グラデーションを持つ。レインボー選択時はライムからグリーン、アクア、ブルー、バイオレット、マゼンタ、ローズへ進む8色を左から右へ補間し、オリジナル選択時の寒色中心パレットと明確に区別する。オリジナルとアートワークは霧調プロファイルを使い、細い白い芯、露出、bloom を抑えながら低輝度の面光、カーテン周辺の拡散光、半透明の霞を残す。Theme は従来の非レインボー描画、レインボーは細線主体の形状、専用露出、専用 bloom を維持する。レインボーの解析履歴は約48 ms間隔で更新し、帯域エネルギーを上端位置、フィラメント長、輝度へ強く反映する。`EffectComposer` の `UnrealBloomPass` は高輝度の芯だけへ薄い bloom を加え、面全体の白飛びを避ける。Canvas 2D fallback でも霧調プロファイルでは加算合成の不透明度と白混合を下げ、面の blur を広げる。帯域の強度はフィラメントの丈、輝度、太さ、揺れへ反映する。DNA 螺旋は一定間隔で解析 bucket を周波数履歴へ取り込み、低音から高音へ分割した1時点のスナップショットを横線1本として扱う。専用 WebGL は8帯域×32履歴、Canvas 2D fallback は24帯域×42履歴を使う。どちらも新しい横線を下側、古い横線を上側へ配置する時間軸を維持し、GPU シェーダーは中央と左右の二重螺旋、その周囲の半透明な霧、帯域強度に反応する水平光条、250〜450個相当の流れる微粒子、40〜80本相当の短い尾、同時に2〜4本読める外向き波面を単一描画パスで合成する。低エネルギー時も最低輝度とコントラストを確保するが、粒子・波面の増幅源は固定ノイズではなく8帯域×32履歴のエネルギーと正の時間差分を使う。Canvas 2D fallback では従来の線描を使う。描画モードと配色モードは独立したボタングループで選択する。配色は旧来の時間変化する HSL 配色を再現するオリジナル、アプリテーマ、アートワークから抽出した代表色、固定レインボーから選択する。通常モードの選択値は `localStorage` へ保存し、`prefers-reduced-motion` が有効な場合は粒子数、回転、移動速度を抑制し、post-processing を使うモードでは bloom 強度も下げる。
 
-ワープホールは画面中央よりわずかに左へ小さな暗い消失孔を置き、`log(radius)` で遠近を圧縮した細い14本の入れ子状螺旋レールを単一 fragment shader pass で合成する。下左から入るシアンと、下右・右端から入るマゼンタの細い2本の流れは、それぞれ外周で扇状に広がってから共通の内向きカールへ収束する。微粒子と短い微細スパイクは最も近い流れへ付着させる。シアン、インディゴ、バイオレット、マゼンタの寒色スペクトルを固有の基調とし、選択配色は広い赤白の環へ戻らない程度の微かな色味だけを加える。低域は回転と吸引、中域は流れの太さ、高域は粒子密度へ反映し、中心と歌詞・キューの背後へ暗い余白を残す。描画はDPR 1、全画面 quad 1枚、1 draw、1 passで、既存の更新 cadence を維持する。WebGL 初期化に失敗した場合は Canvas 2D で暗い中心と複数の螺旋を描く。
+ワープホールは画面中央よりわずかに左へ小さなほぼ黒い消失孔を置き、`log(radius)` による強い遠近圧縮で、8群以上の螺旋リボンを複数の奥行きから同じ消失点へ収束させる。
+各リボン群は渦の周囲で位相、曲率、色相をずらして識別可能にし、幅と片寄りの異なる狭い半透明のオーロラベール、shoulder、柔らかなハローを重ね、その内部へ中心線と左右5本ずつの途切れない11本の細い長尺strandを通す。strandは親幅を広げず、log-radius方向へ連続する低周波の大きな蛇行と高周波の細かなflutterを固有位相で合成し、長い線そのものを主効果にする。
+複数の画面端から入る前景流と位相をずらした内向きカールによって非対称な掃引を作る。
+色は選択配色にかかわらず、ライム、グリーン、アクア、シアン、ブルー、バイオレット、マゼンタ、ローズへ連続する虹色を固有の基調とし、Themeを含む選択配色は彩度を失わせない抑制した tint としてだけ加える。
+20周波数ブロック×32履歴 texture の新しい行を外周、古い行を消失孔側へ対応させ、energy と正の時間差分を各リボン群と奥行きへ分散することで、音の立ち上がりが内側へ移動して見えるようにする。CPUは昇順21境界で解析bucketを20ブロックへ要約し、5 RGBA texel×32行の固定長DataTextureをin-place更新する。
+20ブロックは0-based group `g=0..4` ごとに `g, g+5, g+10, g+15`（1-basedでは `1,6,11,16` から `5,10,15,20`）の飛び石集合へ分ける。集合energy/riseは4値のmeanとpeakを混合し、単一block pulseも残す。親family、11 strand、13候補の横断放出線はfamily indexとline indexから安定groupを選び、同じ親流内でも分散する。strand固有energyは通常輝度と揺れ、正のriseは局所輝度と揺れ幅を強く増幅する。放出線はstrandより従属させ、energyで通常の存在率、長さ、明るさ、riseで本数、瞬間的な伸長、局所輝度を制御する。全入力ゼロでは固定形状だけを残し、音声発光と放出線を生じさせない。
+微粒子と短い微細スパイクは全リボン群へ付着させる副次要素とし、絹状の連続カーテンとハローを主形状に保つ。
+追加の post-processing は使わず、解析発光は `1 - exp(-radiance * exposure)` の exposure を1.65以下、出力 alpha を0.84以下とする。
+解析ハローは輝度0.34未満へ付与せず、寄与をAurora Rainbowの bloom strength 0.31以下、広がりをradius 0.62以下に相当する範囲へ対応づける。
+DPR 1、全画面 quad 1枚、1 draw、1 pass、既存の paused、idle、低モーション時の更新 cadence を維持し、固定長 buffer を描画中に再利用して、終了時は history texture を含む Three.js resource を破棄する。
+WebGL 初期化に失敗した場合は Canvas 2D で暗い中心と複数の螺旋を描く。
 
 スターフィールドは画面中央付近の消失点から星を手前へ射出するワープ航行表現とする。GPU シェーダーは距離と速度の異なる5層の放射状光跡、中心付近の微細な星間ダスト、色付きのハロー、中心フレア、薄い衝撃波リングを合成する。周波数 bucket は32方向へ割り当てる前に、完全な32分割を列方向へ読む `1,33,65,2,34,66…` 型の順序へ並べ替える。これにより隣接する周波数値を角度方向へ散らし、特定帯域が強い場合も一方向だけへ光跡が偏ることを防ぐ。各方向の平滑化エネルギーは光跡の出現数、長さ、太さ、輝度を制御し、全体エネルギーと正の差分から求めた立ち上がり成分は一時的に光跡数、中心フレア、衝撃波、bloom を強める。停止時は平滑化済みエネルギーと立ち上がり状態をリセットし、音声連動光跡を残留させない。低域は加速度、中域は空間の霞、高域は微細星と瞬きにも反映する。`UnrealBloomPass` は光跡の芯だけを発光させ、背景の黒とUI文字の可読性を保つ。低モーション設定では移動速度、光跡長、衝撃波、立ち上がり反応、bloom 強度を抑える。
 

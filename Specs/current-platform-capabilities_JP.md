@@ -188,8 +188,7 @@
 - 解析 bucket 数は 256。
 - バックエンド FFT size は 512。
 - バックエンド analyser 範囲は `-88 dB` から `-18 dB`、smoothing constant は `0.58`。
-- フロントエンドの remote-analysis request は 30 秒チャンクを使う。
-- 要求する解析 duration は `max(15 minutes, track duration + 2 seconds)`。
+- フロントエンドの remote-analysis request は曲全体の packet を1回で取得する。
 - フロントエンドは完了済み解析パケットを最大 5 件までメモリ保持する。
 - `currentTrack` が変わったとき:
   - 再生エラーをクリアする。
@@ -200,31 +199,22 @@
   - `loadTrackAnalysis(currentTrack)` が走る。
   - その曲の完了済みパケットがメモリキャッシュにある場合は、それを再利用し現在の再生時刻に rebase する。
   - 同じ曲が既にロード中の場合、フロントエンド側で重複ロードは開始しない。
-  - それ以外の場合、`/api/track_analysis` へ 30 秒チャンクで曲を要求する。
-  - 返ってきた各チャンクごとに partial packet を `audioAnalysisPacketRef` へ書き込み、全トラック要求が完了する前でもビジュアライザが動き始められるようにする。
+  - それ以外の場合、`/api/track_analysis_bytes` から曲全体を1回で取得し、失敗時は JSON `/api/track_analysis` へ fallback する。
   - メモリ内 packet cache に保存するのは完了済みパケットだけ。
 - `isPlaying` が false になったとき、または現在曲がないとき:
   - `audioAnalysisPacketRef` をクリアする。
   - active analysis load state をクリアする。
   - loaded analysis track marker をクリアする。
-  - 完了済み packet cache をクリアする。
-  - つまり pause/stop は、フロントエンドメモリ上のビジュアライザ packet を意図的に削除する。
-- Tauri デスクトップ再生中:
-  - 現在曲の analysis cache を best-effort で warm する。
-  - 現在曲の次のキュー項目を best-effort で warm する。
-  - 現在曲がない、再生が停止中、またはその曲が既に warming 中の場合、warmup はスキップされる。
-  - warmup error は無視され、再生は継続する。
+  - 完了済み packet は上限付きメモリキャッシュへ残し、再開時に再利用する。
 - バックエンド `/api/track_analysis` の挙動:
-  - `trackId`, `from`, `duration`, 任意の `totalDuration`, 任意の `compact` を読む。
-  - `duration` は 0.25 秒から 4 時間に clamp する。
-  - `totalDuration` は少なくとも `duration`、最大 4 時間に clamp する。
-  - 要求ファイル/バージョン/duration の完全キャッシュがある場合は cached frames を返し、`isComplete: true` を付ける。
-  - 完全キャッシュがない場合は、要求 total duration について先頭から decode/analyze し、結果を保存し、その request path からは `isComplete: true` として返す。
+  - `trackId` だけを読み、常に曲全体の解析を返す。
+  - cache identity は track UUID、音声stream MD5、file path、modified time、analysis versionで決まり、要求durationを有効性判定へ使わない。
+  - 一致する完全cacheがない場合は音声streamをEOFまでdecode/analyzeして保存する。
   - 同じ track への同時解析 request は `active_track_analysis_loads` で dedupe され、後続 request は先行処理の完了を待って cache を読む。
   - track analysis request を返した後、公開済み desktop `player_state.queueTrackIds` を基に次曲 prefetch を試みる。
 - バックエンド次曲 prefetch:
   - `player_state` が存在し、要求/解析された track の次曲がその queue にある場合のみ走る。
-  - track duration + 2 秒を使う。
+  - 常に曲全体のanalysisをwarmする。
   - active prefetch は `active_track_analysis_prefetches` で dedupe する。
   - error は log して skip し、元の analysis request は失敗させない。
 - Mock web mode:
@@ -284,6 +274,7 @@
 - ローカル MCP endpoint を切り替える。`/mcp` endpoint は local-only で、無効時は 404 を返す。
 - `/mcp` は公式 MCP SDK 上の TypeScript sidecar で提供し、AI SDK V7 compatible な tool catalog として検証する。Tauri local server は enabled 設定、sidecar lifecycle、reverse proxy を担当する。
 - MCP sidecar と internal bridge は loopback bind と per-process `X-Musical-MCP-Token` で保護する。
+- Tauri から MCP sidecar へ専用 stdin pipe を保持し、sidecar は EOF で終了する。これにより Tauri の異常終了時にも orphan Node process を残さない。
 - `@ai-sdk/mcp` による tool discovery と `structuredContent` 検証を provider API key なしで実行できる。
 - MCP は再生操作、album/track/artist 検索、library summary、queue 操作、favorites、playlist mutation、tag/artwork 更新を含む 43 tools を公開する。
 
@@ -360,7 +351,7 @@ Mock browser のコントロールとビジュアライザ:
 - Player bar の play/pause、previous、next、shuffle、repeat、queue popover、Player mode は React playback state だけを更新する。
 - mock playback 中に Player mode を開くと、現在曲の mock analysis packet を作り、animated visualizer movement を描画する。
 - mock analysis は current track/play state change ごとに `getMockAudioAnalysisSegment(currentTrack.id, 0, duration)` から 1 回生成される。
-- mock analysis duration は desktop remote analysis と同じ frontend rule、つまり `max(15 minutes, track duration + 2 seconds)` を使う。
+- mock analysis duration は現在曲のdurationを使い、不明な場合だけ15分へfallbackする。
 - 再生停止、または現在曲がなくなると mock packet をクリアする。
 - Desktop-only button:
   - Folder picker は disabled。
@@ -522,15 +513,11 @@ Fire TV audio と analysis timing:
   - new track の analysis loading を restart する。
 - current track の analysis fetch:
   - track selection/change 時に即座に走る。
-  - track が current の間、2 秒ごとに repeat する。
-  - `max(0, currentTime - 0.5)` から 4 秒 window を request する。
-  - `totalDuration` には current audio duration、track duration、または `1` を送る。
-  - まず `/api/track_analysis_bytes?compact=true` を試す。
-  - bytes loading が失敗した場合は `/api/track_analysis?compact=true` に fallback する。
+  - 任意duration windowをpollせず、曲全体を1回取得する。
+  - まず `/api/track_analysis_bytes` を試す。
+  - bytes loading が失敗した場合は `/api/track_analysis` に fallback する。
   - track が変わる、または component effect cleanup 時に in-flight request を abort する。
-  - `isLoadingAnalysis` guard によって overlapping analysis loads を防ぐ。
-  - new frames を current time 周辺の retained frame window に merge する。
-  - fetch failure 時は current visible analysis window だけを保持する。
+  - 曲全体のfetch失敗時はanalysis framesをclearする。
 - Fire TV visualizer rendering:
   - target maximum 30 fps で描画する。
   - canvas size は 1280 x 720、device scale は 1 以下に cap する。
@@ -574,13 +561,13 @@ architecture、navigation、layout、playback、platform integration を変更�
 - playback 中に Player mode を開くと current-track analysis が開始または継続し、full-track analysis 完了前でも canvas が動き始める。
 - paused 中に Player mode を開くと idle visualization を表示し、前回再生状態の古い moving bars を出さない。
 - pause 後に play を押すと current track の analysis を reload/reuse する。
-- pause を押すと frontend analysis packet/cache を clear し、visualizer を idle behavior に戻す。
-- next を押すと stale current-track frames を clear し、player position を reset し、新しい current track の analysis を開始し、次の queue item を warm する。
-- 3 秒より後で previous を押すと 0 に seek し、current analysis packet を clear する。
+- pause を押すと現在表示中のanalysis packetをclearしてvisualizerをidle behaviorへ戻すが、上限付きcompleted packet cacheは保持する。
+- next を押すと stale current-track frames を clear し、player position を reset し、新しい current track の analysis を開始する。
+- 3 秒より後で previous を押すと 0 に seek し、曲全体のcurrent analysis packetをそのまま再利用する。
 - track の先頭で previous を押すと track を切り替え、新しい current track の analysis を開始する。
-- seek は stale analysis packets を clear し、次の analysis load/rebase が新しい playback time と一致する。
+- seek は曲全体のanalysis packetを保持し、新しいplayback timeに対応するframeを即座に選ぶ。
 - current-track analysis request は、同じ track が既に loading 中なら重複しない。
-- partial analysis chunks は complete analysis が cached される前に visualizer に見える。
+- analysis endpointは常に曲全体のcomplete packetを返す。
 - narrow layout は viewport bottom と flush で、album panel を collapse/expand できる。
 - track detail が desktop interaction と mobile long press から開く。
 - album tag、track tag、favorite/rating、track artwork、playlist artwork save paths が UI を更新し remote clients に notify する。
@@ -637,8 +624,7 @@ architecture、navigation、layout、playback、platform integration を変更�
 - TV playback が `/api/media?path=...` と local WebView audio を使う。
 - lyrics が `/api/track_lyrics` から load され、lyrics がない場合 lyrics tab が disabled になる。
 - visualizer data が compact bytes または JSON analysis endpoints から load され、Fire TV performance のため bounded である。
-- Fire TV が track change 時に frames を clear し、新しい 4-second analysis window を即座に request する。
-- Fire TV が current track について analysis-window request を 2 秒ごとに repeat する。
+- Fire TV が track change 時にframesをclearし、曲全体のanalysisを1回requestする。
 - Fire TV visualizer が、current playback time 近くの frames がある場合、playing 中は最大 30 fps で animate し続ける。
 - Fire TV visualizer が frames missing、too old、または playback stopped の場合、stale frames を表示せず decay/clear する。
 - Fire TV ended event が次の adjacent track へ移動し、新 track の lyrics/analysis load cycle を開始する。

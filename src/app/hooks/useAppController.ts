@@ -162,7 +162,7 @@ import type {
 } from "./useAppControllerTypes";
 import { areEntityIdArraysEqual, waitForNextPaint } from "./useAppControllerUtils";
 import { dispatchRemotePlayerCommand } from "./remotePlayerCommandDispatcher";
-import { getTrackAnalysisRequestDuration, useRemoteAudioAnalysisCache } from "./useRemoteAudioAnalysisCache";
+import { useRemoteAudioAnalysisCache } from "./useRemoteAudioAnalysisCache";
 import {
   hasAlbumTagChanges as getHasAlbumTagChanges,
   hasTrackTagChanges as getHasTrackTagChanges,
@@ -566,7 +566,6 @@ export function useAppController() {
     clearRemoteAudioAnalysisPacketCache,
     loadTrackAnalysis,
     resetAudioAnalysisLoad,
-    warmTrackAnalysisCache,
   } = useRemoteAudioAnalysisCache({
     currentTrack,
     currentTrackIndex,
@@ -1503,7 +1502,6 @@ export function useAppController() {
     if (source !== "remote-sync" && sendRemoteCommand("seek", { time: nextTime })) return;
 
     playerBarRef.current?.seekTo(nextTime, source);
-    clearAudioAnalysisPacket();
   }
 
   function setVolume(nextVolume: number, source = "programmatic") {
@@ -2307,7 +2305,6 @@ export function useAppController() {
     if (!isBrowserBackendRuntime && !isTauriRuntime) return;
     if (!currentTrack || !isPlaying) {
       resetAudioAnalysisLoad();
-      clearRemoteAudioAnalysisPacketCache();
       return;
     }
 
@@ -2315,21 +2312,14 @@ export function useAppController() {
   }, [currentTrack?.id, isPlaying]);
 
   useEffect(() => {
-    if (!isTauriRuntime || !currentTrack || !isPlaying) return;
-
-    const currentTrackIndex = queue.findIndex((track) => track.id === currentTrack.id);
-    const nextTrack = currentTrackIndex >= 0 ? queue[currentTrackIndex + 1] ?? null : null;
-    warmTrackAnalysisCache(currentTrack);
-    warmTrackAnalysisCache(nextTrack);
-  }, [currentTrack?.id, isPlaying, queue]);
-
-  useEffect(() => {
     if (!isMockDataRuntime || !isPlaying || !currentTrack) {
       if (isMockDataRuntime) clearAudioAnalysisPacket();
       return;
     }
 
-    const duration = getTrackAnalysisRequestDuration(currentTrack);
+    const duration = currentTrack.durationSeconds && currentTrack.durationSeconds > 0
+      ? currentTrack.durationSeconds
+      : 15 * 60;
     const segment = getMockAudioAnalysisSegment(currentTrack.id, 0, duration);
     const nextPacket = makeAudioAnalysisPacketFromSegment(
       segment,

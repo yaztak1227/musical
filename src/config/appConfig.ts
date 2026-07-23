@@ -21,9 +21,6 @@ export const chibiSpectrumConfig = {
 } as const;
 
 export const remoteAudioAnalysisConfig = {
-  chunkDurationSeconds: 30,
-  durationPaddingSeconds: 2,
-  fallbackDurationSeconds: 15 * 60,
   maxCachedPackets: 5,
   retryDelaysMs: [1_000, 3_000, 8_000],
 } as const;

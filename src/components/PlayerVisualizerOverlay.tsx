@@ -143,7 +143,7 @@ function VisualizerModeIcon({ mode }: { mode: VisualizerMode }) {
     return <svg {...sharedProps}><ellipse cx="12" cy="12" rx="8.8" ry="4.9" /><ellipse cx="12" cy="12" rx="4.4" ry="2.3" opacity=".78" /><path d="M3.6 9.2c2.6-4.1 7.3-6.1 11.8-4.3M20.4 14.8c-2.5 4.1-7.2 6-11.7 4.3M7 14.6c1.7 1.7 4.6 2.1 6.9.9M17 9.4c-1.8-1.7-4.6-2.1-6.9-.9" opacity=".72" /><circle cx="12" cy="12" r="1.1" fill="currentColor" stroke="none" /></svg>;
   }
   if (mode === "ink") {
-    return <svg {...sharedProps}><path d="M4 14.2c1.3-5.9 10.2-7.6 13.8-3.1 2.8 3.6-.6 8.4-4.8 7.1-3.1-1-2.7-5.3.3-5.7 2-.2 2.8 2.1 1.2 3.1" /><path d="M6.3 7.2c-.9-1.6.1-3.2 1.2-4.5 1.1 1.3 2.1 2.9 1.2 4.5-.5.9-1.9.9-2.4 0Z" opacity=".72" /></svg>;
+    return <svg {...sharedProps}><ellipse cx="7.1" cy="10.1" rx="3.6" ry="3.1" /><ellipse cx="16.3" cy="9.1" rx="3.3" ry="3.7" /><ellipse cx="12.4" cy="17" rx="3.8" ry="2.7" /><path d="M10.5 9.8c1.1-.8 1.7-.9 2.6-.5M9.2 12.5c.5 1.1 1.1 1.7 2 2.2M14.4 13c-.1 1-.4 1.6-.9 2" opacity=".62" /></svg>;
   }
   return <svg {...sharedProps}><path d="M3 17a6 6 0 0 1 12 0M13 17a4 4 0 0 1 8 0" /><path d="m9 15 2.7-3.4M17 16l1.7-2.2" /><path d="M3 20h18" opacity=".55" /></svg>;
 }
@@ -1753,6 +1753,259 @@ function drawWarpHole(
   context.restore();
 }
 
+type InkResonanceBlob = {
+  color: VisualizerColor;
+  energy: number;
+  radius: number;
+  radiusX: number;
+  radiusY: number;
+  rotation: number;
+  x: number;
+  y: number;
+};
+
+function ellipseRadiusAlongDirection(blob: InkResonanceBlob, angle: number) {
+  const localAngle = angle - blob.rotation;
+  const horizontal = blob.radiusY * Math.cos(localAngle);
+  const vertical = blob.radiusX * Math.sin(localAngle);
+  const denominator = Math.hypot(horizontal, vertical);
+  return denominator > 0 ? (blob.radiusX * blob.radiusY) / denominator : 0;
+}
+
+function inkGlintNoise(seed: number) {
+  const value = Math.sin(seed * 12.9898) * 43758.5453;
+  return value - Math.floor(value);
+}
+
+function drawInkSurfaceGlints(
+  context: CanvasRenderingContext2D,
+  blobs: InkResonanceBlob[],
+  contactRange: number,
+  time: number,
+  reducedMotion: boolean,
+) {
+  const glintsPerBlob = reducedMotion ? 1 : 2;
+  const glints = blobs.flatMap((blob, blobIndex) => Array.from({ length: glintsPerBlob }, (_, glintIndex) => {
+    const seed = (blobIndex + 1) * 31 + (glintIndex + 1) * 11;
+    const angleNoise = inkGlintNoise(seed);
+    const distanceNoise = inkGlintNoise(seed + 17);
+    const phaseNoise = inkGlintNoise(seed + 43);
+    const sizeNoise = inkGlintNoise(seed + 71);
+    const angle = angleNoise * Math.PI * 2
+      + (reducedMotion ? 0 : time * (0.000018 + phaseNoise * 0.000012));
+    const radialPosition = 0.34 + distanceNoise * 0.52;
+    const localX = Math.cos(angle) * blob.radiusX * radialPosition;
+    const localY = Math.sin(angle) * blob.radiusY * radialPosition;
+    const rotationCos = Math.cos(blob.rotation);
+    const rotationSin = Math.sin(blob.rotation);
+    const blinkSpeed = reducedMotion ? 0.00034 : 0.00072 + phaseNoise * 0.0011;
+    const blink = 0.5 + Math.sin(time * blinkSpeed + phaseNoise * Math.PI * 2) * 0.5;
+    const twinkle = 0.12 + Math.pow(blink, 3.1) * 0.88;
+    return {
+      alpha: (0.085 + blob.energy * 0.2) * twinkle,
+      color: blob.color,
+      radius: contactRange * (0.016 + sizeNoise * 0.022),
+      x: blob.x + localX * rotationCos - localY * rotationSin,
+      y: blob.y + localX * rotationSin + localY * rotationCos,
+    };
+  }));
+
+  context.save();
+  context.globalCompositeOperation = "screen";
+  context.filter = reducedMotion ? "blur(2px)" : "blur(3px)";
+  glints.forEach((glint) => {
+    context.fillStyle = rgba(glint.color, glint.alpha * 0.58);
+    context.beginPath();
+    context.arc(glint.x, glint.y, glint.radius * 2.7, 0, Math.PI * 2);
+    context.fill();
+  });
+  context.filter = reducedMotion ? "blur(0.7px)" : "blur(0.45px)";
+  glints.forEach((glint) => {
+    context.fillStyle = rgba(glint.color, glint.alpha);
+    context.beginPath();
+    context.arc(glint.x, glint.y, glint.radius, 0, Math.PI * 2);
+    context.fill();
+  });
+  context.restore();
+}
+
+function drawInkResonanceBridge(
+  context: CanvasRenderingContext2D,
+  first: InkResonanceBlob,
+  second: InkResonanceBlob,
+  contactRange: number,
+  time: number,
+  pairIndex: number,
+  reducedMotion: boolean,
+) {
+  const deltaX = second.x - first.x;
+  const deltaY = second.y - first.y;
+  const distance = Math.hypot(deltaX, deltaY);
+  if (distance < 1) return;
+
+  const angle = Math.atan2(deltaY, deltaX);
+  const firstRadius = ellipseRadiusAlongDirection(first, angle);
+  const secondRadius = ellipseRadiusAlongDirection(second, angle + Math.PI);
+  const smallerRadius = Math.min(firstRadius, secondRadius);
+  const gap = distance - firstRadius - secondRadius;
+  const proximity = 1 - Math.max(0, Math.min(1, (gap + contactRange * 0.34) / (contactRange * 1.34)));
+  const overlap = Math.max(0, -gap);
+  const overlapFade = 1 - Math.min(0.58, Math.max(0, overlap - smallerRadius * 0.12) / Math.max(1, smallerRadius * 0.72));
+  const audioResponse = 0.42 + Math.min(1, (first.energy + second.energy) * 0.56) * 0.58;
+  const strength = proximity * overlapFade * audioResponse;
+  if (strength < 0.018) return;
+
+  const unitX = deltaX / distance;
+  const unitY = deltaY / distance;
+  const perpendicularX = -unitY;
+  const perpendicularY = unitX;
+  const firstInset = Math.min(firstRadius * 0.82, distance * 0.43);
+  const secondInset = Math.min(secondRadius * 0.82, distance * 0.43);
+  const startX = first.x + unitX * firstInset;
+  const startY = first.y + unitY * firstInset;
+  const endX = second.x - unitX * secondInset;
+  const endY = second.y - unitY * secondInset;
+  const bridgeLength = Math.hypot(endX - startX, endY - startY);
+  const halfWidth = Math.min(smallerRadius * 0.2, contactRange * 0.38) * (0.55 + strength * 0.45);
+  const firstWidth = halfWidth * (0.78 + first.energy * 0.14);
+  const secondWidth = halfWidth * (0.78 + second.energy * 0.14);
+  const controlOffset = Math.max(bridgeLength * 0.34, contactRange * 0.08);
+  const mixedColor = mixVisualizerColors(first.color, second.color, 0.5);
+  const gradient = context.createLinearGradient(startX, startY, endX, endY);
+  gradient.addColorStop(0, rgba(first.color, 0.035 + strength * 0.09));
+  gradient.addColorStop(0.5, rgba(mixedColor, 0.075 + strength * 0.18));
+  gradient.addColorStop(1, rgba(second.color, 0.035 + strength * 0.09));
+
+  context.save();
+  context.globalCompositeOperation = "screen";
+  context.filter = reducedMotion ? "blur(7px)" : "blur(9px)";
+  context.fillStyle = gradient;
+  context.beginPath();
+  context.moveTo(startX + perpendicularX * firstWidth, startY + perpendicularY * firstWidth);
+  context.bezierCurveTo(
+    startX + unitX * controlOffset + perpendicularX * halfWidth,
+    startY + unitY * controlOffset + perpendicularY * halfWidth,
+    endX - unitX * controlOffset + perpendicularX * halfWidth,
+    endY - unitY * controlOffset + perpendicularY * halfWidth,
+    endX + perpendicularX * secondWidth,
+    endY + perpendicularY * secondWidth,
+  );
+  context.lineTo(endX - perpendicularX * secondWidth, endY - perpendicularY * secondWidth);
+  context.bezierCurveTo(
+    endX - unitX * controlOffset - perpendicularX * halfWidth,
+    endY - unitY * controlOffset - perpendicularY * halfWidth,
+    startX + unitX * controlOffset - perpendicularX * halfWidth,
+    startY + unitY * controlOffset - perpendicularY * halfWidth,
+    startX - perpendicularX * firstWidth,
+    startY - perpendicularY * firstWidth,
+  );
+  context.closePath();
+  context.fill();
+
+  context.filter = reducedMotion ? "blur(3px)" : "blur(5px)";
+  context.strokeStyle = rgba(mixedColor, 0.05 + strength * 0.11);
+  context.lineWidth = 0.7 + strength * 1.15;
+  context.beginPath();
+  context.moveTo(startX + perpendicularX * firstWidth * 0.7, startY + perpendicularY * firstWidth * 0.7);
+  context.bezierCurveTo(
+    startX + unitX * controlOffset + perpendicularX * halfWidth * 0.78,
+    startY + unitY * controlOffset + perpendicularY * halfWidth * 0.78,
+    endX - unitX * controlOffset + perpendicularX * halfWidth * 0.78,
+    endY - unitY * controlOffset + perpendicularY * halfWidth * 0.78,
+    endX + perpendicularX * secondWidth * 0.7,
+    endY + perpendicularY * secondWidth * 0.7,
+  );
+  context.stroke();
+
+  const contactPosition = Math.max(0.32, Math.min(0.68, firstRadius / Math.max(1, firstRadius + secondRadius)));
+  const midpointX = first.x + deltaX * contactPosition;
+  const midpointY = first.y + deltaY * contactPosition;
+  const membraneHalfLength = Math.min(smallerRadius * 0.18, contactRange * 0.34) * (0.72 + strength * 0.28);
+  const membraneBow = contactRange * (0.025 + strength * 0.045);
+  const membraneGradient = context.createLinearGradient(
+    midpointX - perpendicularX * membraneHalfLength,
+    midpointY - perpendicularY * membraneHalfLength,
+    midpointX + perpendicularX * membraneHalfLength,
+    midpointY + perpendicularY * membraneHalfLength,
+  );
+  membraneGradient.addColorStop(0, rgba(first.color, 0.015));
+  membraneGradient.addColorStop(0.5, rgba(mixedColor, 0.12 + strength * 0.18));
+  membraneGradient.addColorStop(1, rgba(second.color, 0.015));
+
+  context.filter = reducedMotion ? "blur(2px)" : "blur(3.5px)";
+  context.strokeStyle = membraneGradient;
+  context.lineWidth = 1.4 + strength * 2.2;
+  context.beginPath();
+  context.moveTo(
+    midpointX - perpendicularX * membraneHalfLength,
+    midpointY - perpendicularY * membraneHalfLength,
+  );
+  context.quadraticCurveTo(
+    midpointX + unitX * membraneBow,
+    midpointY + unitY * membraneBow,
+    midpointX + perpendicularX * membraneHalfLength,
+    midpointY + perpendicularY * membraneHalfLength,
+  );
+  context.stroke();
+
+  context.filter = reducedMotion ? "blur(0.8px)" : "blur(1.2px)";
+  context.strokeStyle = rgba(mixedColor, 0.055 + strength * 0.105);
+  context.lineWidth = 0.65 + strength * 0.75;
+  context.stroke();
+
+  const contactGlowRadius = Math.max(halfWidth * 1.45, contactRange * 0.085);
+  const contactGlow = context.createRadialGradient(midpointX, midpointY, 0, midpointX, midpointY, contactGlowRadius);
+  contactGlow.addColorStop(0, rgba(mixedColor, 0.07 + strength * 0.14));
+  contactGlow.addColorStop(0.42, rgba(mixedColor, 0.03 + strength * 0.07));
+  contactGlow.addColorStop(1, rgba(mixedColor, 0));
+  context.filter = reducedMotion ? "blur(2px)" : "blur(4px)";
+  context.fillStyle = contactGlow;
+  context.beginPath();
+  context.arc(midpointX, midpointY, contactGlowRadius, 0, Math.PI * 2);
+  context.fill();
+
+  const glintCount = reducedMotion ? 3 : 8;
+  const glints = Array.from({ length: glintCount }, (_, glintIndex) => {
+    const seed = (pairIndex + 1) * 23 + (glintIndex + 1) * 7;
+    const alongNoise = inkGlintNoise(seed);
+    const acrossNoise = inkGlintNoise(seed + 19);
+    const phaseNoise = inkGlintNoise(seed + 41);
+    const sizeNoise = inkGlintNoise(seed + 67);
+    const drift = reducedMotion
+      ? 0
+      : Math.sin(time * (0.00018 + phaseNoise * 0.00012) + phaseNoise * Math.PI * 2) * contactRange * 0.035;
+    const along = (alongNoise * 2 - 1) * membraneHalfLength * 2.1;
+    const across = (acrossNoise * 2 - 1) * contactRange * 0.34 + drift;
+    const blinkSpeed = reducedMotion ? 0.00042 : 0.0009 + phaseNoise * 0.0012;
+    const blink = 0.5 + Math.sin(time * blinkSpeed + phaseNoise * Math.PI * 2) * 0.5;
+    const twinkle = 0.16 + Math.pow(blink, 2.7) * 0.84;
+    return {
+      alpha: (0.11 + strength * 0.32) * twinkle,
+      color: mixVisualizerColors(first.color, second.color, alongNoise),
+      radius: contactRange * (0.018 + sizeNoise * 0.027) * (0.82 + strength * 0.18),
+      x: midpointX + perpendicularX * along + unitX * across,
+      y: midpointY + perpendicularY * along + unitY * across,
+    };
+  });
+
+  context.filter = reducedMotion ? "blur(2px)" : "blur(3px)";
+  glints.forEach((glint) => {
+    context.fillStyle = rgba(glint.color, glint.alpha * 0.52);
+    context.beginPath();
+    context.arc(glint.x, glint.y, glint.radius * 2.8, 0, Math.PI * 2);
+    context.fill();
+  });
+
+  context.filter = reducedMotion ? "blur(0.7px)" : "blur(0.45px)";
+  glints.forEach((glint) => {
+    context.fillStyle = rgba(glint.color, glint.alpha);
+    context.beginPath();
+    context.arc(glint.x, glint.y, glint.radius, 0, Math.PI * 2);
+    context.fill();
+  });
+  context.restore();
+}
+
 function drawInk(
   context: CanvasRenderingContext2D,
   values: Uint8Array,
@@ -1763,27 +2016,60 @@ function drawInk(
   reducedMotion: boolean,
 ) {
   const layerCount = reducedMotion ? 4 : 7;
-  context.save();
-  context.globalCompositeOperation = "source-over";
-  context.filter = reducedMotion ? "blur(8px)" : "blur(14px)";
+  const blobs: InkResonanceBlob[] = [];
 
   for (let layer = 0; layer < layerCount; layer += 1) {
     const start = layer / layerCount;
     const energy = averageFrequencyBand(values, start, Math.min(1, start + 1 / layerCount));
     const phase = reducedMotion ? layer * 0.9 : time * (0.00012 + layer * 0.000014) + layer * 1.17;
-    const x = width * (0.5 + Math.sin(phase) * (0.12 + layer * 0.018));
-    const y = height * (0.5 + Math.cos(phase * 0.83) * (0.08 + layer * 0.014));
     const radius = Math.min(width, height) * (0.1 + layer * 0.025 + energy * 0.14);
-    const color = paletteColor(palette, layer);
-    const gradient = context.createRadialGradient(x, y, radius * 0.08, x, y, radius);
-    gradient.addColorStop(0, rgba(color, 0.24 + energy * 0.24));
-    gradient.addColorStop(0.58, rgba(color, 0.08 + energy * 0.14));
-    gradient.addColorStop(1, rgba(color, 0));
+    blobs.push({
+      color: paletteColor(palette, layer),
+      energy,
+      radius,
+      radiusX: radius * (1.3 + Math.sin(phase * 1.4) * 0.24),
+      radiusY: radius * (0.72 + Math.cos(phase) * 0.15),
+      rotation: phase * 0.3,
+      x: width * (0.5 + Math.sin(phase) * (0.12 + layer * 0.018)),
+      y: height * (0.5 + Math.cos(phase * 0.83) * (0.08 + layer * 0.014)),
+    });
+  }
+
+  context.save();
+  context.globalCompositeOperation = "source-over";
+
+  const stablePairs = reducedMotion
+    ? [[0, 1], [2, 3]] as const
+    : [[0, 1], [1, 2], [3, 4], [5, 6]] as const;
+  const contactRange = Math.min(width, height) * (reducedMotion ? 0.052 : 0.09);
+
+  context.filter = reducedMotion ? "blur(8px)" : "blur(14px)";
+  blobs.forEach((blob) => {
+    const gradient = context.createRadialGradient(blob.x, blob.y, blob.radius * 0.08, blob.x, blob.y, blob.radius);
+    gradient.addColorStop(0, rgba(blob.color, 0.24 + blob.energy * 0.24));
+    gradient.addColorStop(0.58, rgba(blob.color, 0.08 + blob.energy * 0.14));
+    gradient.addColorStop(1, rgba(blob.color, 0));
     context.fillStyle = gradient;
     context.beginPath();
-    context.ellipse(x, y, radius * (1.3 + Math.sin(phase * 1.4) * 0.24), radius * (0.72 + Math.cos(phase) * 0.15), phase * 0.3, 0, Math.PI * 2);
+    context.ellipse(blob.x, blob.y, blob.radiusX, blob.radiusY, blob.rotation, 0, Math.PI * 2);
     context.fill();
-  }
+  });
+
+  context.globalCompositeOperation = "screen";
+  context.filter = reducedMotion ? "blur(3px)" : "blur(5px)";
+  blobs.forEach((blob) => {
+    context.strokeStyle = rgba(blob.color, 0.03 + blob.energy * 0.06);
+    context.lineWidth = 0.7 + blob.energy * 1.05;
+    context.beginPath();
+    context.ellipse(blob.x, blob.y, blob.radiusX * 0.985, blob.radiusY * 0.985, blob.rotation, 0, Math.PI * 2);
+    context.stroke();
+  });
+  stablePairs.forEach(([firstIndex, secondIndex], pairIndex) => {
+    const first = blobs[firstIndex];
+    const second = blobs[secondIndex];
+    if (first && second) drawInkResonanceBridge(context, first, second, contactRange, time, pairIndex, reducedMotion);
+  });
+  drawInkSurfaceGlints(context, blobs, contactRange, time, reducedMotion);
   context.filter = "none";
   context.restore();
 }

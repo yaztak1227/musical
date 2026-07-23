@@ -147,23 +147,47 @@ export async function getRemotePlayerCommands(afterId: number) {
   );
 }
 
-export async function getRemoteTrackAnalysisSegment(
-  trackId: EntityId,
-  from: number,
-  duration: number,
-  totalDuration?: number,
-) {
-  const query = new URLSearchParams({
-    duration: String(duration),
-    from: String(from),
-    trackId: String(trackId),
-  });
-  if (totalDuration !== undefined) query.set("totalDuration", String(totalDuration));
-  return localApiRequest<RemoteAudioAnalysisSegment>(`/api/track_analysis?${query.toString()}`);
-}
+export async function getRemoteTrackAnalysis(trackId: EntityId) {
+  const query = new URLSearchParams({ trackId: String(trackId) });
+  const queryText = query.toString();
+  try {
+    const response = await fetch(`${isTauriRuntime ? localApiBaseUrl : ""}/api/track_analysis_bytes?${queryText}`);
+    if (!response.ok) throw await response.text();
 
-export async function getRemoteAudioAnalysisSegment(trackId: EntityId, from: number, duration: number) {
-  return getRemoteTrackAnalysisSegment(trackId, from, duration);
+    const bucketCount = Number(response.headers.get("X-Musical-Bucket-Count"));
+    const frameCount = Number(response.headers.get("X-Musical-Frame-Count"));
+    const frameIntervalMs = Number(response.headers.get("X-Musical-Frame-Interval-Ms"));
+    const startTimeMs = Number(response.headers.get("X-Musical-Start-Time-Ms"));
+    const responseTrackId = decodeURIComponent(response.headers.get("X-Musical-Track-Id") ?? String(trackId));
+    const values = new Uint8Array(await response.arrayBuffer());
+    if (
+      !Number.isInteger(bucketCount)
+      || bucketCount <= 0
+      || !Number.isInteger(frameCount)
+      || frameCount < 0
+      || !Number.isFinite(frameIntervalMs)
+      || !Number.isFinite(startTimeMs)
+      || values.length !== bucketCount * frameCount
+    ) {
+      throw new Error("invalid audio analysis bytes");
+    }
+
+    return {
+      frameIntervalMs,
+      frames: Array.from({ length: frameCount }, (_, frameIndex) => {
+        const offset = frameIndex * bucketCount;
+        return {
+          timecode: (startTimeMs + frameIndex * frameIntervalMs) / 1000,
+          trackId: responseTrackId,
+          values: Array.from(values.subarray(offset, offset + bucketCount)),
+        };
+      }),
+      isComplete: response.headers.get("X-Musical-Is-Complete") === "true",
+      trackId: responseTrackId,
+    } satisfies RemoteAudioAnalysisSegment;
+  } catch {
+    return localApiRequest<RemoteAudioAnalysisSegment>(`/api/track_analysis?${queryText}`);
+  }
 }
 
 export function getBackendMediaSrc(path: string) {

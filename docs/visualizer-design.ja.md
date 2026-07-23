@@ -33,11 +33,23 @@ Tauri アプリ版では、`getBackendMediaSrc(filePath)` でローカルファ�
 
 ### PlayerVisualizerOverlay
 
-プレイヤーモードの overlay。基本の `visualizer-canvas` に波、スペクトラム、サークル、山脈、墨流し、VU メーターを Canvas 2D で描画する。オーロラは専用の `visualizer-aurora-canvas`、スターフィールドは専用の `visualizer-starfield-canvas`、DNA 螺旋は専用の `visualizer-helix-canvas`、ワープホールは専用の `visualizer-warp-hole-canvas` に Three.js/WebGL2 で描画し、WebGL 初期化に失敗した場合だけ基本 canvas の Canvas 2D 実装へ fallback する。ちびキャラオーケストラは通常ボタンに表示しない隠しモードとする。
+プレイヤーモードの overlay。基本の `visualizer-canvas` に波、スペクトラム、サークル、山脈、夢幻流、VU メーターを Canvas 2D で描画する。オーロラは専用の `visualizer-aurora-canvas`、スターフィールドは専用の `visualizer-starfield-canvas`、DNA 螺旋は専用の `visualizer-helix-canvas`、ワープホールは専用の `visualizer-warp-hole-canvas` に Three.js/WebGL2 で描画し、WebGL 初期化に失敗した場合だけ基本 canvas の Canvas 2D 実装へ fallback する。ちびキャラオーケストラは通常ボタンに表示しない隠しモードとする。
+
+夢幻流（内部モードID `ink`）は、周波数帯域ごとに色と大きさの異なる複数の半透明な水玉を保ち、低密度のままゆっくり周回・膨縮させる。固定した水玉ペアごとに、楕円中心を結ぶ方向の外周半径と表面間距離を求め、近づいたときだけ短い膜を水玉の上へ低い不透明度で重ねる。膜の幅、混色、境界光は接近度と両帯域のenergyを連続的に乗算し、深く重なった場合は減衰させる。各接点の周囲には通常8個の小さな光点を決定的な不均一配置で散らし、さらに各水玉の内側へ2個ずつ分配する。光点ごとに異なる位相で明滅させるが、配置は接点または水玉へ追従し、フレームごとの乱数移動は行わない。これにより膜の突然の切り替わりや全面的なリボン化を避け、複数の水玉が音楽に合わせて穏やかに振動する従来の印象を主役として残す。
 
 DNA 螺旋は縦軸を時間履歴として扱う。専用 WebGL は低音から高音までを8帯域へ要約した32履歴、Canvas 2D fallback は24帯域×42履歴を使い、横線1本を1時点の周波数スナップショットとして追加する。どちらも新しい横線を下側、古い横線を上側へ配置し、各帯域の強度を線分の明度と太さへ反映する。専用 WebGL シェーダーは中央と左右の二重螺旋へ、奥行きを感じる半透明の霧、その中を走る水平光条、250〜450個相当の微粒子、40〜80本相当の短い尾、同時に2〜4本読める外向き波面を単一描画パスで合成する。低エネルギー時は横桟と粒子に最低輝度を持たせ、波面は8帯域×32履歴の正の時間差分に対する感度を上げる。静止ノイズを音声反応として増幅せず、履歴とともに発生位置が上昇する時間軸を維持する。高輝度の芯と広い低輝度の霞を shader 内で作り、最終RGBとalphaを0.92以下にclampし、追加の bloom pass は使わない。Canvas 2D fallback は従来の二重螺旋の線描を維持する。
 
-ワープホールは画面中央より左の小さな暗い消失孔へ向け、`log(radius)` で遠近圧縮した細い14本の入れ子状螺旋レールを1回の fragment shader pass で描く。下左から入るシアンと、下右・右端から入るマゼンタの細い2本の流れは、外周の扇状の広がりから共通の内向きカールへ収束する。微粒子と短い微細スパイクは最も近い流れへ付着する。シアン、インディゴ、バイオレット、マゼンタの寒色スペクトルを固有の基調とし、選択配色は広い赤白の環へ戻らない程度の微かな tint に限定する。低域は中心への吸引と回転、中域は流れの厚み、高域は粒子密度へ反映し、中心と歌詞・キューの背後には暗い余白を残す。DPR 1の全画面 quad 1枚を1 draw、1 passで描き、既存の更新 cadence を維持する。Canvas 2D fallback でも暗い中心、複数の螺旋、周波数連動光跡を維持する。
+ワープホールは画面中央より左の小さなほぼ黒い消失孔へ向け、`log(radius)` による強い遠近圧縮で、8群以上の螺旋リボンを複数の奥行きから収束させる。
+各リボン群は渦の周囲で位相、曲率、色相をずらして識別可能にし、狭い半透明のオーロラベール、shoulder、柔らかなハローを重ね、その内部へ中心線と左右5本ずつの途切れない11本の細い長尺strandを通す。strandは親幅を広げず、log-radius方向へ連続する低周波の大きな蛇行と高周波の細かなflutterを固有位相で合成する。
+上端、下端、左右端の複数箇所から入る前景流、位相と曲率をずらした内向きカール、共通の消失点を組み合わせ、均一な同心円や平坦なネオン螺旋ではない非対称な奥行きを作る。
+ライム、グリーン、アクア、シアン、ブルー、バイオレット、マゼンタ、ローズへ連続する虹色を選択配色にかかわらない固有色とし、Themeを含む選択配色は彩度を保つ抑制した tint としてだけ加える。
+20周波数ブロック×32履歴 texture は5 RGBA texel×32行の固定長とし、新しい行を外周、古い行を消失孔側へ対応させ、energy と正の時間差分を全リボン群と複数の奥行きへ分散することで、音の立ち上がりを内側へ伝える。0-based group `g=0..4` は `g, g+5, g+10, g+15` を読み、1-basedでは `1,6,11,16` から `5,10,15,20` の5集合となる。4値のmeanとpeakを混合し、単一blockの入力を薄めすぎない。
+微粒子と短い微細スパイクは全リボン群へ付着させる副次要素とし、絹状の連続カーテンとハローを主形状に保つ。
+8つのリボン群、各群11本のstrand、各群13候補の横断放出線はfamily indexとline indexから安定groupを選び、同じ親流内でも5集合へ分散する。全集合が低域から高域までを飛び石で含むため、高域だけで消える線を作らない。strand固有energyは通常輝度と大小2スケールの揺れ、正のriseは局所輝度と揺れ幅を強く増幅する。放出線はstrandより弱く、energyで存在率、長さ、明るさ、riseで本数、伸長、局所輝度を制御し、細い根元からさらに細い先端へテーパーする。全入力ゼロでは固定形状だけを残し、音声発光と放出線を生じさせない。
+追加の post-processing は使わず、解析発光は `1 - exp(-radiance * exposure)` の exposure を1.65以下、出力 alpha を0.84以下とする。
+解析ハローは輝度0.34未満へ付与せず、Aurora Rainbowの `UnrealBloomPass` における strength 0.31以下、radius 0.62以下に相当する寄与と広がりへ対応づけ、広い白飛びを作らず彩度を保つ。
+DPR 1の全画面 quad 1枚を1 draw、1 passで描き、既存の paused、idle、低モーション時の更新 cadence を維持する。
+Canvas 2D fallback でも暗い中心、複数の螺旋、周波数連動光跡を維持する。
 
 山脈とオーロラは以下の視覚文法で区別する。
 
@@ -50,7 +62,8 @@ DNA 螺旋は縦軸を時間履歴として扱う。専用 WebGL は低音から
 - 専用 WebGL renderer が有効なオーロラ/スターフィールド/DNA 螺旋/ワープホールでは、背面の基本 Canvas 2D canvas をモード開始時に一度だけ消去する。以後は専用 canvas だけを更新し、透明な基本 canvas の `setTransform`、全面 `clearRect`、composite state 更新を毎フレーム繰り返さない。WebGL 初期化に失敗した場合はこの省略を行わず、従来の Canvas 2D fallback をそのまま描画する
 - WebGL canvas の論理サイズは `ResizeObserver` で保持し、描画中は DPR の変更だけを確認する。renderer と、オーロラ/スターフィールドで使う composer の resize は論理サイズまたは DPR が変わった時だけ行い、`uResolution` は物理解像度へ同期する。既存のオーロラ/スターフィールドは DPR 上限1.2を維持し、全画面で解析式を評価するDNA 螺旋/ワープホールはDPR上限を1.0とする
 - オーロラ/スターフィールドの全画面 quad と bloom は depth test/write を使わないため、renderer、composer の2 target、bloom の bright/blur target に depth buffer を割り当てない。色 target の型・解像度、bloom のしきい値・半径、5段 mip と pass 数は変更しない。strength は下記の配色別描画プロファイルに従う。DNA 螺旋とワープホールは shader 内で発光を完結する単一描画パスとし、追加の post-processing target を作らない
-- オーロラの5フレーム履歴、スターフィールドの帯域/方向別 energy、DNA 螺旋の周波数履歴は固定長 typed buffer へ上書きする。履歴と palette の配列 uniform は内容が変化したフレームだけ upload する。palette の補間値と履歴の oldest→newest 順を維持する。DNA 螺旋は各 fragment から十分離れた螺旋層と結節光条の固定反復を早期終了し、霧と輪郭の見える範囲だけを評価する
+- オーロラの5フレーム履歴、スターフィールドの帯域/方向別 energy、DNA 螺旋の周波数履歴は固定長 typed buffer へ上書きする。ワープホールの20ブロック×32履歴は5 RGBA texel×32行の固定長 `DataTexture` buffer を in-place で移動し、描画経路で新しい配列を確保しない。履歴と palette の配列 uniform は内容が変化したフレームだけ upload する。palette の補間値と履歴の oldest→newest 順を維持する。DNA 螺旋は各 fragment から十分離れた螺旋層と結節光条の固定反復を早期終了し、霧と輪郭の見える範囲だけを評価する
+- ワープホールの終了時は `ResizeObserver` と context listener を解除し、geometry、history texture、material、rendererを破棄する。context復帰時は同じresourceを再利用し、履歴とpaletteを次の描画で再転送する
 - オーロラは `uRainbow` が0または1であることを使い、選択されていない配色側の FBM envelope、rainbow 専用 hair/strand だけを評価しない。Theme/レインボーは従来と同じ `mix` の端点式と最終 RGBA を保ち、オリジナル/アートワークだけは `uMist` による霧調の tone を適用する。スターフィールドは `presence == 0` または `rayHalo == 0` で全寄与が厳密にゼロとなる星候補だけを早期終了する。星数、速度、軌跡、色、bloom は変更しない
 - live 描画 loop は画像 ref を毎フレーム読むため、ちびキャラ画像の load 完了だけでは loop と `ResizeObserver` を再生成しない。idle の一回描画では画像 load ごとの再描画を維持する
 - オーロラは解析履歴、palette、時刻 uniform の更新頻度を維持し、負荷の大きい composer の描画だけを最大30 fpsへ制限する。スキップ後の描画には現在時刻を渡すため、動きの速度は変更しない。idle 描画と WebGL context 復帰後の最初の描画は省略しない
@@ -65,11 +78,11 @@ PlayerBar のキューとプレイヤーモード入口は可変幅オプショ�
 - オリジナル: 旧来の波、スペクトラム、サークルで使っていた時間変化する HSL 配色を再現する。その他のモードではシアン、ブルー、バイオレットを中心とした寒色パレットを使い、レインボーと区別する
 - テーマ: `--primary`, `--accent`, `--foreground` から Canvas 用パレットを生成する
 - アートワーク: 現在アルバムの画像を縮小サンプリングし、色相 bucket ごとの代表色を抽出する。画像を読み取れない場合はテーマ配色へ fallback する
-- レインボー: ライム、グリーン、アクア、スカイブルー、ブルー、バイオレット、マゼンタ、ローズを左から右へ連続させる固定パレットを使う。オーロラでは全8色を順番どおり補間し、参考表示に近い広い虹色のカーテンを作る
+- レインボー: ライム、グリーン、アクア、スカイブルー、ブルー、バイオレット、マゼンタ、ローズを左から右へ連続させる固定パレットを使う。オーロラでは全8色を順番どおり補間し、参考表示に近い広い虹色のカーテンを作る。ワープホールでは配色選択にかかわらず同じ色相進行を螺旋方向へ固有色として使い、選択配色は抑制した tint として重ねる
 
 オーロラの描画パラメータは `mist / standard / rainbow` の3プロファイルに分ける。オリジナルとアートワークは `mist` とし、狭いフィラメントと ridge core の寄与、白混合、露出、bloom strength を抑え、面光と curtain halo、空間的に低周波な atmospheric glow を相対的に残す。これにより色相と音声連動形状を維持しつつ、中央が白い面へ飽和せず、淡い色のカーテンが半透明の霞へ溶ける。Artwork の色抽出が Theme palette へ fallback した場合も、選択モードを基準に `mist` を維持する。Theme は `standard` として従来の非レインボー描画を保つ。レインボーは細いストランドと不規則な下端を優先する専用の `rainbow` とし、従来の露出と bloom を保つ。レインボーの周波数履歴は約48 ms間隔で更新し、5帯域のエネルギーを上端位置、ストランド長、輝度へ強く反映する。Canvas 2D fallback でも `mist` の加算 alpha、白混合、ridge alpha を下げ、面と線の blur 半径を広げる。
 
-選択した通常モードは `musical.visualizerMode`、配色は `musical.visualizerPalette` として `localStorage` に保存する。ちびキャラオーケストラは Chibi mode ボタンのダブルクリック/ダブルタップで切り替え、通常モードとしては保存しない。`prefers-reduced-motion: reduce` の場合、山脈、オーロラ、スターフィールド、DNA 螺旋、ワープホール、墨流しの移動速度や描画要素数を減らし、DNA 螺旋では粒子と水平光条、ワープホールでは回転、流星、粒子を抑える。オーロラとスターフィールドの bloom 強度を抑え、スターフィールドでは光跡長と衝撃波の強さも下げる。
+選択した通常モードは `musical.visualizerMode`、配色は `musical.visualizerPalette` として `localStorage` に保存する。ちびキャラオーケストラは Chibi mode ボタンのダブルクリック/ダブルタップで切り替え、通常モードとしては保存しない。`prefers-reduced-motion: reduce` の場合、山脈、オーロラ、スターフィールド、DNA 螺旋、ワープホール、夢幻流の移動速度や描画要素数を減らす。夢幻流は水玉を7個から4個、安定した共鳴ペアを4組から2組、各接点の光点を8個から3個、各水玉の光点を2個から1個へ減らし、周回位相を固定したままenergyによる膨縮と緩やかな明滅を残す。DNA 螺旋では粒子と水平光条、ワープホールでは回転、カーテンの移動速度、strandの揺れ幅、粒子、スパイクを抑える。ワープホールの8親螺旋、11 strand、20ブロック×32履歴、消失点への収束は低モーション時も維持する。オーロラとスターフィールドの bloom 強度を抑え、スターフィールドでは光跡長と衝撃波の強さも下げる。
 
 overlay 内の背景、アートワーク背景、装飾レイヤー、Canvas、vignette、操作 UI、closeボタンは、Chromium と Tauri WebView の stacking context 差で Canvas が親背景の背面へ回らないよう、すべて非負の `z-index` で順序を明示する。Canvas は背景レイヤーより前、vignette と操作 UI より後ろに配置し、Canvasと装飾レイヤーは `pointer-events: none` とする。closeボタンは操作UIより上の最前面へ置き、透明なcontentやCanvasにクリックを遮らせない。
 
@@ -94,7 +107,7 @@ Tauri 起動時に `127.0.0.1:1422` 相当の local API を提供する。
 - `POST /api/player_command`
 - `GET /api/player_commands`
 - `GET /api/track_analysis`
-- `GET /api/audio_analysis_segment`
+- `GET /api/track_analysis_bytes`
 - `GET /api/media`
 
 ### 音声解析キャッシュ
@@ -113,8 +126,10 @@ Tauri 起動時に `127.0.0.1:1422` 相当の local API を提供する。
 - track id
 - file path
 - file modified time
-- stream hash
+- audio stream MD5
 - analysis version
+
+解析は常に音声streamのEOFまで行い、曲全体を1件のcache entryとして保存する。`from`、`duration`、`totalDuration`による部分解析は行わず、要求長もcacheの一致条件へ含めない。
 
 ## アプリ版シーケンス
 
@@ -143,7 +158,7 @@ sequenceDiagram
         API->>Cache: frames を保存
     end
     API-->>App: current の解析 frames
-    App->>API: GET /api/track_analysis(next) で次曲 cache warmup
+    API->>API: queue上の次曲をcache warmup
     App->>Viz: プレイヤーモードを開く
     Viz->>Viz: remote frames 優先で canvas 描画
     alt remote frames なし
@@ -245,9 +260,9 @@ sequenceDiagram
 - ブラウザ版で `.visualizer-canvas` の computed `z-index` が背景レイヤーより前の非負値になり、親 overlay の背景に隠れない
 - ブラウザ版で overlay 全体の screenshot hash を時間を空けて比較し、Canvas 内部だけでなく最終合成結果も変化する
 - オーロラ/スターフィールド/DNA 螺旋/ワープホールの WebGL 描画中は、モード開始時の消去後に基本 Canvas 2D canvas の `clearRect` 回数が増えない
-- 960×540、DPR 1 の固定条件で DNA 螺旋とワープホールへ8帯域を1つずつ単独入力し、全帯域が異なる反応位置・形状を持つ
-- DNA 螺旋とワープホールを 0 ms / 250 ms（DNA 螺旋は加えて 500 ms）で撮影し、粒子、光条、波面が同一要素として追跡できる距離だけ移動する
-- DNA 螺旋とワープホールの黒背景合成画像は輝度 p99 を0.78以下、輝度0.95超の画素を全体の0.10%以下に保つ
+- 960×540、DPR 1 の固定条件でDNA 螺旋の8帯域を1つずつ単独入力し、全帯域が異なる反応位置または形状を持つ。ワープホールは20ブロック、5飛び石集合、各集合4サンプル、group 0が0/5/10/15を読む契約を検査し、単一block pulseでも対応groupの長いstrandが残る。各群11本の連続strandと従属するrise主導放出線を維持し、2本だけの主流や画面全体の無関係な破線へ戻さない
+- DNA 螺旋とワープホールを 0 ms / 250 ms（DNA 螺旋は加えて 500 ms）で撮影し、粒子、光条、波面、リボンに付着するスパイクが同一要素として追跡できる距離だけ移動する。ワープホールの履歴立ち上がりは外周から消失孔へ移動する
+- DNA 螺旋とワープホールの黒背景合成画像は輝度 p99 を0.78以下、輝度0.95超の画素を全体の0.10%以下に保つ。ワープホールは解析露出1.65と出力alpha 0.84を上限とし、解析ハローを輝度0.34未満へ付与せず、strength 0.31以下、radius 0.62以下相当とする
 - 固定 bucket、固定時刻、固定 palette で変更前後の WebGL canvas RGBA を比較し、Theme/レインボーとスターフィールドは通常/低モーション、active/idle、横長/縦長、DPR 1/1.2 で画素が一致する
 - オリジナル/アートワークは霧調の基準画像と比較し、高輝度 clip と near-white 面積が旧基準より減り、色付きの半透明カーテンが消失していないことを確認する
 - 解析エラーが起きてもアプリ全体の再生、キュー、プレイヤーモードを壊さない

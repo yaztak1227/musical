@@ -21,6 +21,14 @@ if (!token) {
 const bridgeClient = new BridgeClient({ baseUrl: bridgeBaseUrl, token });
 const serverVersion = process.env.MUSICAL_MCP_VERSION ?? "0.0.0";
 
+if (process.env.MUSICAL_MCP_PARENT_WATCHDOG === "stdin") {
+  const exitWhenParentPipeCloses = () => process.exit(0);
+  process.stdin.once("end", exitWhenParentPipeCloses);
+  process.stdin.once("close", exitWhenParentPipeCloses);
+  process.stdin.once("error", exitWhenParentPipeCloses);
+  process.stdin.resume();
+}
+
 type McpSession = {
   server: McpServer;
   transport: StreamableHTTPServerTransport;

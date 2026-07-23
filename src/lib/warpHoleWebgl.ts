@@ -21,7 +21,8 @@ export type WarpHolePalette = readonly WarpHoleColor[];
 
 type UpdateControlledUniform<T> = { value: T; needsUpdate?: boolean };
 
-const bandCount = 8;
+const bandCount = 20;
+const historyTextureWidth = bandCount / 4;
 const historyFrameCount = 32;
 const shaderColorCount = 6;
 const activeRenderIntervalMs = 1000 / 30;
@@ -29,7 +30,10 @@ const reducedMotionRenderIntervalMs = 1000 / 18;
 const idleRenderIntervalMs = 1000 / 15;
 const historyCaptureIntervalMs = 55;
 const maximumPixelRatio = 1;
-const bandEdges = [0, 0.012, 0.025, 0.05, 0.095, 0.18, 0.31, 0.5, 0.72] as const;
+const bandEdges = [
+  0, 0.004, 0.008, 0.012, 0.018, 0.025, 0.035, 0.05, 0.068, 0.095, 0.13,
+  0.18, 0.235, 0.31, 0.395, 0.5, 0.57, 0.62, 0.66, 0.69, 0.72,
+] as const;
 const fallbackWarpHoleColor: WarpHoleColor = [99, 230, 255];
 
 const vertexShader = `
@@ -47,7 +51,7 @@ const fragmentShader = `
   varying vec2 vUv;
   uniform float uActivity;
   uniform sampler2D uBandHistory;
-  uniform float uBands[8];
+  uniform float uBands[20];
   uniform vec3 uColors[6];
   uniform float uReducedMotion;
   uniform vec2 uResolution;
@@ -56,6 +60,14 @@ const fragmentShader = `
 
   const float PI = 3.141592653589793;
   const float TAU = 6.283185307179586;
+  const int STREAM_FAMILY_COUNT = 8;
+  const int FILAMENT_COUNT = 11;
+  const int EMITTED_FILAMENT_COUNT = 13;
+  const float MAX_OUTPUT_ALPHA = 0.84;
+  const float AURORA_RAINBOW_EXPOSURE = 1.65;
+  const float AURORA_RAINBOW_BLOOM_STRENGTH = 0.31;
+  const float AURORA_RAINBOW_BLOOM_RADIUS = 0.62;
+  const float AURORA_RAINBOW_BLOOM_THRESHOLD = 0.34;
 
   float hash11(float value) {
     value = fract(value * 0.1031);
@@ -102,37 +114,86 @@ const fragmentShader = `
     return mix(uColors[4], uColors[5], smoothstep(0.0, 1.0, position - 4.0));
   }
 
-  // Warp Hole has its own cool spectral identity. The selected visualizer
-  // palette remains present as a tint, but cannot turn the tunnel into a
-  // broad red or white annulus.
-  vec3 warpColor(float progress) {
-    float position = clamp(progress, 0.0, 1.0);
-    vec3 spectral;
-    if (position < 0.28) {
-      spectral = mix(vec3(0.025, 0.68, 0.95), vec3(0.055, 0.22, 0.72), position / 0.28);
-    } else if (position < 0.62) {
-      spectral = mix(vec3(0.055, 0.22, 0.72), vec3(0.38, 0.16, 0.78), (position - 0.28) / 0.34);
-    } else if (position < 0.84) {
-      spectral = mix(vec3(0.38, 0.16, 0.78), vec3(0.82, 0.18, 0.76), (position - 0.62) / 0.22);
+  vec3 intrinsicRainbow(float progress) {
+    float position = clamp(progress, 0.0, 1.0) * 7.0;
+    vec3 rainbowColor;
+    if (position < 1.0) {
+      rainbowColor = mix(vec3(0.58, 0.96, 0.12), vec3(0.08, 0.82, 0.34), position);
+    } else if (position < 2.0) {
+      rainbowColor = mix(vec3(0.08, 0.82, 0.34), vec3(0.04, 0.92, 0.72), position - 1.0);
+    } else if (position < 3.0) {
+      rainbowColor = mix(vec3(0.04, 0.92, 0.72), vec3(0.03, 0.74, 0.98), position - 2.0);
+    } else if (position < 4.0) {
+      rainbowColor = mix(vec3(0.03, 0.74, 0.98), vec3(0.12, 0.34, 0.98), position - 3.0);
+    } else if (position < 5.0) {
+      rainbowColor = mix(vec3(0.12, 0.34, 0.98), vec3(0.48, 0.20, 0.96), position - 4.0);
+    } else if (position < 6.0) {
+      rainbowColor = mix(vec3(0.48, 0.20, 0.96), vec3(0.92, 0.18, 0.78), position - 5.0);
     } else {
-      spectral = mix(vec3(0.82, 0.18, 0.76), vec3(0.96, 0.34, 0.68), (position - 0.84) / 0.16);
+      rainbowColor = mix(vec3(0.92, 0.18, 0.78), vec3(0.98, 0.30, 0.55), position - 6.0);
     }
-    return mix(spectral, inputPaletteColor(position), 0.14);
+    return mix(rainbowColor, inputPaletteColor(position / 7.0), 0.12);
+  }
+
+  vec3 warpColor(float progress) {
+    return intrinsicRainbow(progress);
   }
 
   float signedAngleDistance(float value) {
     return (fract(value / TAU + 0.5) - 0.5) * TAU;
   }
 
-  float historyEnergy(vec4 lowBands, vec4 highBands, float progress) {
-    float position = clamp(progress, 0.0, 0.9999) * 7.0;
-    if (position < 1.0) return mix(lowBands.x, lowBands.y, position);
-    if (position < 2.0) return mix(lowBands.y, lowBands.z, position - 1.0);
-    if (position < 3.0) return mix(lowBands.z, lowBands.w, position - 2.0);
-    if (position < 4.0) return mix(lowBands.w, highBands.x, position - 3.0);
-    if (position < 5.0) return mix(highBands.x, highBands.y, position - 4.0);
-    if (position < 6.0) return mix(highBands.y, highBands.z, position - 5.0);
-    return mix(highBands.z, highBands.w, position - 6.0);
+  float historyBlockEnergy(float historyV, int blockIndex) {
+    int texelIndex = blockIndex / 4;
+    int channelIndex = blockIndex - texelIndex * 4;
+    vec4 packedBlocks = texture2D(
+      uBandHistory,
+      vec2((float(texelIndex) + 0.5) / 5.0, historyV)
+    );
+    if (channelIndex == 0) return packedBlocks.x;
+    if (channelIndex == 1) return packedBlocks.y;
+    if (channelIndex == 2) return packedBlocks.z;
+    return packedBlocks.w;
+  }
+
+  float stridedGroupEnergy(float historyV, int groupIndex) {
+    float block0 = historyBlockEnergy(historyV, groupIndex);
+    float block1 = historyBlockEnergy(historyV, groupIndex + 5);
+    float block2 = historyBlockEnergy(historyV, groupIndex + 10);
+    float block3 = historyBlockEnergy(historyV, groupIndex + 15);
+    float blockMean = (block0 + block1 + block2 + block3) * 0.25;
+    float blockPeak = max(max(block0, block1), max(block2, block3));
+    return mix(blockMean, blockPeak, 0.62);
+  }
+
+  float stridedGroupRise(float historyV, float olderHistoryV, int groupIndex) {
+    float rise0 = clamp((historyBlockEnergy(historyV, groupIndex)
+      - historyBlockEnergy(olderHistoryV, groupIndex)) * 9.2, 0.0, 1.0);
+    float rise1 = clamp((historyBlockEnergy(historyV, groupIndex + 5)
+      - historyBlockEnergy(olderHistoryV, groupIndex + 5)) * 9.2, 0.0, 1.0);
+    float rise2 = clamp((historyBlockEnergy(historyV, groupIndex + 10)
+      - historyBlockEnergy(olderHistoryV, groupIndex + 10)) * 9.2, 0.0, 1.0);
+    float rise3 = clamp((historyBlockEnergy(historyV, groupIndex + 15)
+      - historyBlockEnergy(olderHistoryV, groupIndex + 15)) * 9.2, 0.0, 1.0);
+    float riseMean = (rise0 + rise1 + rise2 + rise3) * 0.25;
+    float risePeak = max(max(rise0, rise1), max(rise2, rise3));
+    return mix(riseMean, risePeak, 0.68);
+  }
+
+  float stableGroupValue(vec4 groups0To3, float group4, int groupIndex) {
+    if (groupIndex == 0) return groups0To3.x;
+    if (groupIndex == 1) return groups0To3.y;
+    if (groupIndex == 2) return groups0To3.z;
+    if (groupIndex == 3) return groups0To3.w;
+    return group4;
+  }
+
+  vec3 stridedGroupColor(int groupIndex) {
+    if (groupIndex == 0) return vec3(0.08, 0.82, 0.34);
+    if (groupIndex == 1) return vec3(0.04, 0.92, 0.72);
+    if (groupIndex == 2) return vec3(0.03, 0.74, 0.98);
+    if (groupIndex == 3) return vec3(0.48, 0.20, 0.96);
+    return vec3(0.98, 0.30, 0.55);
   }
 
   void main() {
@@ -166,14 +227,22 @@ const fragmentShader = `
     float historyAge = (1.0 - perspectiveDepth) * 31.0;
     float historyV = (historyAge + 0.5) / 32.0;
     float olderHistoryV = (min(31.0, historyAge + 1.35) + 0.5) / 32.0;
-    vec4 historyLow = texture2D(uBandHistory, vec2(0.25, historyV));
-    vec4 historyHigh = texture2D(uBandHistory, vec2(0.75, historyV));
-    vec4 olderHistoryLow = texture2D(uBandHistory, vec2(0.25, olderHistoryV));
-    vec4 olderHistoryHigh = texture2D(uBandHistory, vec2(0.75, olderHistoryV));
-    vec4 riseLow = clamp((historyLow - olderHistoryLow) * 9.2, 0.0, 1.0);
-    vec4 riseHigh = clamp((historyHigh - olderHistoryHigh) * 9.2, 0.0, 1.0);
-    float historyActivity = dot(historyLow + historyHigh, vec4(0.125));
-    float historyRise = dot(riseLow + riseHigh, vec4(0.125));
+    vec4 groupEnergies = vec4(
+      stridedGroupEnergy(historyV, 0),
+      stridedGroupEnergy(historyV, 1),
+      stridedGroupEnergy(historyV, 2),
+      stridedGroupEnergy(historyV, 3)
+    );
+    float groupEnergy4 = stridedGroupEnergy(historyV, 4);
+    vec4 groupRises = vec4(
+      stridedGroupRise(historyV, olderHistoryV, 0),
+      stridedGroupRise(historyV, olderHistoryV, 1),
+      stridedGroupRise(historyV, olderHistoryV, 2),
+      stridedGroupRise(historyV, olderHistoryV, 3)
+    );
+    float groupRise4 = stridedGroupRise(historyV, olderHistoryV, 4);
+    float historyActivity = (dot(groupEnergies, vec4(1.0)) + groupEnergy4) * 0.2;
+    float historyRise = (dot(groupRises, vec4(1.0)) + groupRise4) * 0.2;
     float holeMask = smoothstep(holeRadius * 0.9, holeRadius + 0.021, radius);
     float outerMask = 1.0 - smoothstep(0.82, 1.06, radius);
     float fieldMask = holeMask * outerMask;
@@ -205,18 +274,13 @@ const fragmentShader = `
     accumulated += localColor * haze;
     accumulatedAlpha += haze * 0.3;
 
-    // Fourteen nested logarithmic rails form the cylindrical wall. The second
-    // pass is only a hairline echo, so the rails stay distinct instead of
-    // merging into an annulus.
+    // Fourteen nested logarithmic rails remain as a subdued depth scaffold.
     for (int layer = 0; layer < 2; layer++) {
       float layerValue = float(layer);
-      float railBandPosition = fract(
-        perspectiveDepth * 0.61
-          + angularBandPosition * 0.24
-          + layerValue * 0.193
-      );
-      float railEnergy = historyEnergy(historyLow, historyHigh, railBandPosition);
-      float railRise = historyEnergy(riseLow, riseHigh, railBandPosition);
+      int railGroup = int(mod(floor(perspectiveDepth * 5.0)
+        + floor(angularBandPosition * 5.0) + float(layer * 2), 5.0));
+      float railEnergy = stableGroupValue(groupEnergies, groupEnergy4, railGroup);
+      float railRise = stableGroupValue(groupRises, groupRise4, railGroup);
       float ringCoordinate = perspectiveDepth * 14.0
         - angle / TAU * 1.18
         - motion * (0.082 + layerValue * 0.012)
@@ -233,11 +297,11 @@ const fragmentShader = `
       float ringIntensity = fieldMask
         * (0.12 + foreground * 0.88)
         * (0.48 + sideFalloff * 0.52)
-        * (ringCore * (0.11 + railEnergy * 0.3 + railRise * 0.46 + uActivity * 0.018)
-          + ringHalo * (0.011 + railEnergy * 0.026 + railRise * 0.052))
-        * mix(1.0, 0.48, layerValue);
+        * (ringCore * (0.026 + railEnergy * 0.07 + railRise * 0.11 + uActivity * 0.006)
+          + ringHalo * (0.004 + railEnergy * 0.009 + railRise * 0.016))
+        * mix(0.22, 0.09, layerValue);
       vec3 ringColor = warpColor(clamp(
-        mix(palettePosition, railBandPosition, 0.12) + layerValue * 0.025,
+        mix(palettePosition, float(railGroup) * 0.25, 0.12) + layerValue * 0.025,
         0.0,
         1.0
       ));
@@ -245,100 +309,210 @@ const fragmentShader = `
       accumulatedAlpha += ringIntensity * 0.34;
     }
 
-    // Two slender currents enter from opposite lower corners and share the
-    // same inward curl. They brighten rail edges without closing into a ring.
-    float spiralSweep = (1.0 - perspectiveDepth) * (5.15 + bass * 0.18) + motion * 0.105;
-    float mainPhase = signedAngleDistance(angle - (-3.45 + spiralSweep));
-    float mainCrossDistance = abs(mainPhase) * max(radius, holeRadius * 1.25);
-    float streamBandPosition = fract(
-      perspectiveDepth * 0.71 + angularBandPosition * 0.19 + 0.08
-    );
-    float streamEnergy = historyEnergy(historyLow, historyHigh, streamBandPosition);
-    float streamRise = historyEnergy(riseLow, riseHigh, streamBandPosition);
-    float bandWidth = mix(0.0026, 0.018, foreground)
-      * (1.0 + streamEnergy * 0.26 + streamRise * 0.42 + uTransient * 0.04);
-    float bandCore = exp(-mainCrossDistance / max(0.0008, bandWidth * 0.42));
-    float bandGlow = exp(-mainCrossDistance / max(0.004, bandWidth * 3.2));
-    float nearBandMask = fieldMask * smoothstep(0.04, 0.3, perspectiveDepth);
-    float bandTexture = 0.5 + 0.5 * sin(logRadius * 52.0 - motion * 0.25 + fogNoise * 3.0);
-    vec3 cyanCurrentColor = warpColor(mix(0.03, 0.55, 1.0 - perspectiveDepth));
-    vec3 magentaCurrentColor = warpColor(mix(0.92, 0.61, 1.0 - perspectiveDepth));
-    vec3 bandColor = cyanCurrentColor;
-    float bandIntensity = nearBandMask
-      * (0.18 + foreground * 0.82)
-      * (bandCore * (0.52 + streamEnergy * 0.72 + streamRise * 0.92 + uActivity * 0.1)
-        + bandGlow * (0.052 + streamEnergy * 0.12 + streamRise * 0.17))
-      * (0.74 + bandTexture * 0.26)
-      * (0.8 + foreground * 0.3);
-    float ribbonHaze = nearBandMask
-      * exp(-mainCrossDistance / max(0.012, bandWidth * 3.8))
-      * (0.025 + fogNoise * 0.05 + streamEnergy * 0.045 + streamRise * 0.065)
-      * (0.2 + foreground * 0.8);
-    float beadCoordinate = perspectiveDepth * 76.0 - motion * 0.21;
-    float beadCell = floor(beadCoordinate);
-    float beadSeed = hash11(beadCell * 2.17 + 3.8);
-    float beadLocal = abs(fract(beadCoordinate) - 0.5);
-    float beadPresence = step(
-      mix(0.78, 0.24, clamp(streamEnergy * 0.46 + streamRise * 1.2, 0.0, 1.0)),
-      beadSeed
-    );
-    float streamBeads = exp(-beadLocal * beadLocal * 510.0)
-      * exp(-mainCrossDistance / max(0.001, bandWidth * 0.48))
-      * beadPresence
-      * nearBandMask
-      * (0.18 + streamEnergy * 0.54 + streamRise * 1.08)
-      * (0.24 + foreground * 0.76);
-    accumulated += bandColor * (bandIntensity + ribbonHaze + streamBeads);
-    accumulatedAlpha += bandIntensity * 0.48 + ribbonHaze * 0.26 + streamBeads * 0.5;
+    float nearBandMask = fieldMask * smoothstep(0.018, 0.18, perspectiveDepth);
+    float nearestFamilyPhase = PI;
+    float nearestFamilyDistance = 10.0;
+    float nearestFamilyWidth = 0.012;
+    vec3 nearestFamilyColor = warpColor(0.0);
+    float nearestFamilyEnergy = 0.0;
 
-    float echoPhase = signedAngleDistance(angle - (-1.78 + spiralSweep));
-    float echoDistance = abs(echoPhase) * max(radius, holeRadius * 1.25);
-    float echoFan = 1.0 + smoothstep(0.62, 1.0, foreground) * 1.15;
-    float echoWidth = bandWidth * echoFan;
-    float echoCore = exp(-echoDistance / max(0.0012, echoWidth * 0.36));
-    float echoGlow = exp(-echoDistance / max(0.004, echoWidth * 3.0));
-    float echoIntensity = nearBandMask
-      * (0.15 + foreground * 0.85)
-      * (echoCore * (0.38 + streamEnergy * 0.52 + streamRise * 0.72)
-        + echoGlow * (0.045 + streamEnergy * 0.075 + streamRise * 0.12))
-      * (0.68 + bandTexture * 0.32);
-    accumulated += magentaCurrentColor * echoIntensity;
-    accumulatedAlpha += echoIntensity * 0.32;
+    // Broad curtains carry eleven long strands each. Every parent, strand,
+    // and emitted line owns a stable low-to-high strided frequency group.
+    for (int family = 0; family < STREAM_FAMILY_COUNT; family++) {
+      float familyValue = float(family);
+      float familySeed = hash11(familyValue * 4.173 + 0.37);
+      float edgeEntry = -3.72
+        + familyValue * 0.79
+        + sin(familyValue * 1.91 + 0.4) * 0.38
+        + (familySeed - 0.5) * 0.62;
+      float curvature = 3.72 + familySeed * 2.85 + familyValue * 0.09;
+      float depthGain = 0.54 + 0.46 * hash11(familyValue * 7.91 + 2.4);
+      float familySweep = (1.0 - perspectiveDepth) * (curvature + bass * (0.08 + familySeed * 0.18))
+        + motion * (0.045 + familyValue * 0.011)
+        + sin(logRadius * (0.42 + familySeed * 0.23) + familyValue * 1.7) * 0.09;
+      float familyPhase = signedAngleDistance(angle - (edgeEntry + familySweep));
+      float familyDistance = abs(familyPhase) * max(radius, holeRadius * 1.25);
+      int familyGroup = int(mod(float(family * 2 + 1), 5.0));
+      float familyEnergy = stableGroupValue(groupEnergies, groupEnergy4, familyGroup);
+      float familyRise = stableGroupValue(groupRises, groupRise4, familyGroup);
+      float familyWidth = mix(0.0024 + familySeed * 0.0016, 0.01 + familySeed * 0.011, foreground)
+        * (0.88 + depthGain * 0.18 + familyEnergy * 0.1 + familyRise * 0.16);
+      float familyTexture = 0.94 + 0.06 * sin(
+        logRadius * (1.35 + familySeed * 1.1) - motion * (0.035 + familyValue * 0.008)
+          + fogNoise * 1.4 + familyValue * 1.73
+      );
+      float familyCrossDistance = familyPhase * max(radius, holeRadius * 1.25);
+      float curtainLean = familyWidth * (0.65 + familySeed * 1.2) * sin(
+        logRadius * (1.05 + familySeed * 0.7) - motion * 0.04 + familyValue * 2.13
+      );
+      float curtainDistance = abs(familyCrossDistance - curtainLean);
+      float shoulderDirection = mix(-1.0, 1.0, step(0.5, hash11(familyValue * 3.17 + 9.4)));
+      float shoulderOffset = shoulderDirection * familyWidth * (2.1 + familySeed * 2.8);
+      float shoulderDistance = abs(familyCrossDistance - curtainLean - shoulderOffset);
+      float curtainVeil = exp(-curtainDistance / max(0.0065, familyWidth * (3.0 + familySeed * 2.0)))
+        * (0.04 + familyEnergy * 0.065 + familyRise * 0.095 + fogNoise * 0.018);
+      float curtainShoulder = exp(-shoulderDistance / max(0.0038, familyWidth * (1.5 + familySeed * 1.5)))
+        * (0.018 + familyEnergy * 0.035 + familyRise * 0.055 + fogNoise * 0.009);
+      float haloDriver = clamp(max(familyEnergy, familyRise * 1.18), 0.0, 1.0);
+      float haloGate = smoothstep(AURORA_RAINBOW_BLOOM_THRESHOLD, 1.0, haloDriver);
+      float haloWidth = max(
+        0.009,
+        familyWidth * mix(2.4, 4.2, AURORA_RAINBOW_BLOOM_RADIUS)
+      );
+      float curtainHalo = exp(-curtainDistance / haloWidth)
+        * haloGate
+        * AURORA_RAINBOW_BLOOM_STRENGTH
+        * (0.07 + familyEnergy * 0.1 + familyRise * 0.12);
+      float continuousCore = exp(-familyDistance / max(0.0007, familyWidth * (0.27 + familySeed * 0.12)))
+        * (0.095 + familyEnergy * 0.19 + familyRise * 0.32 + uActivity * 0.018);
+      vec3 familyColor = warpColor(fract(
+        familyValue / 8.0 + perspectiveDepth * 0.15 + familySeed * 0.045 + familyPhase * 0.018
+      ));
+      float familyEnvelope = nearBandMask
+        * (0.27 + foreground * 0.73)
+        * mix(0.68, 1.24, depthGain)
+        * familyTexture;
+      float familyLight = (curtainVeil + curtainShoulder + curtainHalo + continuousCore)
+        * familyEnvelope
+        * 0.82;
+      float strandCommonWander = sin(
+        logRadius * (1.18 + familySeed * 0.52)
+          - motion * (0.72 + familySeed * 0.28)
+          + familyValue * 1.37
+      );
+
+      for (int filament = 0; filament < FILAMENT_COUNT; filament++) {
+        float filamentValue = float(filament) - 5.0;
+        float filamentSeed = hash11(familyValue * 19.31 + float(filament) * 7.17 + 2.4);
+        int filamentGroup = int(mod(float(family * 2 + filament * 3), 5.0));
+        float filamentEnergy = stableGroupValue(groupEnergies, groupEnergy4, filamentGroup);
+        float filamentRise = stableGroupValue(groupRises, groupRise4, filamentGroup);
+        float strandMotionScale = mix(1.0, 0.34, uReducedMotion);
+        float longWander = sin(
+          logRadius * (1.55 + filamentSeed * 0.65)
+            - motion * (0.9 + filamentSeed * 0.35)
+            + familyValue * 1.43 + float(filament) * 0.91
+        );
+        float fineFlutter = sin(
+          logRadius * (3.8 + filamentSeed * 1.6)
+            + motion * (1.3 + filamentSeed * 0.5)
+            + familyValue * 2.17 - float(filament) * 1.37
+        );
+        float bundleWander = mix(strandCommonWander, longWander, 0.32);
+        float audioWander = filamentEnergy * 0.38 + filamentRise * 1.15;
+        float filamentOffset = (
+          curtainLean
+            + filamentValue * familyWidth * (0.235 + filamentSeed * 0.03)
+            + familyWidth * strandMotionScale
+              * (bundleWander * (0.25 + audioWander * 0.28)
+                + fineFlutter * (0.07 + filamentEnergy * 0.11 + filamentRise * 0.2))
+        ) / max(radius, holeRadius * 1.25);
+        float filamentDistance = abs(familyPhase - filamentOffset)
+          * max(radius, holeRadius * 1.25);
+        float strandCore = exp(-filamentDistance / max(0.00048, familyWidth * 0.075));
+        float strandHalo = exp(-filamentDistance / max(0.001, familyWidth * 0.18));
+        float strandRadiance = strandCore
+          * (0.065 + filamentEnergy * 0.17 + filamentRise * 0.42)
+          + strandHalo * (0.008 + filamentEnergy * 0.032 + filamentRise * 0.085);
+        float strandLight = strandRadiance * familyEnvelope;
+        vec3 strandColor = mix(
+          familyColor,
+          stridedGroupColor(filamentGroup),
+          0.18
+        );
+        accumulated += strandColor * strandLight;
+        accumulatedAlpha += strandLight * 0.48;
+      }
+
+      for (int emitted = 0; emitted < EMITTED_FILAMENT_COUNT; emitted++) {
+        float emittedValue = float(emitted);
+        float emitterCoordinate = perspectiveDepth * (34.0 + familySeed * 11.0)
+          - motion * (0.055 + familyValue * 0.004)
+          + emittedValue * 0.271;
+        float emitterCell = floor(emitterCoordinate);
+        float emitterLocal = fract(emitterCoordinate) - 0.5;
+        float emittedSeed = hash11(
+          emitterCell * 5.713 + familyValue * 17.17 + emittedValue * 9.41
+        );
+        int emittedGroup = int(mod(float(family * 3 + emitted * 2 + 1), 5.0));
+        float emittedEnergy = stableGroupValue(groupEnergies, groupEnergy4, emittedGroup);
+        float emittedRise = stableGroupValue(groupRises, groupRise4, emittedGroup);
+        float emittedDriver = clamp(emittedEnergy * 0.32 + emittedRise * 1.12, 0.0, 1.0);
+        float emittedSignalGate = smoothstep(0.025, 0.11, emittedEnergy + emittedRise * 2.0);
+        float emittedThreshold = mix(0.985, 0.3, emittedDriver);
+        float emittedPresence = step(emittedThreshold, emittedSeed);
+        float emittedDirection = mix(
+          -1.0,
+          1.0,
+          step(0.5, hash11(emittedSeed * 31.7 + emittedValue * 2.3))
+        );
+        float emittedRoot = curtainLean
+          + (emittedSeed - 0.5) * familyWidth * (0.5 + familySeed * 0.45);
+        float emittedAcross = (familyCrossDistance - emittedRoot) * emittedDirection;
+        float emittedLength = (0.007 + emittedEnergy * 0.05 + emittedRise * 0.15)
+          * (0.76 + emittedSeed * 0.62)
+          * (0.55 + foreground * 0.45)
+          * reducedDetail;
+        float emittedProgress = clamp(emittedAcross / max(0.001, emittedLength), 0.0, 1.0);
+        float emittedSegment = step(0.0, emittedAcross)
+          * (1.0 - smoothstep(emittedLength * 0.84, emittedLength, emittedAcross));
+        float emittedSlope = mix(-0.34, 0.34, emittedSeed);
+        float emittedLineDistance = abs(
+          emitterLocal * (0.026 + familySeed * 0.01) - emittedAcross * emittedSlope
+        );
+        float emittedTaper = mix(0.00092, 0.0001, emittedProgress);
+        float emittedLine = exp(-emittedLineDistance / max(0.000075, emittedTaper))
+          * emittedSegment
+          * emittedPresence
+          * emittedSignalGate
+          * (0.03 + emittedEnergy * 0.09 + emittedRise * 0.26)
+          * familyEnvelope;
+        vec3 emittedColor = mix(familyColor, vec3(0.9), 0.08 + emittedRise * 0.05);
+        accumulated += emittedColor * emittedLine;
+        accumulatedAlpha += emittedLine * 0.32;
+      }
+
+      accumulated += familyColor * familyLight;
+      accumulatedAlpha += familyLight * 0.46;
+      if (familyDistance < nearestFamilyDistance) {
+        nearestFamilyPhase = familyPhase;
+        nearestFamilyDistance = familyDistance;
+        nearestFamilyWidth = familyWidth;
+        nearestFamilyColor = familyColor;
+        nearestFamilyEnergy = clamp(familyEnergy + familyRise * 1.4, 0.0, 1.0);
+      }
+    }
 
     // Thin audio spikes grow perpendicular to the particle river. Each radial
     // cell samples a stable frequency band, so no per-frame allocation is used.
-    float spikeCoordinate = perspectiveDepth * 64.0 - motion * 0.055;
+    float spikeCoordinate = perspectiveDepth * 29.0 - motion * 0.038;
     float spikeCell = floor(spikeCoordinate);
     float spikeLocal = abs(fract(spikeCoordinate) - 0.5);
     float spikeSeed = hash11(spikeCell * 1.731 + 8.2);
-    float spikeBandPosition = fract(spikeCell * 0.6180339);
-    float spikeEnergy = historyEnergy(historyLow, historyHigh, spikeBandPosition);
-    float spikeRise = historyEnergy(riseLow, riseHigh, spikeBandPosition);
+    int spikeGroup = int(mod(abs(spikeCell), 5.0));
+    float spikeEnergy = stableGroupValue(groupEnergies, groupEnergy4, spikeGroup);
+    float spikeRise = stableGroupValue(groupRises, groupRise4, spikeGroup);
     float spikePresence = step(
-      mix(0.62, 0.12, clamp(spikeEnergy * 0.5 + spikeRise * 1.22, 0.0, 1.0)),
+      mix(0.975, 0.86, clamp(spikeEnergy * 0.4 + spikeRise * 0.92, 0.0, 1.0)),
       spikeSeed
     );
     float spikeLength = (0.075 + spikeEnergy * 0.28 + spikeRise * 0.52 + uTransient * 0.04)
       * reducedDetail
       * (0.45 + foreground * 0.55);
-    float closestPhase = abs(mainPhase) < abs(echoPhase) ? mainPhase : echoPhase;
-    vec3 closestCurrentColor = abs(mainPhase) < abs(echoPhase)
-      ? cyanCurrentColor
-      : magentaCurrentColor;
-    float spikeAcross = 1.0 - smoothstep(0.012, spikeLength, abs(closestPhase));
+    float spikeAcross = 1.0 - smoothstep(0.012, spikeLength, abs(nearestFamilyPhase));
     float spikeLine = exp(-spikeLocal * spikeLocal * 480.0);
     float spike = spikeLine
       * spikeAcross
       * spikePresence
       * nearBandMask
-      * (0.3 + spikeEnergy * 0.67 + spikeRise * 1.18 + uTransient * 0.12)
+      * (0.09 + spikeEnergy * 0.19 + spikeRise * 0.34 + nearestFamilyEnergy * 0.08 + uTransient * 0.03)
       * (0.3 + foreground * 0.7);
-    accumulated += mix(closestCurrentColor, vec3(0.9), 0.14) * spike * 0.72;
-    accumulatedAlpha += spike * 0.5;
+    accumulated += mix(nearestFamilyColor, vec3(0.9), 0.08) * spike * 0.22;
+    accumulatedAlpha += spike * 0.18;
 
     vec2 particleSpace = vec2(
-      perspectiveDepth * 56.0 - motion * (0.68 + bass * 0.36),
-      closestPhase * (9.0 + foreground * 15.0)
+      perspectiveDepth * 27.0 - motion * (0.42 + bass * 0.22),
+      nearestFamilyPhase * (7.0 + foreground * 11.0)
     );
     vec2 particleCell = floor(particleSpace);
     vec2 particleLocal = fract(particleSpace) - 0.5;
@@ -347,23 +521,21 @@ const fragmentShader = `
       hash21(particleCell + vec2(3.1, 17.4)),
       hash21(particleCell + vec2(23.8, 5.6))
     ) - 0.5;
-    float particleBandPosition = fract(
-      particleCell.x * 0.6180339 + particleCell.y * 0.173 + particleSeed * 0.11
-    );
-    float particleEnergy = historyEnergy(historyLow, historyHigh, particleBandPosition);
-    float particleRise = historyEnergy(riseLow, riseHigh, particleBandPosition);
+    int particleGroup = int(mod(abs(particleCell.x + particleCell.y * 2.0), 5.0));
+    float particleEnergy = stableGroupValue(groupEnergies, groupEnergy4, particleGroup);
+    float particleRise = stableGroupValue(groupRises, groupRise4, particleGroup);
     float particleDance = sin(
       motion * (2.1 + particleSeed * 2.2) + particleSeed * 41.0 + historyAge * 0.18
     );
     particleLocal -= particleOffset * (0.54 + particleRise * 0.2);
     particleLocal.y -= particleDance * (0.045 + particleRise * 0.19) * reducedDetail;
     float emission = clamp(
-      0.07 + particleEnergy * 0.42 + particleRise * 1.42 + historyRise * 0.3,
+      0.04 + particleEnergy * 0.3 + particleRise * 0.94 + nearestFamilyEnergy * 0.2 + historyRise * 0.18,
       0.0,
       1.0
     );
     float particlePresence = step(
-      mix(0.72, 0.1, emission),
+      mix(0.99, 0.91, emission),
       particleSeed
     );
     float particlePoint = exp(-dot(particleLocal, particleLocal) * 44.0);
@@ -379,7 +551,7 @@ const fragmentShader = `
       + particleRise * 0.62
       + historyRise * 0.16;
     float particleEnvelope = nearBandMask
-      * exp(-abs(closestPhase) / max(0.08, scatterWidth));
+      * exp(-abs(nearestFamilyPhase) / max(0.055, scatterWidth * 0.7));
     float twinkle = 0.85 + 0.15
       * sin(motion * (1.8 + particleSeed * 3.1) + particleSeed * 37.0);
     float particleBase = particlePresence
@@ -390,21 +562,21 @@ const fragmentShader = `
     float sparkIntensity = particlePoint
       * particleBase
       * (0.7 + particleEnergy * 1.04 + particleRise * 1.72 + uTransient * 0.06)
-      * 1.18;
+      * 0.23;
     float tailIntensity = particleTail
       * particleBase
       * (0.22 + particleEnergy * 0.48 + particleRise * 1.16)
-      * 1.05;
+      * 0.17;
     vec3 particleColor = warpColor(clamp(
-      mix(palettePosition, particleBandPosition, 0.32) + particleSeed * 0.055,
+      mix(palettePosition, float(particleGroup) * 0.25, 0.32) + particleSeed * 0.055,
       0.0,
       1.0
     ));
-    particleColor = mix(particleColor, closestCurrentColor, 0.58);
+    particleColor = mix(particleColor, nearestFamilyColor, 0.66);
     accumulated += mix(particleColor, vec3(0.92), 0.24 + particleSeed * 0.12)
       * sparkIntensity;
     accumulated += particleColor * tailIntensity;
-    accumulatedAlpha += sparkIntensity * 0.58 + tailIntensity * 0.32;
+    accumulatedAlpha += sparkIntensity * 0.25 + tailIntensity * 0.14;
 
     // Sparse background stars establish scale without an extra draw call.
     vec2 starSpace = point * vec2(94.0, 78.0) + vec2(motion * 0.32, -motion * 0.18);
@@ -417,15 +589,15 @@ const fragmentShader = `
     ) - 0.5;
     starLocal -= starOffset * 0.62;
     float starPoint = exp(-dot(starLocal, starLocal) * 104.0);
-    float starBandPosition = fract(starCell.x * 0.137 + starCell.y * 0.271);
-    float starEnergy = historyEnergy(historyLow, historyHigh, starBandPosition);
-    float starRise = historyEnergy(riseLow, riseHigh, starBandPosition);
+    int starGroup = int(mod(abs(starCell.x * 2.0 + starCell.y), 5.0));
+    float starEnergy = stableGroupValue(groupEnergies, groupEnergy4, starGroup);
+    float starRise = stableGroupValue(groupRises, groupRise4, starGroup);
     float starPresence = step(
-      mix(0.96, 0.76, clamp(starEnergy * 0.34 + starRise * 1.2, 0.0, 1.0)),
+      mix(0.995, 0.94, clamp(starEnergy * 0.34 + starRise * 1.2, 0.0, 1.0)),
       starSeed
     );
     float starEnvelope = outerMask
-      * (1.0 - smoothstep(0.0, bandWidth * 6.0, mainCrossDistance))
+      * (1.0 - smoothstep(0.0, nearestFamilyWidth * 5.0, nearestFamilyDistance))
       * (0.34 + foreground * 0.66);
     float starTwinkle = 0.48 + 0.52 * sin(motion * (0.8 + starSeed * 2.2) + starSeed * 41.0);
     float starIntensity = starPoint
@@ -433,10 +605,11 @@ const fragmentShader = `
       * starEnvelope
       * starTwinkle
       * (0.22 + starEnergy * 0.46 + starRise * 1.04 + uTransient * 0.04)
-      * reducedDetail;
+      * reducedDetail
+      * 0.2;
     vec3 starColor = warpColor(clamp(0.12 + starSeed * 0.72, 0.0, 1.0));
     accumulated += mix(starColor, vec3(0.92), 0.22) * starIntensity;
-    accumulatedAlpha += starIntensity * 0.45;
+    accumulatedAlpha += starIntensity * 0.16;
 
     // The far aperture remains nearly black while a very thin broken rim
     // anchors every rail at the same distant vanishing point.
@@ -449,7 +622,7 @@ const fragmentShader = `
     accumulatedAlpha += aperture * 0.38;
 
     accumulated *= 0.7 + outerMask * 0.3;
-    accumulated = vec3(1.0) - exp(-accumulated * 2.65);
+    accumulated = vec3(1.0) - exp(-accumulated * AURORA_RAINBOW_EXPOSURE);
     float luminance = dot(accumulated, vec3(0.2126, 0.7152, 0.0722));
     accumulated = mix(vec3(luminance), accumulated, 1.1);
     float shadowAlpha = (1.0 - smoothstep(holeRadius * 0.38, holeRadius + 0.014, radius))
@@ -457,11 +630,11 @@ const fragmentShader = `
     float alpha = clamp(
       shadowAlpha + accumulatedAlpha * 1.06 + max(max(accumulated.r, accumulated.g), accumulated.b) * 0.64,
       0.0,
-      0.9
+      MAX_OUTPUT_ALPHA
     );
     // NormalBlending expects straight alpha. The shader accumulates radiance in
     // premultiplied form, so un-premultiply once to avoid dimming it a second time.
-    vec3 displayColor = accumulated / max(0.16, alpha);
+    vec3 displayColor = alpha > 0.0001 ? accumulated / alpha : vec3(0.0);
     gl_FragColor = vec4(clamp(displayColor, 0.0, 0.88), alpha);
   }
 `;
@@ -547,7 +720,7 @@ export class WarpHoleWebGLVisualizer {
     this.geometry = new PlaneGeometry(2, 2);
     this.historyTexture = new DataTexture(
       this.historyBuffer,
-      2,
+      historyTextureWidth,
       historyFrameCount,
       RGBAFormat,
       UnsignedByteType,
@@ -646,8 +819,8 @@ export class WarpHoleWebGLVisualizer {
   }
 
   private recordAudioHistory() {
-    // Two RGBA texels hold all eight bands for one frame. A 32-row byte
-    // texture costs only 256 bytes, avoids large fragment-uniform arrays, and
+    // Five RGBA texels hold all twenty blocks for one frame. The fixed 32-row
+    // byte texture avoids large fragment-uniform arrays and
     // shifts in-place without allocating on the animation path.
     this.historyBuffer.copyWithin(
       bandCount,

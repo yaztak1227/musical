@@ -800,8 +800,8 @@ fn route_request(
             });
             result_response(result)
         }
-        ("GET", "/api/track_analysis") | ("GET", "/api/audio_analysis_segment") => {
-            let result = get_track_analysis_segment(&app, &request, &remote_state);
+        ("GET", "/api/track_analysis") => {
+            let result = get_track_analysis(&app, &request, &remote_state);
             result_response(result)
         }
         ("GET", "/api/track_analysis_bytes") => {
@@ -1067,7 +1067,8 @@ fn ensure_mcp_sidecar(
         .env("MUSICAL_MCP_PORT", port.to_string())
         .env("MUSICAL_MCP_TOKEN", token)
         .env("MUSICAL_MCP_VERSION", env!("CARGO_PKG_VERSION"))
-        .stdin(Stdio::null())
+        .env("MUSICAL_MCP_PARENT_WATCHDOG", "stdin")
+        .stdin(Stdio::piped())
         .stdout(Stdio::null())
         .stderr(Stdio::null())
         .spawn()
@@ -2042,7 +2043,7 @@ fn album_queue_ids_starting_with(album: &library::AlbumRecord, track_id: &str) -
     track_ids
 }
 
-fn get_track_analysis_segment(
+fn get_track_analysis(
     app: &AppHandle,
     request: &Request,
     remote_state: &SharedRemoteServerState,
@@ -2050,45 +2051,13 @@ fn get_track_analysis_segment(
     let track_id = query_param(&request.query, "trackId")
         .filter(|value| !value.trim().is_empty())
         .ok_or_else(|| "missing trackId".to_owned())?;
-    let from = query_param(&request.query, "from")
-        .and_then(|value| value.parse::<f64>().ok())
-        .filter(|value| value.is_finite())
-        .unwrap_or(0.0)
-        .max(0.0);
-    let duration = query_param(&request.query, "duration")
-        .and_then(|value| value.parse::<f64>().ok())
-        .filter(|value| value.is_finite())
-        .unwrap_or(4.0)
-        .clamp(0.25, 60.0 * 60.0 * 4.0);
-    let total_duration = query_param(&request.query, "totalDuration")
-        .and_then(|value| value.parse::<f64>().ok())
-        .filter(|value| value.is_finite())
-        .unwrap_or(duration)
-        .clamp(duration, 60.0 * 60.0 * 4.0);
-    let compact = query_param(&request.query, "compact")
-        .map(|value| value == "true" || value == "1")
-        .unwrap_or(false);
-    let to = from + duration;
-
     let file_path = library::load_track_file_path(app, &track_id)?;
-    let loaded_analysis =
-        get_or_analyze_track_once(app, remote_state, &track_id, &file_path, total_duration)?;
-    let frames = if loaded_analysis.is_complete && !compact {
-        loaded_analysis.analysis.frames.clone()
-    } else {
-        loaded_analysis
-            .analysis
-            .frames
-            .iter()
-            .filter(|frame| frame.timecode >= from && frame.timecode <= to)
-            .cloned()
-            .collect::<Vec<_>>()
-    };
+    let loaded_analysis = get_or_analyze_track_once(app, remote_state, &track_id, &file_path)?;
     prefetch_next_track_analysis(app.clone(), remote_state.clone(), track_id.clone());
 
     Ok(RemoteAudioAnalysisSegment {
         frame_interval_ms: loaded_analysis.analysis.frame_interval_ms,
-        frames,
+        frames: loaded_analysis.analysis.frames,
         is_complete: loaded_analysis.is_complete,
         track_id: track_id.clone(),
     })
@@ -2099,7 +2068,7 @@ fn get_track_analysis_bytes(
     request: &Request,
     remote_state: &SharedRemoteServerState,
 ) -> Result<audio_analysis::TrackAnalysisBytes, String> {
-    let segment = get_track_analysis_segment(app, request, remote_state)?;
+    let segment = get_track_analysis(app, request, remote_state)?;
     Ok(audio_analysis::TrackAnalysisBytes::from_frames(
         &segment.track_id,
         segment.frame_interval_ms,
@@ -2113,17 +2082,7 @@ fn get_or_analyze_track_once(
     remote_state: &SharedRemoteServerState,
     track_id: &str,
     file_path: &str,
-    total_duration: f64,
 ) -> Result<audio_analysis::TrackAnalysisLoad, String> {
-    if let Some(analysis) =
-        audio_analysis::get_cached_track_analysis(app, track_id, file_path, total_duration)?
-    {
-        return Ok(audio_analysis::TrackAnalysisLoad {
-            analysis,
-            is_complete: true,
-        });
-    }
-
     loop {
         let mut state = remote_state.lock().map_err(|error| error.to_string())?;
         if state
@@ -2138,60 +2097,14 @@ fn get_or_analyze_track_once(
                 .wait(state)
                 .map_err(|error| error.to_string())?,
         );
-        if let Some(analysis) =
-            audio_analysis::get_cached_track_analysis(app, track_id, file_path, total_duration)?
-        {
-            return Ok(audio_analysis::TrackAnalysisLoad {
-                analysis,
-                is_complete: true,
-            });
-        }
     }
 
-    let result = analyze_and_cache_track(app, track_id, file_path, total_duration);
+    let result = audio_analysis::get_or_analyze_track(app, track_id, file_path);
     if let Ok(mut state) = remote_state.lock() {
         state.active_track_analysis_loads.remove(track_id);
         remote_state.track_analysis_finished.notify_all();
     }
     result
-}
-
-fn analyze_and_cache_track(
-    app: &AppHandle,
-    track_id: &str,
-    file_path: &str,
-    total_duration: f64,
-) -> Result<audio_analysis::TrackAnalysisLoad, String> {
-    if let Some(analysis) =
-        audio_analysis::get_cached_track_analysis(app, track_id, file_path, total_duration)?
-    {
-        return Ok(audio_analysis::TrackAnalysisLoad {
-            analysis,
-            is_complete: true,
-        });
-    }
-
-    let loaded_analysis = audio_analysis::get_or_analyze_track_segment(
-        app,
-        track_id,
-        file_path,
-        0.0,
-        total_duration,
-    )?;
-    if !loaded_analysis.is_complete {
-        if let Err(error) = audio_analysis::save_track_analysis_cache(
-            app,
-            track_id,
-            file_path,
-            &loaded_analysis.analysis,
-        ) {
-            warn!("audio analysis cache save failed for {track_id}: {error}");
-        }
-    }
-    Ok(audio_analysis::TrackAnalysisLoad {
-        analysis: loaded_analysis.analysis,
-        is_complete: true,
-    })
 }
 
 fn prefetch_next_track_analysis(
@@ -2252,9 +2165,8 @@ fn prefetch_track_analysis(
     remote_state: &SharedRemoteServerState,
     track_id: &str,
 ) -> Result<(), String> {
-    let (file_path, duration_seconds) = library::load_track_file_path_and_duration(app, track_id)?;
-    let duration = (duration_seconds.max(1) as f64) + 2.0;
-    get_or_analyze_track_once(app, remote_state, track_id, &file_path, duration)?;
+    let file_path = library::load_track_file_path(app, track_id)?;
+    get_or_analyze_track_once(app, remote_state, track_id, &file_path)?;
     Ok(())
 }
 

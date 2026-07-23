@@ -7,7 +7,7 @@ use crate::{
     },
     app_settings,
 };
-use log::debug;
+use log::{debug, warn};
 use rusqlite::{params, Connection, Error as SqliteError, ErrorCode, OpenFlags, OptionalExtension};
 use rustfft::{num_complex::Complex, FftPlanner};
 use serde::{Deserialize, Serialize};
@@ -99,12 +99,10 @@ impl TrackAnalysisBytes {
     }
 }
 
-pub fn get_or_analyze_track_segment(
+pub fn get_or_analyze_track(
     app: &AppHandle,
     track_id: &str,
     file_path: &str,
-    from: f64,
-    duration: f64,
 ) -> Result<TrackAnalysisLoad, String> {
     let cache_key = TrackAnalysisCacheKey::from_file(track_id, file_path)?;
     let cached_analysis = {
@@ -112,70 +110,41 @@ pub fn get_or_analyze_track_segment(
             .lock()
             .map_err(|error| error.to_string())?;
         match open_existing_cache_database(app)? {
-            Some(connection) => {
-                load_cached_track_analysis(&connection, &cache_key, from + duration)?
-            }
+            Some(connection) => load_cached_track_analysis(&connection, &cache_key)?,
             None => None,
         }
     };
     if let Some(analysis) = cached_analysis {
+        debug!(
+            "audio analysis cache hit track_id={} frames={}",
+            track_id,
+            analysis.frames.len(),
+        );
         return Ok(TrackAnalysisLoad {
             analysis,
             is_complete: true,
         });
     }
 
-    let segment_start = minute_segment_start(from);
-    let segment_duration = duration.max(AUDIO_ANALYSIS_FRAME_INTERVAL_MS / 1000.0);
+    debug!("audio analysis cache miss track_id={track_id}");
+    let analysis = analyze_track_file(track_id, file_path)?;
+    if let Err(error) = save_track_analysis_cache(app, &cache_key, &analysis) {
+        warn!("audio analysis cache save failed for {track_id}: {error}");
+    }
     Ok(TrackAnalysisLoad {
-        analysis: analyze_track_file_segment(track_id, file_path, segment_start, segment_duration)?,
-        is_complete: false,
+        analysis,
+        is_complete: true,
     })
 }
 
-pub fn get_cached_track_analysis(
-    app: &AppHandle,
-    track_id: &str,
-    file_path: &str,
-    min_duration_seconds: f64,
-) -> Result<Option<TrackAnalysis>, String> {
-    let cache_key = TrackAnalysisCacheKey::from_file(track_id, file_path)?;
-    let _cache_guard = audio_analysis_cache_lock()
-        .lock()
-        .map_err(|error| error.to_string())?;
-    let result = match open_existing_cache_database(app)? {
-        Some(connection) => {
-            load_cached_track_analysis(&connection, &cache_key, min_duration_seconds)
-        }
-        None => Ok(None),
-    }?;
-    match &result {
-        Some(analysis) => debug!(
-            "audio analysis cache hit track_id={} frames={} min_duration={:.2}s",
-            track_id,
-            analysis.frames.len(),
-            min_duration_seconds,
-        ),
-        None => debug!(
-            "audio analysis cache miss track_id={} min_duration={:.2}s",
-            track_id, min_duration_seconds,
-        ),
-    }
-    Ok(result)
-}
-
-pub fn analyze_track_file_segment(
-    track_id: &str,
-    file_path: &str,
-    from: f64,
-    duration: f64,
-) -> Result<TrackAnalysis, String> {
-    let decoded = decode_mono_samples_until(file_path, from + duration)?;
+fn analyze_track_file(track_id: &str, file_path: &str) -> Result<TrackAnalysis, String> {
+    let decoded = decode_mono_samples(file_path)?;
+    let duration = decoded.samples.len() as f64 / decoded.sample_rate.max(1) as f64;
     let frames = analyze_samples_range(
         track_id,
         decoded.sample_rate,
         &decoded.samples,
-        from,
+        0.0,
         duration,
     );
 
@@ -185,14 +154,11 @@ pub fn analyze_track_file_segment(
     })
 }
 
-pub fn save_track_analysis_cache(
+fn save_track_analysis_cache(
     app: &AppHandle,
-    track_id: &str,
-    file_path: &str,
+    cache_key: &TrackAnalysisCacheKey,
     analysis: &TrackAnalysis,
 ) -> Result<(), String> {
-    let cache_key = TrackAnalysisCacheKey::from_file(track_id, file_path)
-        .map_err(|error| format!("audio.analysis.cacheKey\t{file_path}\t{error}"))?;
     let _cache_guard = audio_analysis_cache_lock()
         .lock()
         .map_err(|error| error.to_string())?;
@@ -203,7 +169,7 @@ pub fn save_track_analysis_cache(
             database_path.display()
         )
     })?;
-    match save_cached_track_analysis(&connection, &cache_key, analysis) {
+    match save_cached_track_analysis(&connection, cache_key, analysis) {
         Ok(()) => Ok(()),
         Err(error) if is_readonly_database_error(&error) => {
             drop(connection);
@@ -214,7 +180,7 @@ pub fn save_track_analysis_cache(
                     database_path.display()
                 )
             })?;
-            save_cached_track_analysis(&connection, &cache_key, analysis).map_err(to_error_string)
+            save_cached_track_analysis(&connection, cache_key, analysis).map_err(to_error_string)
         }
         Err(error) => Err(format!(
             "audio.analysis.cacheWrite\t{}\t{}",
@@ -329,7 +295,6 @@ fn initialize_cache_database(connection: &Connection) -> Result<(), SqliteError>
                 analysis_version INTEGER NOT NULL DEFAULT 1,
                 frame_interval_ms REAL NOT NULL,
                 start_time_ms REAL NOT NULL DEFAULT 0,
-                analyzed_duration_ms REAL NOT NULL DEFAULT 0,
                 bucket_count INTEGER NOT NULL,
                 frame_count INTEGER NOT NULL,
                 frames_blob BLOB NOT NULL,
@@ -418,7 +383,6 @@ fn cache_schema_is_current(database_path: &Path) -> Result<bool, String> {
 fn load_cached_track_analysis(
     connection: &Connection,
     cache_key: &TrackAnalysisCacheKey,
-    min_duration_seconds: f64,
 ) -> Result<Option<TrackAnalysis>, String> {
     connection
         .query_row(
@@ -429,8 +393,7 @@ fn load_cached_track_analysis(
                AND file_path = ?3
                AND file_modified_ms = ?4
                AND (?5 <= 0 OR analyzed_at >= ?6)
-               AND analysis_version = ?7
-               AND (?8 <= 0 OR analyzed_duration_ms >= ?8)",
+               AND analysis_version = ?7",
             params![
                 cache_key.track_id,
                 cache_key.stream_hash,
@@ -439,7 +402,6 @@ fn load_cached_track_analysis(
                 AUDIO_ANALYSIS_CACHE_TTL_SECONDS,
                 cache_key.analyzed_at - AUDIO_ANALYSIS_CACHE_TTL_SECONDS,
                 AUDIO_ANALYSIS_CACHE_VERSION,
-                minimum_cached_duration_ms(min_duration_seconds),
             ],
             |row| {
                 let frame_interval_ms = row.get::<_, f64>(0)?;
@@ -493,11 +455,6 @@ fn save_cached_track_analysis(
         .map(|frame| frame.values.len())
         .unwrap_or(AUDIO_ANALYSIS_BUCKETS);
     let frames_blob = frames_to_blob(&analysis.frames, bucket_count);
-    let analyzed_duration_ms = analysis
-        .frames
-        .last()
-        .map(|frame| frame.timecode * 1000.0 + analysis.frame_interval_ms)
-        .unwrap_or(0.0);
     connection.execute(
         "INSERT INTO track_analysis_cache (
                 track_uuid,
@@ -508,12 +465,11 @@ fn save_cached_track_analysis(
                 analysis_version,
                 frame_interval_ms,
                 start_time_ms,
-                analyzed_duration_ms,
                 bucket_count,
                 frame_count,
                 frames_blob
              )
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)
              ON CONFLICT(track_uuid, stream_hash) DO UPDATE SET
                 file_path = excluded.file_path,
                 file_modified_ms = excluded.file_modified_ms,
@@ -521,7 +477,6 @@ fn save_cached_track_analysis(
                 analysis_version = excluded.analysis_version,
                 frame_interval_ms = excluded.frame_interval_ms,
                 start_time_ms = excluded.start_time_ms,
-                analyzed_duration_ms = excluded.analyzed_duration_ms,
                 bucket_count = excluded.bucket_count,
                 frame_count = excluded.frame_count,
                 frames_blob = excluded.frames_blob",
@@ -534,17 +489,15 @@ fn save_cached_track_analysis(
             AUDIO_ANALYSIS_CACHE_VERSION,
             analysis.frame_interval_ms,
             start_time_ms,
-            analyzed_duration_ms,
             bucket_count as i64,
             analysis.frames.len() as i64,
             frames_blob,
         ],
     )?;
     debug!(
-        "audio analysis cache saved track_id={} frames={} analyzed_duration_ms={:.0}",
+        "audio analysis cache saved track_id={} frames={}",
         cache_key.track_id,
         analysis.frames.len(),
-        analyzed_duration_ms,
     );
     Ok(())
 }
@@ -559,10 +512,6 @@ fn frames_to_blob(frames: &[AudioAnalysisFrame], bucket_count: usize) -> Vec<u8>
         }
     }
     blob
-}
-
-fn minimum_cached_duration_ms(min_duration_seconds: f64) -> f64 {
-    (min_duration_seconds.max(0.0) * 1000.0 - AUDIO_ANALYSIS_FRAME_INTERVAL_MS * 4.0).max(0.0)
 }
 
 fn frames_from_blob(
@@ -593,10 +542,6 @@ fn frames_from_blob(
             values: values.to_vec(),
         })
         .collect())
-}
-
-fn minute_segment_start(from: f64) -> f64 {
-    (from.max(0.0) / 60.0).floor() * 60.0
 }
 
 struct OffsetMediaSource {
@@ -771,10 +716,47 @@ impl TrackAnalysisCacheKey {
             analyzed_at: unix_timestamp_seconds()?,
             file_modified_ms,
             file_path: file_path.to_owned(),
-            stream_hash: format!("{file_modified_ms}:{}", metadata.len()),
+            stream_hash: audio_stream_md5(file_path)?,
             track_id: track_id.to_owned(),
         })
     }
+}
+
+fn audio_stream_md5(file_path: &str) -> Result<String, String> {
+    let path = Path::new(file_path);
+    let file = open_audio_file_for_probe(path, file_path)?;
+    let media_stream = MediaSourceStream::new(file, Default::default());
+    let hint = make_audio_probe_hint(path, file_path)?;
+    let probed = symphonia::default::get_probe()
+        .format(
+            &hint,
+            media_stream,
+            &FormatOptions::default(),
+            &MetadataOptions::default(),
+        )
+        .map_err(|error| format!("audio.analysis.unsupported\t{file_path}\t{error}"))?;
+    let mut format = probed.format;
+    let track_id = format
+        .default_track()
+        .ok_or_else(|| format!("audio.analysis.noDefaultTrack\t{file_path}"))?
+        .id;
+    let mut context = md5::Context::new();
+
+    loop {
+        let packet = match format.next_packet() {
+            Ok(packet) => packet,
+            Err(Error::IoError(error)) if error.kind() == std::io::ErrorKind::UnexpectedEof => {
+                break
+            }
+            Err(Error::ResetRequired) => continue,
+            Err(error) => return Err(format!("audio.analysis.packet\t{file_path}\t{error}")),
+        };
+        if packet.track_id() == track_id {
+            context.consume(&packet.data);
+        }
+    }
+
+    Ok(format!("{:x}", context.compute()))
 }
 
 fn file_modified_millis_from_metadata(
@@ -810,10 +792,7 @@ struct DecodedSamples {
     samples: Vec<f32>,
 }
 
-fn decode_mono_samples_until(
-    file_path: &str,
-    decode_until_seconds: f64,
-) -> Result<DecodedSamples, String> {
+fn decode_mono_samples(file_path: &str) -> Result<DecodedSamples, String> {
     let path = Path::new(file_path);
     let file = open_audio_file_for_probe(path, file_path)?;
     let media_stream = MediaSourceStream::new(file, Default::default());
@@ -869,9 +848,6 @@ fn decode_mono_samples_until(
         };
 
         append_mono_samples(decoded, &mut samples);
-        if (samples.len() as f64) / (sample_rate as f64) >= decode_until_seconds {
-            break;
-        }
     }
 
     Ok(DecodedSamples {
@@ -1073,5 +1049,42 @@ mod tests {
         assert_eq!(restored[0].timecode, 1.5);
         assert_eq!(restored[1].timecode, 1.533);
         assert_eq!(restored[1].values, vec![4, 5, 6]);
+    }
+
+    #[test]
+    fn whole_track_cache_lookup_depends_on_identity_not_requested_duration() {
+        let connection = Connection::open_in_memory().expect("open in-memory cache");
+        initialize_cache_database(&connection).expect("initialize cache");
+        let cache_key = TrackAnalysisCacheKey {
+            analyzed_at: 1,
+            file_modified_ms: 2,
+            file_path: "/music/track.flac".to_owned(),
+            stream_hash: "0123456789abcdef0123456789abcdef".to_owned(),
+            track_id: "track-a".to_owned(),
+        };
+        let analysis = TrackAnalysis {
+            frame_interval_ms: 33.0,
+            frames: vec![AudioAnalysisFrame {
+                timecode: 0.0,
+                track_id: "track-a".to_owned(),
+                values: vec![1, 2, 3],
+            }],
+        };
+
+        save_cached_track_analysis(&connection, &cache_key, &analysis).expect("save cache");
+        let restored = load_cached_track_analysis(&connection, &cache_key)
+            .expect("load cache")
+            .expect("cache hit");
+        let duration_column_count = connection
+            .query_row(
+                "SELECT COUNT(*) FROM pragma_table_info('track_analysis_cache') WHERE name = 'analyzed_duration_ms'",
+                [],
+                |row| row.get::<_, i64>(0),
+            )
+            .expect("inspect schema");
+
+        assert_eq!(restored.frames.len(), 1);
+        assert_eq!(restored.frames[0].values, vec![1, 2, 3]);
+        assert_eq!(duration_column_count, 0);
     }
 }

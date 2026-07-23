@@ -1,7 +1,7 @@
 {
   "name": "musical",
   "private": true,
-  "version": "0.4.4",
+  "version": "0.5.0",
   "license": "MIT",
   "author": "yaztak1227@gmail.com",
   "type": "module",
@@ -20,6 +20,7 @@
     "test:mcp": "npm run build:mcp && node --test tests/mcp/*.test.mjs",
     "test:e2e": "playwright test",
     "test:e2e:ui": "playwright test --ui",
+    "tauri:dev:ai-test": "node scripts/ai-init-test.mjs",
     "tauri:dev:windows": "powershell -ExecutionPolicy Bypass -File scripts/tauri-dev-localappdata.ps1",
     "tauri": "tauri"
   },

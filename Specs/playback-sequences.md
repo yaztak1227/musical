@@ -79,7 +79,7 @@
 | 5 | Player primary button becomes Play | UI上も停止状態を表示する |
 | 6 | Resolve repeat/queue/shuffle | 1曲リピート、次曲、全曲リピート、シャッフル次周を判断する |
 | 7a | `seekTo(0)` and `setIsPlaying(true)` | 1曲リピートで同一曲を再開する |
-| 7b | `setCurrentTrack(nextTrack)`, `resetPosition()`, `setIsPlaying(true)` | 次曲を開始する |
+| 7b | `setCurrentTrack(nextTrack)`, `resetPosition()`, development measure limit check, `setIsPlaying(true)` | 次曲を開始し、開発版では50万件以上の Performance API measure entries を消去する |
 | 7c | Shuffle next-cycle queue, `setCurrentTrack(firstShuffledTrack)`, `setIsPlaying(true)` | シャッフル有効の全曲リピートで次周を開始する |
 | 7d | `seekTo(0)` and keep `setIsPlaying(false)` | 次曲なし、全曲リピートなしで停止する |
 

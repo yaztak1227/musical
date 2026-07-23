@@ -14,9 +14,6 @@ export const {
 export const audioAnalysisSampleIntervalMs: number = audioAnalysisConfig.sampleIntervalMs;
 
 export const {
-  chunkDurationSeconds: remoteAudioAnalysisChunkDurationSeconds,
-  durationPaddingSeconds: remoteAudioAnalysisDurationPaddingSeconds,
-  fallbackDurationSeconds: remoteAudioAnalysisFallbackDurationSeconds,
   maxCachedPackets: remoteAudioAnalysisMaxCachedPackets,
   retryDelaysMs: remoteAudioAnalysisRetryDelaysMs,
 } = remoteAudioAnalysisConfig;

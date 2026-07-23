@@ -21,6 +21,8 @@ export type PlayerBarHandle = {
   toggleMute: () => void;
 };
 
+const developmentPerformanceMeasureLimit = 500_000;
+
 type PlayerBarProps = {
   audioRef: RefObject<HTMLAudioElement | null>;
   currentAlbum: Album | null;
@@ -223,6 +225,12 @@ export const PlayerBar = forwardRef<PlayerBarHandle, PlayerBarProps>(function Pl
 
   useEffect(() => {
     resetPosition();
+    if (
+      import.meta.env.DEV
+      && performance.getEntriesByType("measure").length >= developmentPerformanceMeasureLimit
+    ) {
+      performance.clearMeasures();
+    }
   }, [currentTrack]);
 
   const handleAudioLoadedMetadata = useEffectEvent(() => {

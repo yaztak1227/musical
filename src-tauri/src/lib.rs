@@ -224,14 +224,18 @@ pub fn run() {
     builder
         .setup(|app| {
             info!("starting Musical desktop app");
-            match local_server::start(app.handle().clone()) {
-                Ok(url) => {
-                    info!("local browser API is available at {url}");
-                    eprintln!("local browser API is available at {url}");
-                }
-                Err(error) => {
-                    error!("failed to start local browser API: {error}");
-                    eprintln!("failed to start local browser API: {error}");
+            if is_ai_test_mode() {
+                info!("AI test mode enabled; skipping local server and MCP sidecar startup");
+            } else {
+                match local_server::start(app.handle().clone()) {
+                    Ok(url) => {
+                        info!("local browser API is available at {url}");
+                        eprintln!("local browser API is available at {url}");
+                    }
+                    Err(error) => {
+                        error!("failed to start local browser API: {error}");
+                        eprintln!("failed to start local browser API: {error}");
+                    }
                 }
             }
 
@@ -275,6 +279,12 @@ pub fn run() {
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
+}
+
+fn is_ai_test_mode() -> bool {
+    std::env::var("MUSICAL_AI_TEST")
+        .map(|value| matches!(value.as_str(), "1" | "true" | "TRUE" | "yes" | "YES"))
+        .unwrap_or(false)
 }
 
 #[cfg(debug_assertions)]

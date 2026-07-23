@@ -1,7 +1,7 @@
 export {
   getRemotePlayerCommands,
   getRemotePlayerState,
-  getRemoteTrackAnalysisSegment,
+  getRemoteTrackAnalysis,
   publishRemotePlayerState,
   sendRemotePlayerCommand,
 } from "@/lib/backend";

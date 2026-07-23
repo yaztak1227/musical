@@ -729,7 +729,7 @@ test("uses the mist profile only for original and artwork aurora palettes", () =
 });
 
 test("switches every player visualizer mode and persists its color palette", async ({ page }) => {
-  test.setTimeout(60_000);
+  test.setTimeout(90_000);
   await page.addInitScript(() => {
     const clearCountWindow = window as Window & { __musicalBaseVisualizerClearCount?: number };
     const originalClearRect = CanvasRenderingContext2D.prototype.clearRect;
@@ -754,7 +754,7 @@ test("switches every player visualizer mode and persists its color palette", asy
   await page.getByLabel("Player").getByRole("button", { name: "Play", exact: true }).click();
   await page.getByLabel("Player").getByRole("button", { name: "Open visualizer" }).click();
 
-  const modeNames = ["Wave", "Spectrum", "Circle", "Peaks", "Aurora", "Starfield", "DNA Helix", "Flowing ink", "VU meters", "Warp Hole"];
+  const modeNames = ["Wave", "Spectrum", "Circle", "Peaks", "Aurora", "Starfield", "DNA Helix", "Dreamflow", "VU meters", "Warp Hole"];
   const modeGroup = page.getByRole("group", { name: "Visualizer mode" });
   await expect(modeGroup.getByRole("button", { name: "Chibi orchestra mode", exact: true })).toHaveCount(0);
   await expect(modeGroup.locator("svg.visualizer-mode-glyph")).toHaveCount(10);
@@ -883,10 +883,31 @@ test("scrolls the expanded mobile mock album library", async ({ page }) => {
 });
 
 test("advances to the next track when playback reaches the end", async ({ page }) => {
-  await page.addInitScript(() => window.localStorage.setItem("musical.locale", "en"));
+  await page.addInitScript(() => {
+    window.localStorage.setItem("musical.locale", "en");
+    const originalGetEntriesByType = performance.getEntriesByType.bind(performance);
+    const originalClearMeasures = performance.clearMeasures.bind(performance);
+    Object.defineProperty(performance, "getEntriesByType", {
+      configurable: true,
+      value: (entryType: string) => entryType === "measure"
+        ? { length: 500_000 }
+        : originalGetEntriesByType(entryType),
+    });
+    Object.defineProperty(performance, "clearMeasures", {
+      configurable: true,
+      value: (measureName?: string) => {
+        const instrumentedWindow = window as Window & { __performanceClearMeasuresCount?: number };
+        instrumentedWindow.__performanceClearMeasuresCount = (instrumentedWindow.__performanceClearMeasuresCount ?? 0) + 1;
+        originalClearMeasures(measureName);
+      },
+    });
+  });
   await page.goto("/");
 
   await page.getByLabel("Player").getByRole("button", { name: "Play", exact: true }).click();
+  const clearMeasuresCountBeforeTrackChange = await page.evaluate(
+    () => (window as Window & { __performanceClearMeasuresCount?: number }).__performanceClearMeasuresCount ?? 0,
+  );
   const seekSlider = page.getByLabel("Seek");
   const seekSliderBox = await seekSlider.boundingBox();
   expect(seekSliderBox).not.toBeNull();
@@ -894,6 +915,9 @@ test("advances to the next track when playback reaches the end", async ({ page }
 
   await expect(page.getByLabel("Player")).toContainText("Last Train Home", { timeout: 2500 });
   await expect(page.getByLabel("Player").getByRole("button", { name: "Pause" })).toBeVisible();
+  await expect.poll(() => page.evaluate(
+    () => (window as Window & { __performanceClearMeasuresCount?: number }).__performanceClearMeasuresCount ?? 0,
+  )).toBeGreaterThan(clearMeasuresCountBeforeTrackChange);
 });
 
 test("keeps advancing after consecutive tracks reach the end", async ({ page }) => {

@@ -84,7 +84,7 @@ export async function createFakeBridge({ token, handlers }) {
   };
 }
 
-export async function startMcpSidecar({ bridgePort, mcpPort, token }) {
+export async function startMcpSidecar({ bridgePort, mcpPort, parentWatchdog = false, token }) {
   const child = spawn(process.execPath, ["dist/mcp/server.js"], {
     env: {
       ...process.env,
@@ -92,8 +92,9 @@ export async function startMcpSidecar({ bridgePort, mcpPort, token }) {
       MUSICAL_MCP_PORT: String(mcpPort),
       MUSICAL_MCP_TOKEN: token,
       MUSICAL_MCP_VERSION: "test",
+      ...(parentWatchdog ? { MUSICAL_MCP_PARENT_WATCHDOG: "stdin" } : {}),
     },
-    stdio: ["ignore", "pipe", "pipe"],
+    stdio: [parentWatchdog ? "pipe" : "ignore", "pipe", "pipe"],
   });
 
   let stderr = "";
@@ -126,8 +127,8 @@ export async function startMcpSidecar({ bridgePort, mcpPort, token }) {
     stop: async () => {
       if (child.exitCode === null) {
         child.kill();
+        await once(child, "exit").catch(() => undefined);
       }
-      await once(child, "exit").catch(() => undefined);
     },
   };
 }

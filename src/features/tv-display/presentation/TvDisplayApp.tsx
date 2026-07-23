@@ -335,33 +335,20 @@ export function TvDisplayApp({ snapshot = mockTvSessionSnapshot }: TvDisplayAppP
     }
 
     let isActive = true;
-    let abortController: AbortController | null = null;
-    let isLoadingAnalysis = false;
-
-    const loadAnalysis = async () => {
-      if (isLoadingAnalysis) return;
-      isLoadingAnalysis = true;
-      abortController = new AbortController();
-      try {
-        const currentPosition = currentTimeRef.current;
-        const nextFrames = await fetchAnalysisFrames(String(trackId), Math.max(0, currentPosition - 0.5), 4, duration || currentTrack?.durationSeconds || 1, abortController.signal);
-        if (!isActive) return;
-        setAnalysisFrames((frames) => mergeAnalysisFrames(frames, nextFrames, currentTimeRef.current));
-      } catch {
-        if (isActive) setAnalysisFrames((frames) => retainAnalysisWindow(frames, currentTimeRef.current));
-      } finally {
-        isLoadingAnalysis = false;
-      }
-    };
-
-    void loadAnalysis();
-    const timer = window.setInterval(() => void loadAnalysis(), 2000);
+    const abortController = new AbortController();
+    setAnalysisFrames([]);
+    void fetchAnalysisFrames(String(trackId), abortController.signal)
+      .then((frames) => {
+        if (isActive) setAnalysisFrames(frames);
+      })
+      .catch(() => {
+        if (isActive) setAnalysisFrames([]);
+      });
     return () => {
       isActive = false;
-      abortController?.abort();
-      window.clearInterval(timer);
+      abortController.abort();
     };
-  }, [currentTrack?.id, currentTrack?.durationSeconds, duration]);
+  }, [currentTrack?.id]);
 
   useEffect(() => {
     const handleDiagnostics = (event: Event) => {
@@ -980,36 +967,24 @@ export function TvDisplayApp({ snapshot = mockTvSessionSnapshot }: TvDisplayAppP
 
 async function fetchAnalysisFrames(
   trackId: string,
-  from: number,
-  duration: number,
-  totalDuration: number,
   signal: AbortSignal,
 ) {
   try {
     return segmentBytesToAnalysisFrames(
-      await fetchAnalysisBytesSegment(trackId, from, duration, totalDuration, signal),
+      await fetchAnalysisBytes(trackId, signal),
     );
   } catch {
     return segmentToAnalysisFrames(
-      await fetchAnalysisSegment(trackId, from, duration, totalDuration, signal),
+      await fetchAnalysis(trackId, signal),
     );
   }
 }
 
-async function fetchAnalysisBytesSegment(
+async function fetchAnalysisBytes(
   trackId: string,
-  from: number,
-  duration: number,
-  totalDuration: number,
   signal: AbortSignal,
 ) {
-  const query = new URLSearchParams({
-    compact: "true",
-    duration: String(duration),
-    from: String(from),
-    totalDuration: String(totalDuration),
-    trackId,
-  });
+  const query = new URLSearchParams({ trackId });
   const response = await fetch(`/api/track_analysis_bytes?${query.toString()}`, { signal });
   if (!response.ok) throw new Error(await response.text());
   const values = new Uint8Array(await response.arrayBuffer());
@@ -1031,20 +1006,11 @@ async function fetchAnalysisBytesSegment(
   return segment;
 }
 
-async function fetchAnalysisSegment(
+async function fetchAnalysis(
   trackId: string,
-  from: number,
-  duration: number,
-  totalDuration: number,
   signal: AbortSignal,
 ) {
-  const query = new URLSearchParams({
-    compact: "true",
-    duration: String(duration),
-    from: String(from),
-    totalDuration: String(totalDuration),
-    trackId,
-  });
+  const query = new URLSearchParams({ trackId });
   return fetchJson<RemoteAnalysisSegment>(`/api/track_analysis?${query.toString()}`, signal);
 }
 
@@ -1156,27 +1122,6 @@ function maxByte(values: Uint8Array) {
     if (value > max) max = value;
   }
   return max;
-}
-
-function mergeAnalysisFrames(
-  currentFrames: TvAudioAnalysisFrame[],
-  nextFrames: TvAudioAnalysisFrame[],
-  currentTimeSeconds: number,
-) {
-  const framesByTime = new Map<number, TvAudioAnalysisFrame>();
-  for (const frame of currentFrames) framesByTime.set(frame.timeMs, frame);
-  for (const frame of nextFrames) framesByTime.set(frame.timeMs, frame);
-  return retainAnalysisWindow(
-    Array.from(framesByTime.values()).sort((first, second) => first.timeMs - second.timeMs),
-    currentTimeSeconds,
-  );
-}
-
-function retainAnalysisWindow(frames: TvAudioAnalysisFrame[], currentTimeSeconds: number) {
-  const currentTimeMs = currentTimeSeconds * 1000;
-  const minTimeMs = Math.max(0, currentTimeMs - 1500);
-  const maxTimeMs = currentTimeMs + 4500;
-  return frames.filter((frame) => frame.timeMs >= minTimeMs && frame.timeMs <= maxTimeMs);
 }
 
 function rootMeanSquare(values: number[]) {

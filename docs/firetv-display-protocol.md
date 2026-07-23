@@ -214,12 +214,10 @@ Performance rules:
 
 - Fire TV does not create realtime FFT data from the WebView audio element.
 - The app/local backend provides analysis data from the library audio analysis
-  cache through `/api/track_analysis?compact=true` or an equivalent display
+  cache through `/api/track_analysis_bytes` or an equivalent display
   message.
-- Frame identity is the rounded `timeMs`; duplicate frames overwrite earlier
-  frames with the same timestamp.
-- Keep packets compact. The TV UI should request or receive a short window,
-  normally around 1-4 seconds, instead of full-track analysis when possible.
+- Load one compact full-track packet when the current track changes; do not poll
+  arbitrary-duration analysis windows.
 - Cap visualizer rendering at 30fps by default.
 - Drop late frames rather than queueing unbounded work.
 - Reset the retained frame buffer on track change or seek jumps.
