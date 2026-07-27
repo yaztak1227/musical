@@ -322,6 +322,12 @@
   color: var(--app-on-player);
   background: color-mix(in oklch, var(--app-on-player), transparent 92%);
   transform: translateY(-50%);
+  transition: none;
+}
+
+.visualizer-open-icon-button.icon-button:not(:disabled):active {
+  filter: none;
+  transform: translateY(-50%);
 }
 
 .visualizer-open-icon-button svg {

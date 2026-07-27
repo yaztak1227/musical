@@ -179,6 +179,7 @@
   <message key="player.openVisualizerAccessible">Apri visualizzatore</message>
   <message key="player.closeVisualizer">Chiudi la modalità giocatore</message>
   <message key="player.visualizerLabel">Visualizzatore del giocatore</message>
+  <message key="player.visualizerLoading">Preparazione della modalità lettore...</message>
   <message key="player.visualizerMode">Modalità visualizzatore</message>
   <message key="player.visualizerWave">Onda</message>
   <message key="player.visualizerSpectrum">Spettro</message>
@@ -187,7 +188,7 @@
   <message key="player.visualizerAurora">Aurora</message>
   <message key="player.visualizerStarfield">Campo stellare</message>
   <message key="player.visualizerTunnel">Elica del DNA</message>
-  <message key="player.visualizerInk">Flusso onirico</message>
+  <message key="player.visualizerInk">Flusso di colore</message>
   <message key="player.visualizerVu">Misuratori VU</message>
   <message key="player.visualizerWarp">Varco spaziale</message>
   <message key="player.visualizerSettings">Impostazioni visualizzatore</message>

@@ -239,7 +239,6 @@ export function useAppController() {
     getStoredLibrarySidebarSectionState(),
   );
   const [isLibrarySettingsOpen, setIsLibrarySettingsOpen] = useState(false);
-  const [isPlayerVisualizerOpen, setIsPlayerVisualizerOpen] = useState(false);
   const [playbackError, setPlaybackError] = useState<string | null>(null);
   const [isAlbumTagEditing, setIsAlbumTagEditing] = useState(false);
   const [albumTagDraft, setAlbumTagDraft] = useState<AlbumTagDraft>(() => makeAlbumTagDraft(mockAlbums[0] ?? null));
@@ -1346,9 +1345,9 @@ export function useAppController() {
   }
 
   useEffect(() => {
-    if (!isPlayerVisualizerOpen || !currentTrack) return;
+    if (!currentTrack) return;
     void loadTrackLyrics(currentTrack);
-  }, [currentTrack, isPlayerVisualizerOpen]);
+  }, [currentTrack]);
 
   function closeTrackDetail() {
     if (isSavingTrackTags || isSavingArtwork) return;
@@ -2450,7 +2449,6 @@ export function useAppController() {
     isLibrarySettingsOpen,
     isMcpEnabled,
     isMockDataRuntime,
-    isPlayerVisualizerOpen,
     isPlaying,
     isInspectingArtworkRelease,
     isSavingAlbumTags,
@@ -2531,7 +2529,6 @@ export function useAppController() {
     setArtworkDraftPath,
     setIsLibraryMenuOpen,
     setIsLibrarySettingsOpen,
-    setIsPlayerVisualizerOpen,
     setIsSidebarCollapsed,
     setLocale,
     setLyricsOnly,

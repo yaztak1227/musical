@@ -14,10 +14,10 @@ import { EffectComposer } from "three/addons/postprocessing/EffectComposer.js";
 import { OutputPass } from "three/addons/postprocessing/OutputPass.js";
 import { RenderPass } from "three/addons/postprocessing/RenderPass.js";
 import { UnrealBloomPass } from "three/addons/postprocessing/UnrealBloomPass.js";
+import type { AuroraVisualProfile } from "./visualizerAnalysis";
 
 type AuroraColor = readonly [number, number, number];
 export type AuroraPalette = readonly AuroraColor[];
-export type AuroraVisualProfile = "mist" | "rainbow" | "standard";
 type UpdateControlledUniform<T> = { value: T; needsUpdate?: boolean };
 
 const bandCount = 5;
@@ -27,14 +27,6 @@ const renderIntervalMs = 1000 / 30;
 const shaderColorCount = 8;
 const captureBandEdges = [0.02, 0.09, 0.2, 0.38, 0.62, 0.9] as const;
 const defaultAuroraColor: AuroraColor = [99, 230, 255];
-
-export function resolveAuroraVisualProfile(
-  paletteMode: "artwork" | "original" | "rainbow" | "theme",
-): AuroraVisualProfile {
-  if (paletteMode === "rainbow") return "rainbow";
-  if (paletteMode === "artwork" || paletteMode === "original") return "mist";
-  return "standard";
-}
 
 const vertexShader = `
   varying vec2 vUv;

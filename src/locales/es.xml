@@ -179,6 +179,7 @@
   <message key="player.openVisualizerAccessible">Abrir visualizador</message>
   <message key="player.closeVisualizer">Cerrar modo reproductor</message>
   <message key="player.visualizerLabel">Visualizador de jugadores</message>
+  <message key="player.visualizerLoading">Preparando el modo de reproductor...</message>
   <message key="player.visualizerMode">Modo visualizador</message>
   <message key="player.visualizerWave">Ola</message>
   <message key="player.visualizerSpectrum">Espectro</message>
@@ -187,7 +188,7 @@
   <message key="player.visualizerAurora">Aurora</message>
   <message key="player.visualizerStarfield">Campo estelar</message>
   <message key="player.visualizerTunnel">Hélice de ADN</message>
-  <message key="player.visualizerInk">Flujo onírico</message>
+  <message key="player.visualizerInk">Flujo de color</message>
   <message key="player.visualizerVu">Medidores VU</message>
   <message key="player.visualizerWarp">Agujero de curvatura</message>
   <message key="player.visualizerSettings">Ajustes del visualizador</message>

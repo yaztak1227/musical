@@ -179,6 +179,7 @@
   <message key="player.openVisualizerAccessible">Открыть визуализатор</message>
   <message key="player.closeVisualizer">Закрыть режим проигрывателя</message>
   <message key="player.visualizerLabel">Визуализатор игрока</message>
+  <message key="player.visualizerLoading">Подготовка режима проигрывателя...</message>
   <message key="player.visualizerMode">Режим визуализатора</message>
   <message key="player.visualizerWave">Волна</message>
   <message key="player.visualizerSpectrum">Спектр</message>
@@ -187,7 +188,7 @@
   <message key="player.visualizerAurora">Северное сияние</message>
   <message key="player.visualizerStarfield">Звёздное поле</message>
   <message key="player.visualizerTunnel">Спираль ДНК</message>
-  <message key="player.visualizerInk">Поток сновидений</message>
+  <message key="player.visualizerInk">Поток цвета</message>
   <message key="player.visualizerVu">VU-метры</message>
   <message key="player.visualizerWarp">Варп-туннель</message>
   <message key="player.visualizerSettings">Настройки визуализатора</message>

@@ -254,6 +254,7 @@
   <message key="player.openVisualizerAccessible">Open visualizer</message>
   <message key="player.closeVisualizer">Close player mode</message>
   <message key="player.visualizerLabel">Player visualizer</message>
+  <message key="player.visualizerLoading">Preparing player mode...</message>
   <message key="player.visualizerMode">Visualizer mode</message>
   <message key="player.visualizerWave">Wave</message>
   <message key="player.visualizerSpectrum">Spectrum</message>
@@ -262,7 +263,7 @@
   <message key="player.visualizerAurora">Aurora</message>
   <message key="player.visualizerStarfield">Starfield</message>
   <message key="player.visualizerTunnel">DNA Helix</message>
-  <message key="player.visualizerInk">Dreamflow</message>
+  <message key="player.visualizerInk">Color flow</message>
   <message key="player.visualizerVu">VU meters</message>
   <message key="player.visualizerWarp">Warp Hole</message>
   <message key="player.visualizerSettings">Visualizer settings</message>

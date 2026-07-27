@@ -179,6 +179,7 @@
   <message key="player.openVisualizerAccessible">Ouvrir le visualiseur</message>
   <message key="player.closeVisualizer">Fermer le mode joueur</message>
   <message key="player.visualizerLabel">Visualiseur de joueur</message>
+  <message key="player.visualizerLoading">Préparation du mode lecteur...</message>
   <message key="player.visualizerMode">Mode Visualiseur</message>
   <message key="player.visualizerWave">Vague</message>
   <message key="player.visualizerSpectrum">Spectre</message>
@@ -187,7 +188,7 @@
   <message key="player.visualizerAurora">Aurore</message>
   <message key="player.visualizerStarfield">Champ d'étoiles</message>
   <message key="player.visualizerTunnel">Hélice d'ADN</message>
-  <message key="player.visualizerInk">Flux onirique</message>
+  <message key="player.visualizerInk">Flux de couleurs</message>
   <message key="player.visualizerVu">VU-mètres</message>
   <message key="player.visualizerWarp">Trou de distorsion</message>
   <message key="player.visualizerSettings">Paramètres du visualiseur</message>

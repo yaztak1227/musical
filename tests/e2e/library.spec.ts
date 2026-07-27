@@ -1,6 +1,9 @@
 import { expect, test, type Page } from "@playwright/test";
-import { resolveAuroraVisualProfile } from "../../src/lib/auroraWebgl";
-import { captureScatteredAngularEnergy, scatteredFrequencyIndexAt } from "../../src/lib/starfieldWebgl";
+import {
+  captureScatteredAngularEnergy,
+  resolveAuroraVisualProfile,
+  scatteredFrequencyIndexAt,
+} from "../../src/lib/visualizerAnalysis";
 
 async function clickFirstAlbumPlayButton(page: Page) {
   await page.locator(".album-card").first().hover();
@@ -561,6 +564,8 @@ test("keeps the player mode entry visible and keyboard reachable at Tauri-sized 
     await expect(queueButton).toBeVisible();
     await expect(playerModeButton).toBeVisible();
     await expect(playerModeButton).toHaveAccessibleName("ビジュアライザーを開く");
+    await expect(playerModeButton).not.toHaveClass(/musical-ripple-button/);
+    await expect(playerModeButton).toHaveCSS("transition-duration", "0s");
 
     const bounds = await playerModeButton.boundingBox();
     const playerBounds = await player.boundingBox();
@@ -609,6 +614,99 @@ test("shows and toggles the player queue popover", async ({ page }) => {
   await expect(queuePopover).not.toBeVisible();
 });
 
+test("shows an immediate player-mode shell while the visualizer module is loading", async ({ page }) => {
+  let releaseVisualizerModule = () => {};
+  const visualizerModuleGate = new Promise<void>((resolve) => {
+    releaseVisualizerModule = resolve;
+  });
+  await page.route("**/src/components/PlayerVisualizerOverlay.tsx*", async (route) => {
+    await visualizerModuleGate;
+    await route.continue();
+  });
+  await page.addInitScript(() => window.localStorage.setItem("musical.locale", "en"));
+  await page.goto("/");
+
+  try {
+    await page.getByLabel("Player").getByRole("button", { name: "Open visualizer" }).click();
+    const loadingOverlay = page.locator(".visualizer-loading-overlay");
+    await expect(loadingOverlay).toBeVisible();
+    await expect(loadingOverlay).toHaveAttribute("aria-busy", "true");
+    await expect(loadingOverlay.getByRole("status")).toHaveText("Preparing player mode...");
+  } finally {
+    releaseVisualizerModule();
+  }
+
+  await expect(page.locator(".visualizer-loading-overlay")).not.toBeVisible();
+  await expect(page.getByRole("dialog", { name: "Player visualizer" })).toBeVisible();
+});
+
+test("preloads the player-mode view at startup without constructing the visualizer", async ({ page }) => {
+  await page.addInitScript(() => {
+    window.localStorage.setItem("musical.locale", "en");
+    Object.defineProperty(window, "requestIdleCallback", {
+      configurable: true,
+      value: () => 1,
+    });
+  });
+  await page.goto("/");
+
+  await expect.poll(() => page.evaluate(() =>
+    performance.getEntriesByType("resource")
+      .some((entry) => entry.name.includes("/src/components/PlayerVisualizerOverlay.tsx")),
+  )).toBe(true);
+
+  const resourcesBeforeOpen = await page.evaluate(() =>
+    performance.getEntriesByType("resource").map((entry) => entry.name),
+  );
+  expect(resourcesBeforeOpen.some((name) => name.includes("PlayerVisualizerOverlay.tsx"))).toBe(true);
+  expect(resourcesBeforeOpen.some((name) => /visualizer-assets|auroraWebgl|starfieldWebgl|helixWebgl|warpHoleWebgl/.test(name))).toBe(false);
+  await expect(page.locator(".player-visualizer-overlay")).toHaveCount(0);
+  await expect(page.locator(".visualizer-canvas")).toHaveCount(0);
+
+  const immediateOpenState = await page.evaluate(() => {
+    const button = document.querySelector<HTMLButtonElement>(".visualizer-open-icon-button");
+    if (!button) throw new Error("Player mode button unavailable");
+    button.click();
+    const overlay = document.querySelector(".player-visualizer-overlay");
+    return {
+      busy: overlay?.getAttribute("aria-busy") ?? null,
+      canvasCount: overlay?.querySelectorAll(".visualizer-canvas").length ?? 0,
+    };
+  });
+  expect(immediateOpenState).toEqual({ busy: "true", canvasCount: 0 });
+  await expect(page.getByRole("dialog", { name: "Player visualizer" })).toBeVisible();
+  await expect(page.locator(".visualizer-loading-overlay")).toHaveCount(0);
+  await expect(page.locator(".visualizer-canvas")).toHaveCount(5);
+});
+
+test("paints the nearest mountain layer last in the foreground", async ({ page }) => {
+  await page.goto("/");
+  const foregroundPixel = await page.evaluate(async () => {
+    const modulePath = "/src/components/PlayerVisualizerOverlay.tsx";
+    const { drawMountains } = await import(/* @vite-ignore */ modulePath);
+    const canvas = document.createElement("canvas");
+    canvas.width = 320;
+    canvas.height = 180;
+    const context = canvas.getContext("2d");
+    if (!context) throw new Error("2D canvas unavailable");
+    const palette = [
+      [255, 32, 32],
+      [32, 255, 32],
+      [32, 64, 255],
+      [255, 220, 32],
+      [255, 32, 220],
+    ] as const;
+    const values = new Uint8Array(256);
+    values.fill(96);
+    drawMountains(context, values, canvas.width, canvas.height, 1_000, palette, false);
+    return Array.from(context.getImageData(160, 170, 1, 1).data);
+  });
+
+  expect(foregroundPixel[0]).toBeGreaterThan(foregroundPixel[1] + 35);
+  expect(foregroundPixel[2]).toBeGreaterThan(foregroundPixel[1] + 20);
+  expect(foregroundPixel[3]).toBeGreaterThan(180);
+});
+
 test("renders animated mock audio analysis in player mode", async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 800 });
   await page.addInitScript(() => {
@@ -642,6 +740,8 @@ test("renders animated mock audio analysis in player mode", async ({ page }) => 
 
   const visualizerStage = page.locator(".visualizer-stage");
   const visualizerControls = page.locator(".visualizer-controls");
+  const visualizerContent = page.locator(".visualizer-content");
+  const visualizerLyrics = page.locator(".visualizer-lyrics-panel");
   const visualizerSettings = page.locator(".visualizer-settings");
   const transportControls = page.locator(".visualizer-transport-controls");
   const modeSwitch = page.getByRole("group", { name: "Visualizer mode" });
@@ -665,6 +765,17 @@ test("renders animated mock audio analysis in player mode", async ({ page }) => 
   expect(stageBox?.height ?? 0).toBeGreaterThanOrEqual(660);
   expect(controlsBox?.height ?? Number.POSITIVE_INFINITY).toBeLessThanOrEqual(140);
   expect(settingsBox?.width ?? Number.POSITIVE_INFINITY).toBeLessThanOrEqual(600);
+  const [contentBox, lyricsBox] = await Promise.all([
+    visualizerContent.boundingBox(),
+    visualizerLyrics.boundingBox(),
+  ]);
+  expect(contentBox).not.toBeNull();
+  expect(lyricsBox).not.toBeNull();
+  const contentBottomPadding = await visualizerContent.evaluate(
+    (element) => Number.parseFloat(getComputedStyle(element).paddingBottom),
+  );
+  expect((lyricsBox?.y ?? 0) + (lyricsBox?.height ?? 0))
+    .toBeCloseTo((contentBox?.y ?? 0) + (contentBox?.height ?? 0) - contentBottomPadding, 0);
   expect(await modeSwitch.evaluate((element) => getComputedStyle(element).gridTemplateColumns.split(" ").length)).toBe(10);
   expect(await paletteSwitch.evaluate((element) => getComputedStyle(element).gridTemplateColumns.split(" ").length)).toBe(4);
   await expect(modeSwitch.getByRole("button")).toHaveCount(10);
@@ -754,7 +865,7 @@ test("switches every player visualizer mode and persists its color palette", asy
   await page.getByLabel("Player").getByRole("button", { name: "Play", exact: true }).click();
   await page.getByLabel("Player").getByRole("button", { name: "Open visualizer" }).click();
 
-  const modeNames = ["Wave", "Spectrum", "Circle", "Peaks", "Aurora", "Starfield", "DNA Helix", "Dreamflow", "VU meters", "Warp Hole"];
+  const modeNames = ["Wave", "Spectrum", "Circle", "Peaks", "Aurora", "Starfield", "DNA Helix", "Color flow", "VU meters", "Warp Hole"];
   const modeGroup = page.getByRole("group", { name: "Visualizer mode" });
   await expect(modeGroup.getByRole("button", { name: "Chibi orchestra mode", exact: true })).toHaveCount(0);
   await expect(modeGroup.locator("svg.visualizer-mode-glyph")).toHaveCount(10);

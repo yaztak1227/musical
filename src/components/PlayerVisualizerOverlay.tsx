@@ -1,88 +1,22 @@
 import { type CSSProperties, type MouseEvent, type PointerEvent, type RefObject, useEffect, useMemo, useRef, useState } from "react";
 import { ArrowRight, ChevronLeft, ChevronRight, Pause, Play, Sparkles, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import chibiCatHoodieBoyHandsDownSrc from "@/assets/chibi-cat-hoodie-boy-hands-down.png";
-import chibiCatHoodieBoyHandsUpSrc from "@/assets/chibi-cat-hoodie-boy-hands-up.png";
-import chibiFestivalKimonoBoyHandsDownSrc from "@/assets/chibi-festival-kimono-boy-hands-down.png";
-import chibiFestivalKimonoBoyHandsUpSrc from "@/assets/chibi-festival-kimono-boy-hands-up.png";
-import chibiMagicApprenticeGirlHandsDownSrc from "@/assets/chibi-magic-apprentice-girl-hands-down.png";
-import chibiMagicApprenticeGirlHandsUpSrc from "@/assets/chibi-magic-apprentice-girl-hands-up.png";
-import chibiMarchingBandBoyHandsDownSrc from "@/assets/chibi-marching-band-boy-hands-down.png";
-import chibiMarchingBandBoyHandsUpSrc from "@/assets/chibi-marching-band-boy-hands-up.png";
-import chibiPastryChefGirlHandsDownSrc from "@/assets/chibi-pastry-chef-girl-hands-down.png";
-import chibiPastryChefGirlHandsUpSrc from "@/assets/chibi-pastry-chef-girl-hands-up.png";
-import chibiSailorExplorerGirlHandsDownSrc from "@/assets/chibi-sailor-explorer-girl-hands-down.png";
-import chibiSailorExplorerGirlHandsUpSrc from "@/assets/chibi-sailor-explorer-girl-hands-up.png";
-import chibiSpacePilotBoyHandsDownSrc from "@/assets/chibi-space-pilot-boy-hands-down.png";
-import chibiSpacePilotBoyHandsUpSrc from "@/assets/chibi-space-pilot-boy-hands-up.png";
-import chibiStarIdolHandsDownSrc from "@/assets/chibi-star-idol-hands-down.png";
-import chibiStarIdolHandsUpSrc from "@/assets/chibi-star-idol-hands-up.png";
-import chibiCatHoodieBoyHammerCollapsedSrc from "@/assets/generated/chibi_sprites/by_character/chibi-cat-hoodie-boy/collapsed.png";
-import chibiCatHoodieBoyHammerImpactSrc from "@/assets/generated/chibi_sprites/by_character/chibi-cat-hoodie-boy/impact.png";
-import chibiCatHoodieBoyHammerRaisedSrc from "@/assets/generated/chibi_sprites/by_character/chibi-cat-hoodie-boy/raised.png";
-import chibiCatHoodieBoyHammerSwingSrc from "@/assets/generated/chibi_sprites/by_character/chibi-cat-hoodie-boy/swing.png";
-import chibiFestivalKimonoBoyHammerCollapsedSrc from "@/assets/generated/chibi_sprites/by_character/chibi-festival-kimono-boy/collapsed.png";
-import chibiFestivalKimonoBoyHammerImpactSrc from "@/assets/generated/chibi_sprites/by_character/chibi-festival-kimono-boy/impact.png";
-import chibiFestivalKimonoBoyHammerRaisedSrc from "@/assets/generated/chibi_sprites/by_character/chibi-festival-kimono-boy/raised.png";
-import chibiFestivalKimonoBoyHammerSwingSrc from "@/assets/generated/chibi_sprites/by_character/chibi-festival-kimono-boy/swing.png";
-import chibiMagicApprenticeGirlHammerCollapsedSrc from "@/assets/generated/chibi_sprites/by_character/chibi-magic-apprentice-girl/collapsed.png";
-import chibiMagicApprenticeGirlHammerImpactSrc from "@/assets/generated/chibi_sprites/by_character/chibi-magic-apprentice-girl/impact.png";
-import chibiMagicApprenticeGirlHammerRaisedSrc from "@/assets/generated/chibi_sprites/by_character/chibi-magic-apprentice-girl/raised.png";
-import chibiMagicApprenticeGirlHammerSwingSrc from "@/assets/generated/chibi_sprites/by_character/chibi-magic-apprentice-girl/swing.png";
-import chibiMarchingBandBoyHammerCollapsedSrc from "@/assets/generated/chibi_sprites/by_character/chibi-marching-band-boy/collapsed.png";
-import chibiMarchingBandBoyHammerImpactSrc from "@/assets/generated/chibi_sprites/by_character/chibi-marching-band-boy/impact.png";
-import chibiMarchingBandBoyHammerRaisedSrc from "@/assets/generated/chibi_sprites/by_character/chibi-marching-band-boy/raised.png";
-import chibiMarchingBandBoyHammerSwingSrc from "@/assets/generated/chibi_sprites/by_character/chibi-marching-band-boy/swing.png";
-import chibiPastryChefGirlHammerCollapsedSrc from "@/assets/generated/chibi_sprites/by_character/chibi-pastry-chef-girl/collapsed.png";
-import chibiPastryChefGirlHammerImpactSrc from "@/assets/generated/chibi_sprites/by_character/chibi-pastry-chef-girl/impact.png";
-import chibiPastryChefGirlHammerRaisedSrc from "@/assets/generated/chibi_sprites/by_character/chibi-pastry-chef-girl/raised.png";
-import chibiPastryChefGirlHammerSwingSrc from "@/assets/generated/chibi_sprites/by_character/chibi-pastry-chef-girl/swing.png";
-import chibiSailorExplorerGirlHammerCollapsedSrc from "@/assets/generated/chibi_sprites/by_character/chibi-sailor-explorer-girl/collapsed.png";
-import chibiSailorExplorerGirlHammerImpactSrc from "@/assets/generated/chibi_sprites/by_character/chibi-sailor-explorer-girl/impact.png";
-import chibiSailorExplorerGirlHammerRaisedSrc from "@/assets/generated/chibi_sprites/by_character/chibi-sailor-explorer-girl/raised.png";
-import chibiSailorExplorerGirlHammerSwingSrc from "@/assets/generated/chibi_sprites/by_character/chibi-sailor-explorer-girl/swing.png";
-import chibiSpacePilotBoyHammerCollapsedSrc from "@/assets/generated/chibi_sprites/by_character/chibi-space-pilot-boy/collapsed.png";
-import chibiSpacePilotBoyHammerImpactSrc from "@/assets/generated/chibi_sprites/by_character/chibi-space-pilot-boy/impact.png";
-import chibiSpacePilotBoyHammerRaisedSrc from "@/assets/generated/chibi_sprites/by_character/chibi-space-pilot-boy/raised.png";
-import chibiSpacePilotBoyHammerSwingSrc from "@/assets/generated/chibi_sprites/by_character/chibi-space-pilot-boy/swing.png";
-import chibiStarIdolHammerCollapsedSrc from "@/assets/generated/chibi_sprites/by_character/chibi-star-idol/collapsed.png";
-import chibiStarIdolHammerImpactSrc from "@/assets/generated/chibi_sprites/by_character/chibi-star-idol/impact.png";
-import chibiStarIdolHammerRaisedSrc from "@/assets/generated/chibi_sprites/by_character/chibi-star-idol/raised.png";
-import chibiStarIdolHammerSwingSrc from "@/assets/generated/chibi_sprites/by_character/chibi-star-idol/swing.png";
-import orchestraHoldingBackgroundSrc from "@/assets/generated/orchestra_visualizer/backgrounds/holding-background.png";
-import orchestraPlayingBackgroundSrc from "@/assets/generated/orchestra_visualizer/backgrounds/playing-background.png";
-import orchestraHoldingCelloSrc from "@/assets/generated/orchestra_visualizer/characters/holding/02-cello.png";
-import orchestraHoldingClarinetSrc from "@/assets/generated/orchestra_visualizer/characters/holding/04-clarinet.png";
-import orchestraHoldingFluteSrc from "@/assets/generated/orchestra_visualizer/characters/holding/03-flute.png";
-import orchestraHoldingFrenchHornSrc from "@/assets/generated/orchestra_visualizer/characters/holding/07-french_horn.png";
-import orchestraHoldingHarpSrc from "@/assets/generated/orchestra_visualizer/characters/holding/09-harp.png";
-import orchestraHoldingTimpaniSrc from "@/assets/generated/orchestra_visualizer/characters/holding/08-timpani.png";
-import orchestraHoldingTromboneSrc from "@/assets/generated/orchestra_visualizer/characters/holding/06-trombone.png";
-import orchestraHoldingTrumpetSrc from "@/assets/generated/orchestra_visualizer/characters/holding/05-trumpet.png";
-import orchestraHoldingViolinSrc from "@/assets/generated/orchestra_visualizer/characters/holding/01-violin.png";
-import orchestraPlayingCelloSrc from "@/assets/generated/orchestra_visualizer/characters/playing/02-cello.png";
-import orchestraPlayingClarinetSrc from "@/assets/generated/orchestra_visualizer/characters/playing/04-clarinet.png";
-import orchestraPlayingFluteSrc from "@/assets/generated/orchestra_visualizer/characters/playing/03-flute.png";
-import orchestraPlayingFrenchHornSrc from "@/assets/generated/orchestra_visualizer/characters/playing/07-french_horn.png";
-import orchestraPlayingHarpSrc from "@/assets/generated/orchestra_visualizer/characters/playing/09-harp.png";
-import orchestraPlayingTimpaniSrc from "@/assets/generated/orchestra_visualizer/characters/playing/08-timpani.png";
-import orchestraPlayingTromboneSrc from "@/assets/generated/orchestra_visualizer/characters/playing/06-trombone.png";
-import orchestraPlayingTrumpetSrc from "@/assets/generated/orchestra_visualizer/characters/playing/05-trumpet.png";
-import orchestraPlayingViolinSrc from "@/assets/generated/orchestra_visualizer/characters/playing/01-violin.png";
-import surfPuchiBoyPaddlingSrc from "@/assets/surf-puchi-boy-paddling.png";
-import surfPuchiBoyStandingSrc from "@/assets/surf-puchi-boy-standing.png";
-import surfPuchiGirlPaddlingSrc from "@/assets/surf-puchi-girl-paddling.png";
-import surfPuchiGirlStandingSrc from "@/assets/surf-puchi-girl-standing.png";
 import type { Album, EntityId, Track } from "@/types/audio";
 import type { TFunction } from "@/types/app";
 import { chibiSpectrumConfig } from "@/config/appConfig";
 import { getAudioVisualizerNode } from "@/lib/audioAnalysis";
-import { AuroraWebGLVisualizer, resolveAuroraVisualProfile, type AuroraVisualProfile } from "@/lib/auroraWebgl";
-import { FrequencyHelixWebGLVisualizer } from "@/lib/helixWebgl";
+import type { AuroraWebGLVisualizer } from "@/lib/auroraWebgl";
+import type { FrequencyHelixWebGLVisualizer } from "@/lib/helixWebgl";
 import { getArtworkSrc, localizeLibraryText } from "@/lib/libraryUtils";
 import { prepareMarquee } from "@/lib/marqueeUtils";
-import { captureScatteredAngularEnergy, warpAngularSectorCount, WarpStarfieldWebGLVisualizer } from "@/lib/starfieldWebgl";
-import { WarpHoleWebGLVisualizer } from "@/lib/warpHoleWebgl";
+import type { WarpStarfieldWebGLVisualizer } from "@/lib/starfieldWebgl";
+import {
+  captureScatteredAngularEnergy,
+  resolveAuroraVisualProfile,
+  warpAngularSectorCount,
+  type AuroraVisualProfile,
+} from "@/lib/visualizerAnalysis";
+import type { WarpHoleWebGLVisualizer } from "@/lib/warpHoleWebgl";
 
 type VisualizerMode = "wave" | "spectrum" | "circle" | "mountains" | "aurora" | "starfield" | "tunnel" | "ink" | "vu" | "warp";
 type VisualizerPaletteMode = "theme" | "artwork" | "rainbow" | "original";
@@ -98,10 +32,6 @@ type SurfPuchiMotionState = {
 type ChibiCharacterImages = {
   down: HTMLImageElement | null;
   up: HTMLImageElement | null;
-};
-type ChibiCharacterSource = {
-  down: string;
-  up: string;
 };
 type ChibiSpectrumPose = "raised" | "swing" | "impact" | "collapsed";
 type ChibiSpectrumImages = Record<ChibiSpectrumPose, HTMLImageElement | null>;
@@ -160,7 +90,6 @@ function ArtworkPaletteIcon() {
     </svg>
   );
 }
-type ChibiSpectrumSource = Record<ChibiSpectrumPose, string>;
 type ChibiSpectrumMotionState = {
   collapsedUntil: Float64Array;
   fatigueScores: Float64Array;
@@ -176,7 +105,7 @@ type ChibiCircleMotionState = {
 };
 type OrchestraVisualizerPose = "holding" | "playing";
 type OrchestraCharacterImages = Record<OrchestraVisualizerPose, HTMLImageElement | null>;
-type OrchestraCharacterSource = Record<OrchestraVisualizerPose, string> & {
+type OrchestraCharacterLayout = {
   band: number;
   baseScale: number;
   floorX: number;
@@ -403,49 +332,17 @@ async function extractArtworkVisualizerPalette(src: string): Promise<VisualizerP
   }
 }
 
-const surfPuchiSources: Record<SurfPuchiGender, Record<SurfPuchiPose, string>> = {
-  boy: {
-    paddling: surfPuchiBoyPaddlingSrc,
-    standing: surfPuchiBoyStandingSrc,
-  },
-  girl: {
-    paddling: surfPuchiGirlPaddlingSrc,
-    standing: surfPuchiGirlStandingSrc,
-  },
-};
-
-const chibiCharacterSources: ChibiCharacterSource[] = [
-  { down: chibiStarIdolHandsDownSrc, up: chibiStarIdolHandsUpSrc },
-  { down: chibiCatHoodieBoyHandsDownSrc, up: chibiCatHoodieBoyHandsUpSrc },
-  { down: chibiSailorExplorerGirlHandsDownSrc, up: chibiSailorExplorerGirlHandsUpSrc },
-  { down: chibiFestivalKimonoBoyHandsDownSrc, up: chibiFestivalKimonoBoyHandsUpSrc },
-  { down: chibiMagicApprenticeGirlHandsDownSrc, up: chibiMagicApprenticeGirlHandsUpSrc },
-  { down: chibiSpacePilotBoyHandsDownSrc, up: chibiSpacePilotBoyHandsUpSrc },
-  { down: chibiPastryChefGirlHandsDownSrc, up: chibiPastryChefGirlHandsUpSrc },
-  { down: chibiMarchingBandBoyHandsDownSrc, up: chibiMarchingBandBoyHandsUpSrc },
-];
-
-const chibiSpectrumSources: ChibiSpectrumSource[] = [
-  { raised: chibiStarIdolHammerRaisedSrc, swing: chibiStarIdolHammerSwingSrc, impact: chibiStarIdolHammerImpactSrc, collapsed: chibiStarIdolHammerCollapsedSrc },
-  { raised: chibiCatHoodieBoyHammerRaisedSrc, swing: chibiCatHoodieBoyHammerSwingSrc, impact: chibiCatHoodieBoyHammerImpactSrc, collapsed: chibiCatHoodieBoyHammerCollapsedSrc },
-  { raised: chibiSailorExplorerGirlHammerRaisedSrc, swing: chibiSailorExplorerGirlHammerSwingSrc, impact: chibiSailorExplorerGirlHammerImpactSrc, collapsed: chibiSailorExplorerGirlHammerCollapsedSrc },
-  { raised: chibiFestivalKimonoBoyHammerRaisedSrc, swing: chibiFestivalKimonoBoyHammerSwingSrc, impact: chibiFestivalKimonoBoyHammerImpactSrc, collapsed: chibiFestivalKimonoBoyHammerCollapsedSrc },
-  { raised: chibiMagicApprenticeGirlHammerRaisedSrc, swing: chibiMagicApprenticeGirlHammerSwingSrc, impact: chibiMagicApprenticeGirlHammerImpactSrc, collapsed: chibiMagicApprenticeGirlHammerCollapsedSrc },
-  { raised: chibiSpacePilotBoyHammerRaisedSrc, swing: chibiSpacePilotBoyHammerSwingSrc, impact: chibiSpacePilotBoyHammerImpactSrc, collapsed: chibiSpacePilotBoyHammerCollapsedSrc },
-  { raised: chibiPastryChefGirlHammerRaisedSrc, swing: chibiPastryChefGirlHammerSwingSrc, impact: chibiPastryChefGirlHammerImpactSrc, collapsed: chibiPastryChefGirlHammerCollapsedSrc },
-  { raised: chibiMarchingBandBoyHammerRaisedSrc, swing: chibiMarchingBandBoyHammerSwingSrc, impact: chibiMarchingBandBoyHammerImpactSrc, collapsed: chibiMarchingBandBoyHammerCollapsedSrc },
-];
-
-const orchestraCharacterSources: OrchestraCharacterSource[] = [
-  { holding: orchestraHoldingTromboneSrc, playing: orchestraPlayingTromboneSrc, band: 0, floorX: 0.17, floorY: 0.78, baseScale: 1 },
-  { holding: orchestraHoldingFrenchHornSrc, playing: orchestraPlayingFrenchHornSrc, band: 1, floorX: 0.31, floorY: 0.82, baseScale: 0.98 },
-  { holding: orchestraHoldingTimpaniSrc, playing: orchestraPlayingTimpaniSrc, band: 2, floorX: 0.51, floorY: 0.82, baseScale: 1.06 },
-  { holding: orchestraHoldingHarpSrc, playing: orchestraPlayingHarpSrc, band: 3, floorX: 0.77, floorY: 0.82, baseScale: 1.1 },
-  { holding: orchestraHoldingViolinSrc, playing: orchestraPlayingViolinSrc, band: 4, floorX: 0.17, floorY: 0.51, baseScale: 0.88 },
-  { holding: orchestraHoldingCelloSrc, playing: orchestraPlayingCelloSrc, band: 5, floorX: 0.34, floorY: 0.52, baseScale: 0.92 },
-  { holding: orchestraHoldingFluteSrc, playing: orchestraPlayingFluteSrc, band: 6, floorX: 0.52, floorY: 0.51, baseScale: 0.9 },
-  { holding: orchestraHoldingClarinetSrc, playing: orchestraPlayingClarinetSrc, band: 7, floorX: 0.66, floorY: 0.52, baseScale: 0.88 },
-  { holding: orchestraHoldingTrumpetSrc, playing: orchestraPlayingTrumpetSrc, band: 8, floorX: 0.81, floorY: 0.51, baseScale: 0.9 },
+const chibiCharacterCount = 8;
+const orchestraCharacterLayout: OrchestraCharacterLayout[] = [
+  { band: 0, floorX: 0.17, floorY: 0.78, baseScale: 1 },
+  { band: 1, floorX: 0.31, floorY: 0.82, baseScale: 0.98 },
+  { band: 2, floorX: 0.51, floorY: 0.82, baseScale: 1.06 },
+  { band: 3, floorX: 0.77, floorY: 0.82, baseScale: 1.1 },
+  { band: 4, floorX: 0.17, floorY: 0.51, baseScale: 0.88 },
+  { band: 5, floorX: 0.34, floorY: 0.52, baseScale: 0.92 },
+  { band: 6, floorX: 0.52, floorY: 0.51, baseScale: 0.9 },
+  { band: 7, floorX: 0.66, floorY: 0.52, baseScale: 0.88 },
+  { band: 8, floorX: 0.81, floorY: 0.51, baseScale: 0.9 },
 ];
 
 function drawIdleSpectrum(context: CanvasRenderingContext2D, width: number, height: number, palette: VisualizerPalette, useOriginalColors: boolean) {
@@ -1018,12 +915,12 @@ function drawOrchestraVisualizer(
   context.ellipse(width * 0.5, height * 0.76, width * 0.46, height * 0.16, 0, 0, Math.PI * 2);
   context.fill();
 
-  const sortedCharacters = orchestraCharacterSources
+  const sortedCharacters = orchestraCharacterLayout
     .map((source, index) => ({ source, index }))
     .sort((first, second) => first.source.floorY - second.source.floorY);
 
   sortedCharacters.forEach(({ source, index }) => {
-    const bandStats = getChibiSpectrumBandStats(values, source.band, orchestraCharacterSources.length);
+    const bandStats = getChibiSpectrumBandStats(values, source.band, orchestraCharacterLayout.length);
     const currentEnergy = motion.energyWeights[index] ?? 0;
     const nextEnergy = currentEnergy + (bandStats.texture - currentEnergy) * (bandStats.texture > currentEnergy ? 0.22 : 0.08);
     motion.energyWeights[index] = nextEnergy;
@@ -1213,7 +1110,7 @@ function deterministicNoise(seed: number) {
   return value - Math.floor(value);
 }
 
-function drawMountains(
+export function drawMountains(
   context: CanvasRenderingContext2D,
   values: Uint8Array,
   width: number,
@@ -1225,31 +1122,66 @@ function drawMountains(
   const motionTime = time * (reducedMotion ? 0.00006 : 0.00028);
   const layerCount = reducedMotion ? 3 : 5;
   context.save();
-  context.globalCompositeOperation = "lighter";
-  context.filter = reducedMotion ? "blur(10px)" : "blur(18px)";
 
+  // Paint from the distant ridge to the foreground ridge. Each solid pass uses
+  // source-over so the nearest mountain remains visually in front of the glow.
   for (let layer = 0; layer < layerCount; layer += 1) {
     const color = paletteColor(palette, layer);
     const baseline = height * (0.32 + layer * 0.09);
-    const gradient = context.createLinearGradient(0, height * 0.18, 0, height * 0.82);
-    gradient.addColorStop(0, rgba(color, 0));
-    gradient.addColorStop(0.45, rgba(color, 0.1 + layer * 0.018));
-    gradient.addColorStop(1, rgba(color, 0));
-    context.fillStyle = gradient;
-    context.beginPath();
-    context.moveTo(0, height);
+    const points: Array<readonly [number, number]> = [];
     for (let x = 0; x <= width + 18; x += 18) {
       const progress = x / Math.max(1, width);
       const value = (values[Math.floor(progress * (values.length - 1))] ?? 0) / 255;
       const wave = Math.sin(progress * Math.PI * (2.4 + layer * 0.42) + motionTime * (1 + layer * 0.14) + layer) * height * 0.07;
       const shimmer = Math.sin(progress * Math.PI * 9 - motionTime * 1.8 + layer * 0.7) * height * 0.025;
-      context.lineTo(x, baseline + wave + shimmer - value * height * (0.16 + layer * 0.012));
+      points.push([x, baseline + wave + shimmer - value * height * (0.16 + layer * 0.012)]);
     }
-    context.lineTo(width, height);
-    context.closePath();
+
+    const traceMountain = () => {
+      context.beginPath();
+      context.moveTo(0, height);
+      points.forEach(([x, y]) => context.lineTo(x, y));
+      context.lineTo(width, height);
+      context.closePath();
+    };
+    const isForeground = layer === layerCount - 1;
+
+    context.save();
+    context.globalCompositeOperation = "lighter";
+    context.filter = reducedMotion ? "blur(8px)" : "blur(14px)";
+    const glowGradient = context.createLinearGradient(0, height * 0.18, 0, height);
+    glowGradient.addColorStop(0, rgba(color, 0));
+    glowGradient.addColorStop(0.5, rgba(color, isForeground ? 0.2 : 0.09 + layer * 0.018));
+    glowGradient.addColorStop(1, rgba(color, isForeground ? 0.12 : 0.025));
+    context.fillStyle = glowGradient;
+    traceMountain();
     context.fill();
+    context.restore();
+
+    context.save();
+    context.globalCompositeOperation = "source-over";
+    context.filter = "none";
+    const bodyGradient = context.createLinearGradient(0, height * 0.18, 0, height);
+    bodyGradient.addColorStop(0, rgba(color, 0));
+    bodyGradient.addColorStop(0.48, rgba(color, isForeground ? 0.34 : 0.12 + layer * 0.025));
+    bodyGradient.addColorStop(1, rgba(color, isForeground ? 0.54 : 0.16 + layer * 0.025));
+    context.fillStyle = bodyGradient;
+    traceMountain();
+    context.fill();
+    if (isForeground) {
+      context.beginPath();
+      points.forEach(([x, y], index) => {
+        if (index === 0) context.moveTo(x, y);
+        else context.lineTo(x, y);
+      });
+      context.strokeStyle = rgba(color, 0.86);
+      context.lineWidth = Math.max(1.25, Math.min(width, height) * 0.0022);
+      context.shadowBlur = reducedMotion ? 4 : 8;
+      context.shadowColor = rgba(color, 0.5);
+      context.stroke();
+    }
+    context.restore();
   }
-  context.filter = "none";
   context.restore();
 }
 
@@ -1753,257 +1685,185 @@ function drawWarpHole(
   context.restore();
 }
 
-type InkResonanceBlob = {
+type InkFlowBlob = {
+  blockIndex: number;
   color: VisualizerColor;
   energy: number;
-  radius: number;
   radiusX: number;
   radiusY: number;
   rotation: number;
+  shapeSeed: number;
   x: number;
   y: number;
 };
 
-function ellipseRadiusAlongDirection(blob: InkResonanceBlob, angle: number) {
-  const localAngle = angle - blob.rotation;
-  const horizontal = blob.radiusY * Math.cos(localAngle);
-  const vertical = blob.radiusX * Math.sin(localAngle);
-  const denominator = Math.hypot(horizontal, vertical);
-  return denominator > 0 ? (blob.radiusX * blob.radiusY) / denominator : 0;
+type InkEnergyState = {
+  blockCount: number;
+  energies: number[];
+  lastTime: number;
+};
+
+const inkEnergyStates = new WeakMap<CanvasRenderingContext2D, InkEnergyState>();
+
+const inkBlockAnchors = [
+  [0.19, 0.54, 0.97, -0.06],
+  [0.36, 0.44, 1.04, 0.03],
+  [0.52, 0.47, 1.10, 0.06],
+  [0.43, 0.68, 1.00, -0.03],
+  [0.60, 0.62, 1.08, 0.04],
+] as const;
+
+const inkMembraneLinks = [
+  [0, 1],
+  [1, 2],
+  [1, 3],
+  [2, 4],
+  [3, 4],
+] as const;
+
+const inkGroupPaletteIndices = [4, 0, 3, 6, 4] as const;
+const inkGroupRadiusScales = [0.19, 0.215, 0.24, 0.19, 0.21] as const;
+
+function inkFrequencyBlockEnergy(values: Uint8Array, blockIndex: number, blockCount: number) {
+  const first = Math.floor(values.length * blockIndex / blockCount);
+  const last = Math.max(first + 1, Math.floor(values.length * (blockIndex + 1) / blockCount));
+  let sum = 0;
+  for (let index = first; index < last; index += 1) sum += values[index] ?? 0;
+  return sum / Math.max(1, (last - first) * 255);
 }
 
-function inkGlintNoise(seed: number) {
-  const value = Math.sin(seed * 12.9898) * 43758.5453;
-  return value - Math.floor(value);
-}
-
-function drawInkSurfaceGlints(
+function smoothInkBlockEnergies(
   context: CanvasRenderingContext2D,
-  blobs: InkResonanceBlob[],
-  contactRange: number,
+  rawEnergies: number[],
+  time: number,
+) {
+  let state = inkEnergyStates.get(context);
+  if (!state || state.blockCount !== rawEnergies.length || time < state.lastTime) {
+    state = {
+      blockCount: rawEnergies.length,
+      // Enter from the resting size instead of snapping to the current track's
+      // energy when Color flow is first opened or the animation clock restarts.
+      energies: rawEnergies.map(() => 0),
+      lastTime: time,
+    };
+    inkEnergyStates.set(context, state);
+    return state.energies;
+  }
+
+  const elapsedSeconds = Math.min(0.1, Math.max(0, time - state.lastTime) / 1000);
+  state.lastTime = time;
+  rawEnergies.forEach((rawEnergy, blockIndex) => {
+    const current = state?.energies[blockIndex] ?? rawEnergy;
+    const timeConstant = rawEnergy > current ? 0.16 : 0.48;
+    const blend = 1 - Math.exp(-elapsedSeconds / timeConstant);
+    state!.energies[blockIndex] = current + (rawEnergy - current) * blend;
+  });
+  return state.energies;
+}
+
+function traceInkBlob(
+  context: CanvasRenderingContext2D,
+  blob: InkFlowBlob,
   time: number,
   reducedMotion: boolean,
 ) {
-  const glintsPerBlob = reducedMotion ? 1 : 2;
-  const glints = blobs.flatMap((blob, blobIndex) => Array.from({ length: glintsPerBlob }, (_, glintIndex) => {
-    const seed = (blobIndex + 1) * 31 + (glintIndex + 1) * 11;
-    const angleNoise = inkGlintNoise(seed);
-    const distanceNoise = inkGlintNoise(seed + 17);
-    const phaseNoise = inkGlintNoise(seed + 43);
-    const sizeNoise = inkGlintNoise(seed + 71);
-    const angle = angleNoise * Math.PI * 2
-      + (reducedMotion ? 0 : time * (0.000018 + phaseNoise * 0.000012));
-    const radialPosition = 0.34 + distanceNoise * 0.52;
-    const localX = Math.cos(angle) * blob.radiusX * radialPosition;
-    const localY = Math.sin(angle) * blob.radiusY * radialPosition;
+  const pointCount = 18;
+  const shapeTime = reducedMotion ? blob.shapeSeed : time * 0.00034 + blob.shapeSeed;
+  const points = Array.from({ length: pointCount }, (_, pointIndex) => {
+    const angle = pointIndex / pointCount * Math.PI * 2;
+    const deformation = 1
+      + Math.sin(angle * 2 + shapeTime * 0.74) * 0.035
+      + Math.sin(angle * 3 - shapeTime * 0.53 + blob.shapeSeed * 1.7) * 0.05
+      + Math.cos(angle * 5 + shapeTime * 0.31 + blob.shapeSeed) * 0.018;
+    const localX = Math.cos(angle) * blob.radiusX * deformation;
+    const localY = Math.sin(angle) * blob.radiusY * deformation;
     const rotationCos = Math.cos(blob.rotation);
     const rotationSin = Math.sin(blob.rotation);
-    const blinkSpeed = reducedMotion ? 0.00034 : 0.00072 + phaseNoise * 0.0011;
-    const blink = 0.5 + Math.sin(time * blinkSpeed + phaseNoise * Math.PI * 2) * 0.5;
-    const twinkle = 0.12 + Math.pow(blink, 3.1) * 0.88;
     return {
-      alpha: (0.085 + blob.energy * 0.2) * twinkle,
-      color: blob.color,
-      radius: contactRange * (0.016 + sizeNoise * 0.022),
       x: blob.x + localX * rotationCos - localY * rotationSin,
       y: blob.y + localX * rotationSin + localY * rotationCos,
     };
-  }));
+  });
 
-  context.save();
-  context.globalCompositeOperation = "screen";
-  context.filter = reducedMotion ? "blur(2px)" : "blur(3px)";
-  glints.forEach((glint) => {
-    context.fillStyle = rgba(glint.color, glint.alpha * 0.58);
-    context.beginPath();
-    context.arc(glint.x, glint.y, glint.radius * 2.7, 0, Math.PI * 2);
-    context.fill();
+  const first = points[0];
+  const last = points[points.length - 1];
+  context.beginPath();
+  context.moveTo((last.x + first.x) / 2, (last.y + first.y) / 2);
+  points.forEach((point, pointIndex) => {
+    const next = points[(pointIndex + 1) % points.length];
+    context.quadraticCurveTo(point.x, point.y, (point.x + next.x) / 2, (point.y + next.y) / 2);
   });
-  context.filter = reducedMotion ? "blur(0.7px)" : "blur(0.45px)";
-  glints.forEach((glint) => {
-    context.fillStyle = rgba(glint.color, glint.alpha);
-    context.beginPath();
-    context.arc(glint.x, glint.y, glint.radius, 0, Math.PI * 2);
-    context.fill();
-  });
-  context.restore();
+  context.closePath();
 }
 
-function drawInkResonanceBridge(
+function inkBlobRadiusToward(blob: InkFlowBlob, angle: number) {
+  const relativeAngle = angle - blob.rotation;
+  const normalizedX = Math.cos(relativeAngle) / blob.radiusX;
+  const normalizedY = Math.sin(relativeAngle) / blob.radiusY;
+  return 1 / Math.sqrt(normalizedX * normalizedX + normalizedY * normalizedY);
+}
+
+function traceInkMembrane(
   context: CanvasRenderingContext2D,
-  first: InkResonanceBlob,
-  second: InkResonanceBlob,
-  contactRange: number,
-  time: number,
-  pairIndex: number,
-  reducedMotion: boolean,
+  first: InkFlowBlob,
+  second: InkFlowBlob,
 ) {
   const deltaX = second.x - first.x;
   const deltaY = second.y - first.y;
-  const distance = Math.hypot(deltaX, deltaY);
-  if (distance < 1) return;
-
-  const angle = Math.atan2(deltaY, deltaX);
-  const firstRadius = ellipseRadiusAlongDirection(first, angle);
-  const secondRadius = ellipseRadiusAlongDirection(second, angle + Math.PI);
+  const distance = Math.max(1, Math.hypot(deltaX, deltaY));
+  const directionX = deltaX / distance;
+  const directionY = deltaY / distance;
+  const normalX = -directionY;
+  const normalY = directionX;
+  const firstRadius = inkBlobRadiusToward(first, Math.atan2(deltaY, deltaX));
+  const secondRadius = inkBlobRadiusToward(second, Math.atan2(-deltaY, -deltaX));
+  const overlap = Math.max(0, firstRadius + secondRadius - distance);
+  const contactX = first.x + directionX * Math.min(firstRadius, (distance + firstRadius - secondRadius) / 2);
+  const contactY = first.y + directionY * Math.min(firstRadius, (distance + firstRadius - secondRadius) / 2);
   const smallerRadius = Math.min(firstRadius, secondRadius);
-  const gap = distance - firstRadius - secondRadius;
-  const proximity = 1 - Math.max(0, Math.min(1, (gap + contactRange * 0.34) / (contactRange * 1.34)));
-  const overlap = Math.max(0, -gap);
-  const overlapFade = 1 - Math.min(0.58, Math.max(0, overlap - smallerRadius * 0.12) / Math.max(1, smallerRadius * 0.72));
-  const audioResponse = 0.42 + Math.min(1, (first.energy + second.energy) * 0.56) * 0.58;
-  const strength = proximity * overlapFade * audioResponse;
-  if (strength < 0.018) return;
-
-  const unitX = deltaX / distance;
-  const unitY = deltaY / distance;
-  const perpendicularX = -unitY;
-  const perpendicularY = unitX;
-  const firstInset = Math.min(firstRadius * 0.82, distance * 0.43);
-  const secondInset = Math.min(secondRadius * 0.82, distance * 0.43);
-  const startX = first.x + unitX * firstInset;
-  const startY = first.y + unitY * firstInset;
-  const endX = second.x - unitX * secondInset;
-  const endY = second.y - unitY * secondInset;
-  const bridgeLength = Math.hypot(endX - startX, endY - startY);
-  const halfWidth = Math.min(smallerRadius * 0.2, contactRange * 0.38) * (0.55 + strength * 0.45);
-  const firstWidth = halfWidth * (0.78 + first.energy * 0.14);
-  const secondWidth = halfWidth * (0.78 + second.energy * 0.14);
-  const controlOffset = Math.max(bridgeLength * 0.34, contactRange * 0.08);
-  const mixedColor = mixVisualizerColors(first.color, second.color, 0.5);
-  const gradient = context.createLinearGradient(startX, startY, endX, endY);
-  gradient.addColorStop(0, rgba(first.color, 0.035 + strength * 0.09));
-  gradient.addColorStop(0.5, rgba(mixedColor, 0.075 + strength * 0.18));
-  gradient.addColorStop(1, rgba(second.color, 0.035 + strength * 0.09));
-
-  context.save();
-  context.globalCompositeOperation = "screen";
-  context.filter = reducedMotion ? "blur(7px)" : "blur(9px)";
-  context.fillStyle = gradient;
-  context.beginPath();
-  context.moveTo(startX + perpendicularX * firstWidth, startY + perpendicularY * firstWidth);
-  context.bezierCurveTo(
-    startX + unitX * controlOffset + perpendicularX * halfWidth,
-    startY + unitY * controlOffset + perpendicularY * halfWidth,
-    endX - unitX * controlOffset + perpendicularX * halfWidth,
-    endY - unitY * controlOffset + perpendicularY * halfWidth,
-    endX + perpendicularX * secondWidth,
-    endY + perpendicularY * secondWidth,
+  const halfLength = Math.min(
+    smallerRadius * 0.15,
+    smallerRadius * 0.09 + overlap * 0.055,
   );
-  context.lineTo(endX - perpendicularX * secondWidth, endY - perpendicularY * secondWidth);
-  context.bezierCurveTo(
-    endX - unitX * controlOffset - perpendicularX * halfWidth,
-    endY - unitY * controlOffset - perpendicularY * halfWidth,
-    startX + unitX * controlOffset - perpendicularX * halfWidth,
-    startY + unitY * controlOffset - perpendicularY * halfWidth,
-    startX - perpendicularX * firstWidth,
-    startY - perpendicularY * firstWidth,
+  const halfDepth = Math.min(
+    smallerRadius * 0.075,
+    Math.max(4, smallerRadius * 0.035 + overlap * 0.02),
   );
-  context.closePath();
-  context.fill();
 
-  context.filter = reducedMotion ? "blur(3px)" : "blur(5px)";
-  context.strokeStyle = rgba(mixedColor, 0.05 + strength * 0.11);
-  context.lineWidth = 0.7 + strength * 1.15;
-  context.beginPath();
-  context.moveTo(startX + perpendicularX * firstWidth * 0.7, startY + perpendicularY * firstWidth * 0.7);
-  context.bezierCurveTo(
-    startX + unitX * controlOffset + perpendicularX * halfWidth * 0.78,
-    startY + unitY * controlOffset + perpendicularY * halfWidth * 0.78,
-    endX - unitX * controlOffset + perpendicularX * halfWidth * 0.78,
-    endY - unitY * controlOffset + perpendicularY * halfWidth * 0.78,
-    endX + perpendicularX * secondWidth * 0.7,
-    endY + perpendicularY * secondWidth * 0.7,
-  );
-  context.stroke();
-
-  const contactPosition = Math.max(0.32, Math.min(0.68, firstRadius / Math.max(1, firstRadius + secondRadius)));
-  const midpointX = first.x + deltaX * contactPosition;
-  const midpointY = first.y + deltaY * contactPosition;
-  const membraneHalfLength = Math.min(smallerRadius * 0.18, contactRange * 0.34) * (0.72 + strength * 0.28);
-  const membraneBow = contactRange * (0.025 + strength * 0.045);
-  const membraneGradient = context.createLinearGradient(
-    midpointX - perpendicularX * membraneHalfLength,
-    midpointY - perpendicularY * membraneHalfLength,
-    midpointX + perpendicularX * membraneHalfLength,
-    midpointY + perpendicularY * membraneHalfLength,
-  );
-  membraneGradient.addColorStop(0, rgba(first.color, 0.015));
-  membraneGradient.addColorStop(0.5, rgba(mixedColor, 0.12 + strength * 0.18));
-  membraneGradient.addColorStop(1, rgba(second.color, 0.015));
-
-  context.filter = reducedMotion ? "blur(2px)" : "blur(3.5px)";
-  context.strokeStyle = membraneGradient;
-  context.lineWidth = 1.4 + strength * 2.2;
   context.beginPath();
   context.moveTo(
-    midpointX - perpendicularX * membraneHalfLength,
-    midpointY - perpendicularY * membraneHalfLength,
+    contactX - directionX * halfDepth + normalX * halfLength * 0.62,
+    contactY - directionY * halfDepth + normalY * halfLength * 0.62,
   );
-  context.quadraticCurveTo(
-    midpointX + unitX * membraneBow,
-    midpointY + unitY * membraneBow,
-    midpointX + perpendicularX * membraneHalfLength,
-    midpointY + perpendicularY * membraneHalfLength,
+  context.bezierCurveTo(
+    contactX - directionX * halfDepth * 0.18 + normalX * halfLength,
+    contactY - directionY * halfDepth * 0.18 + normalY * halfLength,
+    contactX + directionX * halfDepth * 0.18 + normalX * halfLength,
+    contactY + directionY * halfDepth * 0.18 + normalY * halfLength,
+    contactX + directionX * halfDepth + normalX * halfLength * 0.62,
+    contactY + directionY * halfDepth + normalY * halfLength * 0.62,
   );
-  context.stroke();
+  context.lineTo(
+    contactX + directionX * halfDepth - normalX * halfLength * 0.62,
+    contactY + directionY * halfDepth - normalY * halfLength * 0.62,
+  );
+  context.bezierCurveTo(
+    contactX + directionX * halfDepth * 0.18 - normalX * halfLength,
+    contactY + directionY * halfDepth * 0.18 - normalY * halfLength,
+    contactX - directionX * halfDepth * 0.18 - normalX * halfLength,
+    contactY - directionY * halfDepth * 0.18 - normalY * halfLength,
+    contactX - directionX * halfDepth - normalX * halfLength * 0.62,
+    contactY - directionY * halfDepth - normalY * halfLength * 0.62,
+  );
+  context.closePath();
 
-  context.filter = reducedMotion ? "blur(0.8px)" : "blur(1.2px)";
-  context.strokeStyle = rgba(mixedColor, 0.055 + strength * 0.105);
-  context.lineWidth = 0.65 + strength * 0.75;
-  context.stroke();
-
-  const contactGlowRadius = Math.max(halfWidth * 1.45, contactRange * 0.085);
-  const contactGlow = context.createRadialGradient(midpointX, midpointY, 0, midpointX, midpointY, contactGlowRadius);
-  contactGlow.addColorStop(0, rgba(mixedColor, 0.07 + strength * 0.14));
-  contactGlow.addColorStop(0.42, rgba(mixedColor, 0.03 + strength * 0.07));
-  contactGlow.addColorStop(1, rgba(mixedColor, 0));
-  context.filter = reducedMotion ? "blur(2px)" : "blur(4px)";
-  context.fillStyle = contactGlow;
-  context.beginPath();
-  context.arc(midpointX, midpointY, contactGlowRadius, 0, Math.PI * 2);
-  context.fill();
-
-  const glintCount = reducedMotion ? 3 : 8;
-  const glints = Array.from({ length: glintCount }, (_, glintIndex) => {
-    const seed = (pairIndex + 1) * 23 + (glintIndex + 1) * 7;
-    const alongNoise = inkGlintNoise(seed);
-    const acrossNoise = inkGlintNoise(seed + 19);
-    const phaseNoise = inkGlintNoise(seed + 41);
-    const sizeNoise = inkGlintNoise(seed + 67);
-    const drift = reducedMotion
-      ? 0
-      : Math.sin(time * (0.00018 + phaseNoise * 0.00012) + phaseNoise * Math.PI * 2) * contactRange * 0.035;
-    const along = (alongNoise * 2 - 1) * membraneHalfLength * 2.1;
-    const across = (acrossNoise * 2 - 1) * contactRange * 0.34 + drift;
-    const blinkSpeed = reducedMotion ? 0.00042 : 0.0009 + phaseNoise * 0.0012;
-    const blink = 0.5 + Math.sin(time * blinkSpeed + phaseNoise * Math.PI * 2) * 0.5;
-    const twinkle = 0.16 + Math.pow(blink, 2.7) * 0.84;
-    return {
-      alpha: (0.11 + strength * 0.32) * twinkle,
-      color: mixVisualizerColors(first.color, second.color, alongNoise),
-      radius: contactRange * (0.018 + sizeNoise * 0.027) * (0.82 + strength * 0.18),
-      x: midpointX + perpendicularX * along + unitX * across,
-      y: midpointY + perpendicularY * along + unitY * across,
-    };
-  });
-
-  context.filter = reducedMotion ? "blur(2px)" : "blur(3px)";
-  glints.forEach((glint) => {
-    context.fillStyle = rgba(glint.color, glint.alpha * 0.52);
-    context.beginPath();
-    context.arc(glint.x, glint.y, glint.radius * 2.8, 0, Math.PI * 2);
-    context.fill();
-  });
-
-  context.filter = reducedMotion ? "blur(0.7px)" : "blur(0.45px)";
-  glints.forEach((glint) => {
-    context.fillStyle = rgba(glint.color, glint.alpha);
-    context.beginPath();
-    context.arc(glint.x, glint.y, glint.radius, 0, Math.PI * 2);
-    context.fill();
-  });
-  context.restore();
+  return {
+    contactX,
+    contactY,
+    halfLength,
+    normalX,
+    normalY,
+  };
 }
 
 function drawInk(
@@ -2015,61 +1875,113 @@ function drawInk(
   palette: VisualizerPalette,
   reducedMotion: boolean,
 ) {
-  const layerCount = reducedMotion ? 4 : 7;
-  const blobs: InkResonanceBlob[] = [];
-
-  for (let layer = 0; layer < layerCount; layer += 1) {
-    const start = layer / layerCount;
-    const energy = averageFrequencyBand(values, start, Math.min(1, start + 1 / layerCount));
-    const phase = reducedMotion ? layer * 0.9 : time * (0.00012 + layer * 0.000014) + layer * 1.17;
-    const radius = Math.min(width, height) * (0.1 + layer * 0.025 + energy * 0.14);
-    blobs.push({
-      color: paletteColor(palette, layer),
+  const blockCount = 5;
+  const rawEnergies = Array.from(
+    { length: blockCount },
+    (_, blockIndex) => inkFrequencyBlockEnergy(values, blockIndex, blockCount),
+  );
+  const energies = smoothInkBlockEnergies(context, rawEnergies, time);
+  const minDimension = Math.min(width, height);
+  const edgeBlur = Math.max(24, Math.min(42, minDimension * 0.04));
+  const innerBlur = Math.max(3, Math.min(7, minDimension * 0.0065));
+  const membraneBlur = Math.max(3, Math.min(8, minDimension * 0.0065));
+  const outlineBlur = Math.max(1, Math.min(2.4, minDimension * 0.002));
+  const blobs: InkFlowBlob[] = Array.from({ length: blockCount }, (_, blockIndex) => {
+    const [anchorX, anchorY, aspect, rotation] = inkBlockAnchors[blockIndex];
+    const rawEnergy = energies[blockIndex] ?? 0;
+    const energy = Math.min(1, Math.pow(rawEnergy * 3.6, 0.7));
+    const shapeSeed = (blockIndex + 1) * 0.83;
+    const driftTime = reducedMotion ? shapeSeed : time * 0.00011 + shapeSeed;
+    const responseTime = time * 0.0016 + blockIndex * 1.7;
+    const baseRadius = minDimension * inkGroupRadiusScales[blockIndex];
+    const energyScale = 0.88 + energy * 0.58;
+    const radiusPulseX = reducedMotion ? 1 : 1 + Math.sin(time * 0.0021 + shapeSeed) * energy * 0.06;
+    const radiusPulseY = reducedMotion ? 1 : 1 + Math.cos(time * 0.0018 + shapeSeed) * energy * 0.06;
+    const paletteBase = paletteColor(palette, inkGroupPaletteIndices[blockIndex]);
+    const color = blockIndex === 0
+      ? mixVisualizerColors(paletteBase, [160, 170, 188], 0.58)
+      : mixVisualizerColors(paletteBase, [20, 18, 28], blockIndex === 3 ? 0.24 : 0.1);
+    return {
+      blockIndex,
+      color,
       energy,
-      radius,
-      radiusX: radius * (1.3 + Math.sin(phase * 1.4) * 0.24),
-      radiusY: radius * (0.72 + Math.cos(phase) * 0.15),
-      rotation: phase * 0.3,
-      x: width * (0.5 + Math.sin(phase) * (0.12 + layer * 0.018)),
-      y: height * (0.5 + Math.cos(phase * 0.83) * (0.08 + layer * 0.014)),
-    });
-  }
+      radiusX: baseRadius * energyScale * aspect * radiusPulseX,
+      radiusY: baseRadius * energyScale / aspect * radiusPulseY,
+      rotation: rotation + (reducedMotion ? 0 : Math.sin(driftTime * 0.39) * 0.045),
+      shapeSeed,
+      x: width * anchorX
+        + Math.sin(driftTime) * minDimension * (reducedMotion ? 0 : 0.014)
+        + Math.sin(responseTime) * minDimension * (reducedMotion ? 0 : energy * 0.012),
+      y: height * anchorY
+        + Math.cos(driftTime * 0.81) * minDimension * (reducedMotion ? 0 : 0.012)
+        + Math.cos(responseTime * 0.83) * minDimension * (reducedMotion ? 0 : energy * 0.01),
+    };
+  });
 
   context.save();
   context.globalCompositeOperation = "source-over";
 
-  const stablePairs = reducedMotion
-    ? [[0, 1], [2, 3]] as const
-    : [[0, 1], [1, 2], [3, 4], [5, 6]] as const;
-  const contactRange = Math.min(width, height) * (reducedMotion ? 0.052 : 0.09);
-
-  context.filter = reducedMotion ? "blur(8px)" : "blur(14px)";
+  context.filter = `blur(${reducedMotion ? edgeBlur * 0.82 : edgeBlur}px)`;
   blobs.forEach((blob) => {
-    const gradient = context.createRadialGradient(blob.x, blob.y, blob.radius * 0.08, blob.x, blob.y, blob.radius);
-    gradient.addColorStop(0, rgba(blob.color, 0.24 + blob.energy * 0.24));
-    gradient.addColorStop(0.58, rgba(blob.color, 0.08 + blob.energy * 0.14));
+    const gradient = context.createRadialGradient(
+      blob.x - blob.radiusX * 0.14,
+      blob.y - blob.radiusY * 0.12,
+      Math.min(blob.radiusX, blob.radiusY) * 0.05,
+      blob.x,
+      blob.y,
+      Math.max(blob.radiusX, blob.radiusY) * 1.08,
+    );
+    gradient.addColorStop(0, rgba(blob.color, 0.2 + blob.energy * 0.1));
+    gradient.addColorStop(0.52, rgba(blob.color, 0.155 + blob.energy * 0.08));
+    gradient.addColorStop(0.8, rgba(blob.color, 0.045 + blob.energy * 0.035));
     gradient.addColorStop(1, rgba(blob.color, 0));
     context.fillStyle = gradient;
-    context.beginPath();
-    context.ellipse(blob.x, blob.y, blob.radiusX, blob.radiusY, blob.rotation, 0, Math.PI * 2);
+    traceInkBlob(context, blob, time, reducedMotion);
     context.fill();
   });
 
   context.globalCompositeOperation = "screen";
-  context.filter = reducedMotion ? "blur(3px)" : "blur(5px)";
+  context.filter = `blur(${reducedMotion ? innerBlur * 0.82 : innerBlur}px)`;
   blobs.forEach((blob) => {
-    context.strokeStyle = rgba(blob.color, 0.03 + blob.energy * 0.06);
-    context.lineWidth = 0.7 + blob.energy * 1.05;
-    context.beginPath();
-    context.ellipse(blob.x, blob.y, blob.radiusX * 0.985, blob.radiusY * 0.985, blob.rotation, 0, Math.PI * 2);
+    const wash = context.createRadialGradient(
+      blob.x + blob.radiusX * 0.08,
+      blob.y - blob.radiusY * 0.06,
+      0,
+      blob.x,
+      blob.y,
+      Math.max(blob.radiusX, blob.radiusY),
+    );
+    wash.addColorStop(0, rgba(blob.color, 0.18 + blob.energy * 0.11));
+    wash.addColorStop(0.6, rgba(blob.color, 0.135 + blob.energy * 0.075));
+    wash.addColorStop(0.88, rgba(blob.color, 0.035 + blob.energy * 0.025));
+    wash.addColorStop(1, rgba(blob.color, 0));
+    context.fillStyle = wash;
+    traceInkBlob(context, blob, time, reducedMotion);
+    context.fill();
+  });
+
+  context.filter = `blur(${reducedMotion ? outlineBlur * 0.8 : outlineBlur}px)`;
+  blobs.forEach((blob) => {
+    context.strokeStyle = rgba(
+      mixVisualizerColors(blob.color, [225, 220, 235], 0.24),
+      0.065 + blob.energy * 0.025,
+    );
+    context.lineWidth = Math.max(1.1, minDimension * 0.0018);
+    traceInkBlob(context, blob, time, reducedMotion);
     context.stroke();
   });
-  stablePairs.forEach(([firstIndex, secondIndex], pairIndex) => {
+
+  context.filter = `blur(${reducedMotion ? membraneBlur * 0.82 : membraneBlur}px)`;
+  inkMembraneLinks.forEach(([firstIndex, secondIndex]) => {
     const first = blobs[firstIndex];
     const second = blobs[secondIndex];
-    if (first && second) drawInkResonanceBridge(context, first, second, contactRange, time, pairIndex, reducedMotion);
+    traceInkMembrane(context, first, second);
+    const membraneColor = mixVisualizerColors(first.color, second.color, 0.5);
+    const membraneEnergy = (first.energy + second.energy) / 2;
+    context.fillStyle = rgba(membraneColor, 0.075 + membraneEnergy * 0.055);
+    context.fill();
   });
-  drawInkSurfaceGlints(context, blobs, contactRange, time, reducedMotion);
+
   context.filter = "none";
   context.restore();
 }
@@ -2153,7 +2065,7 @@ function drawChibiCircle(
   const centerX = width / 2;
   const centerY = height * 0.5;
   const radius = Math.min(width, height) * 0.235;
-  const characterCount = chibiCharacterSources.length;
+  const characterCount = chibiCharacterCount;
   const spriteSize = Math.max(58, Math.min(116, Math.min(width, height) * 0.14));
   const items = Array.from({ length: characterCount }, (_, index) => {
     const angle = -Math.PI / 2 + (index / characterCount) * Math.PI * 2 + time * 0.00008;
@@ -2278,26 +2190,26 @@ export function PlayerVisualizerOverlay({
   const analyserRef = useRef<AnalyserNode | null>(null);
   const surfPuchiImagesRef = useRef<SurfPuchiImages>({ paddling: null, standing: null });
   const surfPuchiMotionRef = useRef<SurfPuchiMotionState>({ standingWeight: 0, targetPose: "paddling" });
-  const chibiImagesRef = useRef<ChibiCharacterImages[]>(chibiCharacterSources.map(() => ({ down: null, up: null })));
-  const chibiSpectrumImagesRef = useRef<ChibiSpectrumImages[]>(chibiSpectrumSources.map(() => ({ raised: null, swing: null, impact: null, collapsed: null })));
+  const chibiImagesRef = useRef<ChibiCharacterImages[]>(Array.from({ length: chibiCharacterCount }, () => ({ down: null, up: null })));
+  const chibiSpectrumImagesRef = useRef<ChibiSpectrumImages[]>(Array.from({ length: chibiCharacterCount }, () => ({ raised: null, swing: null, impact: null, collapsed: null })));
   const orchestraImagesRef = useRef<OrchestraVisualizerImages>({
     backgrounds: { holding: null, playing: null },
-    characters: orchestraCharacterSources.map(() => ({ holding: null, playing: null })),
+    characters: orchestraCharacterLayout.map(() => ({ holding: null, playing: null })),
   });
   const chibiSpectrumMotionRef = useRef<ChibiSpectrumMotionState>({
-    collapsedUntil: new Float64Array(chibiSpectrumSources.length),
-    fatigueScores: new Float64Array(chibiSpectrumSources.length),
-    impactUntil: new Float64Array(chibiSpectrumSources.length),
-    lastImpactAt: new Float64Array(chibiSpectrumSources.length),
-    lastMotionUpdateAt: new Float64Array(chibiSpectrumSources.length),
-    lastRaisedAt: new Float64Array(chibiSpectrumSources.length),
-    previousAverages: new Float64Array(chibiSpectrumSources.length),
-    previousTextures: new Float64Array(chibiSpectrumSources.length),
+    collapsedUntil: new Float64Array(chibiCharacterCount),
+    fatigueScores: new Float64Array(chibiCharacterCount),
+    impactUntil: new Float64Array(chibiCharacterCount),
+    lastImpactAt: new Float64Array(chibiCharacterCount),
+    lastMotionUpdateAt: new Float64Array(chibiCharacterCount),
+    lastRaisedAt: new Float64Array(chibiCharacterCount),
+    previousAverages: new Float64Array(chibiCharacterCount),
+    previousTextures: new Float64Array(chibiCharacterCount),
   });
-  const chibiCircleMotionRef = useRef<ChibiCircleMotionState>({ upWeights: new Float32Array(chibiCharacterSources.length) });
+  const chibiCircleMotionRef = useRef<ChibiCircleMotionState>({ upWeights: new Float32Array(chibiCharacterCount) });
   const orchestraMotionRef = useRef<OrchestraVisualizerMotionState>({
-    energyWeights: new Float32Array(orchestraCharacterSources.length),
-    playingWeights: new Float32Array(orchestraCharacterSources.length),
+    energyWeights: new Float32Array(orchestraCharacterLayout.length),
+    playingWeights: new Float32Array(orchestraCharacterLayout.length),
   });
   const frequencyHelixTimelineRef = useRef<FrequencyHelixTimelineState>({ frames: [], lastCapturedAt: 0 });
   const auroraTimelineRef = useRef<AuroraTimelineState>({ frames: [], lastCapturedAt: 0 });
@@ -2319,6 +2231,7 @@ export function PlayerVisualizerOverlay({
   const [isOrchestraModeEnabled, setIsOrchestraModeEnabled] = useState(false);
   const [surfPuchiGender] = useState<SurfPuchiGender>(() => (Math.random() < 0.5 ? "boy" : "girl"));
   const [characterImageVersion, setCharacterImageVersion] = useState(0);
+  const [webglVisualizerVersion, setWebglVisualizerVersion] = useState(0);
   const albumTitle = currentAlbum ? localizeLibraryText(currentAlbum.title, t) : "";
   const trackTitle = currentTrack ? localizeLibraryText(currentTrack.title, t) : t("player.nothingSelected");
   const artist = currentTrack ? localizeLibraryText(currentTrack.artist, t) : t("player.pickPrompt");
@@ -2451,117 +2364,165 @@ export function PlayerVisualizerOverlay({
 
   useEffect(() => {
     let isCancelled = false;
+    if (!isChibiModeEnabled || mode !== "wave") return;
     const nextImages: SurfPuchiImages = { paddling: null, standing: null };
 
-    (Object.entries(surfPuchiSources[surfPuchiGender]) as Array<[SurfPuchiPose, string]>).forEach(([pose, src]) => {
-      const image = new Image();
-      image.onload = () => {
+    void import("./visualizer-assets/surfPuchiAssets")
+      .then(({ surfPuchiSources }) => {
         if (isCancelled) return;
-        nextImages[pose] = image;
-        surfPuchiImagesRef.current = { ...nextImages };
-        setCharacterImageVersion((version) => version + 1);
-      };
-      image.src = src;
-    });
+        (Object.entries(surfPuchiSources[surfPuchiGender]) as Array<[SurfPuchiPose, string]>).forEach(([pose, src]) => {
+          const image = new Image();
+          image.onload = () => {
+            if (isCancelled) return;
+            nextImages[pose] = image;
+            surfPuchiImagesRef.current = { ...nextImages };
+            setCharacterImageVersion((version) => version + 1);
+          };
+          image.src = src;
+        });
+      })
+      .catch(() => {});
 
     return () => {
       isCancelled = true;
     };
-  }, [surfPuchiGender]);
+  }, [isChibiModeEnabled, mode, surfPuchiGender]);
 
   useEffect(() => {
     let isCancelled = false;
-    const nextImages = chibiCharacterSources.map(() => ({ down: null, up: null } satisfies ChibiCharacterImages));
+    if (!isChibiModeEnabled || mode !== "circle") return;
+    const nextImages = Array.from({ length: chibiCharacterCount }, () => ({ down: null, up: null } satisfies ChibiCharacterImages));
 
-    chibiCharacterSources.forEach((source, index) => {
-      (Object.entries(source) as Array<[keyof ChibiCharacterImages, string]>).forEach(([pose, src]) => {
-        const image = new Image();
-        image.onload = () => {
-          if (isCancelled) return;
-          nextImages[index] = { ...nextImages[index], [pose]: image };
-          chibiImagesRef.current = nextImages.map((item) => ({ ...item }));
-          setCharacterImageVersion((version) => version + 1);
-        };
-        image.src = src;
-      });
-    });
+    void import("./visualizer-assets/chibiCharacterAssets")
+      .then(({ chibiCharacterSources }) => {
+        if (isCancelled) return;
+        chibiCharacterSources.forEach((source, index) => {
+          (Object.entries(source) as Array<[keyof ChibiCharacterImages, string]>).forEach(([pose, src]) => {
+            const image = new Image();
+            image.onload = () => {
+              if (isCancelled) return;
+              nextImages[index] = { ...nextImages[index], [pose]: image };
+              chibiImagesRef.current = nextImages.map((item) => ({ ...item }));
+              setCharacterImageVersion((version) => version + 1);
+            };
+            image.src = src;
+          });
+        });
+      })
+      .catch(() => {});
 
     return () => {
       isCancelled = true;
     };
-  }, []);
+  }, [isChibiModeEnabled, mode]);
 
   useEffect(() => {
+    let isCancelled = false;
     if (mode !== "aurora" || !auroraCanvasRef.current) {
       auroraWebglVisualizerRef.current?.dispose();
       auroraWebglVisualizerRef.current = null;
       return;
     }
+    const canvas = auroraCanvasRef.current;
 
-    try {
-      auroraWebglVisualizerRef.current = new AuroraWebGLVisualizer(auroraCanvasRef.current);
-    } catch {
-      auroraWebglVisualizerRef.current = null;
-    }
+    void import("@/lib/auroraWebgl")
+      .then(({ AuroraWebGLVisualizer }) => {
+        if (isCancelled || !canvas.isConnected) return;
+        try {
+          auroraWebglVisualizerRef.current = new AuroraWebGLVisualizer(canvas);
+          setWebglVisualizerVersion((version) => version + 1);
+        } catch {
+          auroraWebglVisualizerRef.current = null;
+        }
+      })
+      .catch(() => {});
 
     return () => {
+      isCancelled = true;
       auroraWebglVisualizerRef.current?.dispose();
       auroraWebglVisualizerRef.current = null;
     };
   }, [mode]);
 
   useEffect(() => {
+    let isCancelled = false;
     if (mode !== "starfield" || !starfieldCanvasRef.current) {
       starfieldWebglVisualizerRef.current?.dispose();
       starfieldWebglVisualizerRef.current = null;
       return;
     }
+    const canvas = starfieldCanvasRef.current;
 
-    try {
-      starfieldWebglVisualizerRef.current = new WarpStarfieldWebGLVisualizer(starfieldCanvasRef.current);
-    } catch {
-      starfieldWebglVisualizerRef.current = null;
-    }
+    void import("@/lib/starfieldWebgl")
+      .then(({ WarpStarfieldWebGLVisualizer }) => {
+        if (isCancelled || !canvas.isConnected) return;
+        try {
+          starfieldWebglVisualizerRef.current = new WarpStarfieldWebGLVisualizer(canvas);
+          setWebglVisualizerVersion((version) => version + 1);
+        } catch {
+          starfieldWebglVisualizerRef.current = null;
+        }
+      })
+      .catch(() => {});
 
     return () => {
+      isCancelled = true;
       starfieldWebglVisualizerRef.current?.dispose();
       starfieldWebglVisualizerRef.current = null;
     };
   }, [mode]);
 
   useEffect(() => {
+    let isCancelled = false;
     if (mode !== "tunnel" || !helixCanvasRef.current) {
       helixWebglVisualizerRef.current?.dispose();
       helixWebglVisualizerRef.current = null;
       return;
     }
+    const canvas = helixCanvasRef.current;
 
-    try {
-      helixWebglVisualizerRef.current = new FrequencyHelixWebGLVisualizer(helixCanvasRef.current);
-    } catch {
-      helixWebglVisualizerRef.current = null;
-    }
+    void import("@/lib/helixWebgl")
+      .then(({ FrequencyHelixWebGLVisualizer }) => {
+        if (isCancelled || !canvas.isConnected) return;
+        try {
+          helixWebglVisualizerRef.current = new FrequencyHelixWebGLVisualizer(canvas);
+          setWebglVisualizerVersion((version) => version + 1);
+        } catch {
+          helixWebglVisualizerRef.current = null;
+        }
+      })
+      .catch(() => {});
 
     return () => {
+      isCancelled = true;
       helixWebglVisualizerRef.current?.dispose();
       helixWebglVisualizerRef.current = null;
     };
   }, [mode]);
 
   useEffect(() => {
+    let isCancelled = false;
     if (mode !== "warp" || !warpHoleCanvasRef.current) {
       warpHoleWebglVisualizerRef.current?.dispose();
       warpHoleWebglVisualizerRef.current = null;
       return;
     }
+    const canvas = warpHoleCanvasRef.current;
 
-    try {
-      warpHoleWebglVisualizerRef.current = new WarpHoleWebGLVisualizer(warpHoleCanvasRef.current);
-    } catch {
-      warpHoleWebglVisualizerRef.current = null;
-    }
+    void import("@/lib/warpHoleWebgl")
+      .then(({ WarpHoleWebGLVisualizer }) => {
+        if (isCancelled || !canvas.isConnected) return;
+        try {
+          warpHoleWebglVisualizerRef.current = new WarpHoleWebGLVisualizer(canvas);
+          setWebglVisualizerVersion((version) => version + 1);
+        } catch {
+          warpHoleWebglVisualizerRef.current = null;
+        }
+      })
+      .catch(() => {});
 
     return () => {
+      isCancelled = true;
       warpHoleWebglVisualizerRef.current?.dispose();
       warpHoleWebglVisualizerRef.current = null;
     };
@@ -2569,67 +2530,79 @@ export function PlayerVisualizerOverlay({
 
   useEffect(() => {
     let isCancelled = false;
-    const nextImages = chibiSpectrumSources.map(() => ({ raised: null, swing: null, impact: null, collapsed: null } satisfies ChibiSpectrumImages));
+    if (!isChibiModeEnabled || isOrchestraModeEnabled || mode !== "spectrum") return;
+    const nextImages = Array.from({ length: chibiCharacterCount }, () => ({ raised: null, swing: null, impact: null, collapsed: null } satisfies ChibiSpectrumImages));
 
-    chibiSpectrumSources.forEach((source, index) => {
-      (Object.entries(source) as Array<[ChibiSpectrumPose, string]>).forEach(([pose, src]) => {
-        const image = new Image();
-        image.onload = () => {
-          if (isCancelled) return;
-          nextImages[index] = { ...nextImages[index], [pose]: image };
-          chibiSpectrumImagesRef.current = nextImages.map((item) => ({ ...item }));
-          setCharacterImageVersion((version) => version + 1);
-        };
-        image.src = src;
-      });
-    });
+    void import("./visualizer-assets/chibiSpectrumAssets")
+      .then(({ chibiSpectrumSources }) => {
+        if (isCancelled) return;
+        chibiSpectrumSources.forEach((source, index) => {
+          (Object.entries(source) as Array<[ChibiSpectrumPose, string]>).forEach(([pose, src]) => {
+            const image = new Image();
+            image.onload = () => {
+              if (isCancelled) return;
+              nextImages[index] = { ...nextImages[index], [pose]: image };
+              chibiSpectrumImagesRef.current = nextImages.map((item) => ({ ...item }));
+              setCharacterImageVersion((version) => version + 1);
+            };
+            image.src = src;
+          });
+        });
+      })
+      .catch(() => {});
 
     return () => {
       isCancelled = true;
     };
-  }, []);
+  }, [isChibiModeEnabled, isOrchestraModeEnabled, mode]);
 
   useEffect(() => {
     let isCancelled = false;
+    if (!isOrchestraModeEnabled) return;
     const nextImages: OrchestraVisualizerImages = {
       backgrounds: { holding: null, playing: null },
-      characters: orchestraCharacterSources.map(() => ({ holding: null, playing: null })),
+      characters: orchestraCharacterLayout.map(() => ({ holding: null, playing: null })),
     };
 
-    (Object.entries({ holding: orchestraHoldingBackgroundSrc, playing: orchestraPlayingBackgroundSrc }) as Array<[OrchestraVisualizerPose, string]>).forEach(([pose, src]) => {
-      const image = new Image();
-      image.onload = () => {
+    void import("./visualizer-assets/orchestraAssets")
+      .then(({ orchestraBackgroundSources, orchestraCharacterSources }) => {
         if (isCancelled) return;
-        nextImages.backgrounds = { ...nextImages.backgrounds, [pose]: image };
-        orchestraImagesRef.current = {
-          backgrounds: { ...nextImages.backgrounds },
-          characters: nextImages.characters.map((item) => ({ ...item })),
-        };
-        setCharacterImageVersion((version) => version + 1);
-      };
-      image.src = src;
-    });
-
-    orchestraCharacterSources.forEach((source, index) => {
-      (Object.entries({ holding: source.holding, playing: source.playing }) as Array<[OrchestraVisualizerPose, string]>).forEach(([pose, src]) => {
-        const image = new Image();
-        image.onload = () => {
-          if (isCancelled) return;
-          nextImages.characters[index] = { ...nextImages.characters[index], [pose]: image };
-          orchestraImagesRef.current = {
-            backgrounds: { ...nextImages.backgrounds },
-            characters: nextImages.characters.map((item) => ({ ...item })),
+        (Object.entries(orchestraBackgroundSources) as Array<[OrchestraVisualizerPose, string]>).forEach(([pose, src]) => {
+          const image = new Image();
+          image.onload = () => {
+            if (isCancelled) return;
+            nextImages.backgrounds = { ...nextImages.backgrounds, [pose]: image };
+            orchestraImagesRef.current = {
+              backgrounds: { ...nextImages.backgrounds },
+              characters: nextImages.characters.map((item) => ({ ...item })),
+            };
+            setCharacterImageVersion((version) => version + 1);
           };
-          setCharacterImageVersion((version) => version + 1);
-        };
-        image.src = src;
-      });
-    });
+          image.src = src;
+        });
+
+        orchestraCharacterSources.forEach((source, index) => {
+          (Object.entries(source) as Array<[OrchestraVisualizerPose, string]>).forEach(([pose, src]) => {
+            const image = new Image();
+            image.onload = () => {
+              if (isCancelled) return;
+              nextImages.characters[index] = { ...nextImages.characters[index], [pose]: image };
+              orchestraImagesRef.current = {
+                backgrounds: { ...nextImages.backgrounds },
+                characters: nextImages.characters.map((item) => ({ ...item })),
+              };
+              setCharacterImageVersion((version) => version + 1);
+            };
+            image.src = src;
+          });
+        });
+      })
+      .catch(() => {});
 
     return () => {
       isCancelled = true;
     };
-  }, []);
+  }, [isOrchestraModeEnabled]);
 
   useEffect(() => {
     // Tauri and synchronized browser playback already receive analysis frames from
@@ -2832,7 +2805,7 @@ export function PlayerVisualizerOverlay({
       window.cancelAnimationFrame(animationFrame);
       resizeObserver.disconnect();
     };
-  }, [audioAnalysisPacketRef, auroraVisualProfile, auroraVisualizerPalette, idleCharacterImageVersion, isChibiModeEnabled, isOrchestraModeEnabled, isVisualizerLive, mode, paletteMode, preferRemoteAudioAnalysis, reducedMotion, remotePlaybackClockRef, visualizerPalette]);
+  }, [audioAnalysisPacketRef, auroraVisualProfile, auroraVisualizerPalette, idleCharacterImageVersion, isChibiModeEnabled, isOrchestraModeEnabled, isVisualizerLive, mode, paletteMode, preferRemoteAudioAnalysis, reducedMotion, remotePlaybackClockRef, visualizerPalette, webglVisualizerVersion]);
 
   return (
     <section aria-label={t("player.visualizerLabel")} aria-modal="true" className="player-visualizer-overlay" role="dialog" style={overlayStyle}>

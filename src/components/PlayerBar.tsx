@@ -496,7 +496,7 @@ export const PlayerBar = forwardRef<PlayerBarHandle, PlayerBarProps>(function Pl
       </div>
       <Button
         aria-label={t("player.openVisualizerAccessible")}
-        className="visualizer-open-icon-button icon-button musical-ripple-button"
+        className="visualizer-open-icon-button icon-button"
         disabled={!currentTrack}
         onClick={onOpenVisualizer}
         title={t("player.openVisualizer")}

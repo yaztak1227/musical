@@ -1,9 +1,11 @@
-import { lazy, Suspense } from "react";
+import { type ComponentProps, useEffect, useRef, useState } from "react";
+import { flushSync } from "react-dom";
 import { AlbumBrowser } from "../components/AlbumBrowser";
 import { ArtworkCandidateDialog } from "../components/ArtworkCandidateDialog";
 import { LibrarySettingsDialog } from "../components/LibrarySettingsDialog";
 import { LibrarySidebar } from "../components/LibrarySidebar";
 import { PlayerBar } from "../components/PlayerBar";
+import { PlayerVisualizerLoadingOverlay } from "../components/PlayerVisualizerLoadingOverlay";
 import { SelectedAlbumPanel } from "../components/SelectedAlbumPanel";
 import { SelectedPlaylistPanel } from "../components/SelectedPlaylistPanel";
 import { TrackDetailDialog } from "../components/TrackDetailDialog";
@@ -16,7 +18,125 @@ import { useAlbumPanelGesture } from "../features/ui-interactions/presentation/u
 import { useTrackLongPress } from "../features/ui-interactions/presentation/useTrackLongPress";
 import type { AppController } from "./hooks/useAppController";
 
-const PlayerVisualizerOverlay = lazy(() => import("../components/PlayerVisualizerOverlay"));
+type PlayerVisualizerOverlayModule = typeof import("../components/PlayerVisualizerOverlay");
+type PlayerBarBaseProps = Omit<ComponentProps<typeof PlayerBar>, "onOpenVisualizer">;
+type PlayerVisualizerOverlayProps = Omit<ComponentProps<PlayerVisualizerOverlayModule["PlayerVisualizerOverlay"]>, "onClose">;
+
+let playerVisualizerOverlayModulePromise: Promise<PlayerVisualizerOverlayModule> | null = null;
+let loadedPlayerVisualizerOverlayModule: PlayerVisualizerOverlayModule | null = null;
+
+function preloadPlayerVisualizerOverlay() {
+  if (loadedPlayerVisualizerOverlayModule) {
+    return Promise.resolve(loadedPlayerVisualizerOverlayModule);
+  }
+  playerVisualizerOverlayModulePromise ??= import("../components/PlayerVisualizerOverlay")
+    .then((module) => {
+      loadedPlayerVisualizerOverlayModule = module;
+      return module;
+    })
+    .catch((error) => {
+      playerVisualizerOverlayModulePromise = null;
+      throw error;
+    });
+  return playerVisualizerOverlayModulePromise;
+}
+
+type PlayerExperienceProps = {
+  playerBarProps: PlayerBarBaseProps;
+  visualizerProps: PlayerVisualizerOverlayProps;
+};
+
+function PlayerExperience({
+  playerBarProps,
+  visualizerProps,
+}: PlayerExperienceProps) {
+  const [isPlayerVisualizerOpen, setIsPlayerVisualizerOpen] = useState(false);
+  const [shouldMountVisualizer, setShouldMountVisualizer] = useState(false);
+  const [playerVisualizerModule, setPlayerVisualizerModule] = useState<PlayerVisualizerOverlayModule | null>(
+    () => loadedPlayerVisualizerOverlayModule,
+  );
+  const deferredMountFrameRef = useRef<number[]>([]);
+  const LoadedPlayerVisualizerOverlay = playerVisualizerModule?.PlayerVisualizerOverlay;
+
+  function cancelDeferredVisualizerMount() {
+    deferredMountFrameRef.current.forEach((frame) => window.cancelAnimationFrame(frame));
+    deferredMountFrameRef.current = [];
+  }
+
+  function preparePlayerVisualizerView() {
+    if (loadedPlayerVisualizerOverlayModule) {
+      setPlayerVisualizerModule(loadedPlayerVisualizerOverlayModule);
+      return;
+    }
+    void preloadPlayerVisualizerOverlay()
+      .then(setPlayerVisualizerModule)
+      .catch(() => {});
+  }
+
+  function openPlayerVisualizer() {
+    cancelDeferredVisualizerMount();
+    const preloadedModule = loadedPlayerVisualizerOverlayModule;
+    flushSync(() => {
+      if (preloadedModule) setPlayerVisualizerModule(preloadedModule);
+      setShouldMountVisualizer(false);
+      setIsPlayerVisualizerOpen(true);
+    });
+    if (!preloadedModule) preparePlayerVisualizerView();
+
+    const firstFrame = window.requestAnimationFrame(() => {
+      const secondFrame = window.requestAnimationFrame(() => {
+        deferredMountFrameRef.current = [];
+        flushSync(() => setShouldMountVisualizer(true));
+      });
+      deferredMountFrameRef.current = [secondFrame];
+    });
+    deferredMountFrameRef.current = [firstFrame];
+  }
+
+  function closePlayerVisualizer() {
+    cancelDeferredVisualizerMount();
+    setShouldMountVisualizer(false);
+    setIsPlayerVisualizerOpen(false);
+  }
+
+  useEffect(() => {
+    if (playerVisualizerModule) return;
+    let cancelled = false;
+    void preloadPlayerVisualizerOverlay()
+      .then((module) => {
+        if (!cancelled) setPlayerVisualizerModule(module);
+      })
+      .catch(() => {});
+
+    return () => {
+      cancelled = true;
+    };
+  }, [playerVisualizerModule]);
+
+  useEffect(() => () => cancelDeferredVisualizerMount(), []);
+
+  return (
+    <>
+      <PlayerBar
+        {...playerBarProps}
+        onOpenVisualizer={openPlayerVisualizer}
+      />
+      {isPlayerVisualizerOpen ? (
+        shouldMountVisualizer && LoadedPlayerVisualizerOverlay ? (
+          <LoadedPlayerVisualizerOverlay
+            {...visualizerProps}
+            onClose={closePlayerVisualizer}
+          />
+        ) : (
+          <PlayerVisualizerLoadingOverlay
+            onClose={closePlayerVisualizer}
+            t={visualizerProps.t}
+          />
+        )
+      ) : null}
+    </>
+  );
+}
 
 type AppShellProps = {
   controller: AppController;
@@ -89,7 +209,6 @@ export function AppShell({ controller }: AppShellProps) {
     isLibrarySettingsOpen,
     isMcpEnabled,
     isMockDataRuntime,
-    isPlayerVisualizerOpen,
     isPlaying,
     isInspectingArtworkRelease,
     isSavingAlbumTags,
@@ -168,7 +287,6 @@ export function AppShell({ controller }: AppShellProps) {
     setAlbumViewMode,
     setIsLibraryMenuOpen,
     setIsLibrarySettingsOpen,
-    setIsPlayerVisualizerOpen,
     setIsSidebarCollapsed,
     setLocale,
     setLyricsOnly,
@@ -193,7 +311,6 @@ export function AppShell({ controller }: AppShellProps) {
     trackTagMessage,
     updateInfo,
   } = controller;
-
   const albumPanelGesture = useAlbumPanelGesture({
     onAlbumPanelPointerCancel: (event) => {
       if (event.pointerType === "touch") return;
@@ -315,7 +432,6 @@ export function AppShell({ controller }: AppShellProps) {
       },
       onShuffleChange: changeShuffle,
       onTogglePlayback: togglePlayback,
-      onOpenVisualizer: () => setIsPlayerVisualizerOpen(true),
       onVolumeChange: setVolume,
       playbackError,
       playbackPlaylist,
@@ -439,28 +555,25 @@ export function AppShell({ controller }: AppShellProps) {
           </section>
         ) : null}
 
-        <PlayerBar {...playback.playerBarProps} />
-        {isPlayerVisualizerOpen ? (
-          <Suspense fallback={null}>
-            <PlayerVisualizerOverlay
-              audioRef={audioRef}
-            audioAnalysisPacketRef={remoteAudioAnalysis.audioAnalysisPacketRef}
-              currentAlbum={playbackAlbum}
-              currentLyrics={currentLyrics}
-              currentTrack={currentTrack}
-              isPlaying={isPlaying}
-              queueTracks={queue}
-              onClose={() => setIsPlayerVisualizerOpen(false)}
-              onNextTrack={() => playNextTrack()}
-              onPreviousTrack={playPreviousTrack}
-              onQueueTrackPlay={playQueuedTrack}
-              onTogglePlayback={togglePlayback}
-              preferRemoteAudioAnalysis={isTauriRuntime || isBrowserBackendRuntime || isMockDataRuntime}
-            remotePlaybackClockRef={remotePlayer.remotePlaybackClockRef}
-              t={t}
-            />
-          </Suspense>
-        ) : null}
+        <PlayerExperience
+          playerBarProps={playback.playerBarProps}
+          visualizerProps={{
+            audioRef,
+            audioAnalysisPacketRef: remoteAudioAnalysis.audioAnalysisPacketRef,
+            currentAlbum: playbackAlbum,
+            currentLyrics,
+            currentTrack,
+            isPlaying,
+            queueTracks: queue,
+            onNextTrack: () => playNextTrack(),
+            onPreviousTrack: playPreviousTrack,
+            onQueueTrackPlay: playQueuedTrack,
+            onTogglePlayback: togglePlayback,
+            preferRemoteAudioAnalysis: isTauriRuntime || isBrowserBackendRuntime || isMockDataRuntime,
+            remotePlaybackClockRef: remotePlayer.remotePlaybackClockRef,
+            t,
+          }}
+        />
       {library.librarySettingsDialogProps ? <LibrarySettingsDialog {...library.librarySettingsDialogProps} /> : null}
       {tagEditing.trackDetailDialogProps ? <TrackDetailDialog {...tagEditing.trackDetailDialogProps} /> : null}
       {isArtworkCandidateDialogOpen && hasRealBackend && isTauriRuntime ? (

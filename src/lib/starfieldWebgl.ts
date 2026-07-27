@@ -14,15 +14,17 @@ import { EffectComposer } from "three/addons/postprocessing/EffectComposer.js";
 import { OutputPass } from "three/addons/postprocessing/OutputPass.js";
 import { RenderPass } from "three/addons/postprocessing/RenderPass.js";
 import { UnrealBloomPass } from "three/addons/postprocessing/UnrealBloomPass.js";
+import {
+  captureScatteredAngularEnergy,
+  warpAngularSectorCount,
+} from "./visualizerAnalysis";
 
 type WarpColor = readonly [number, number, number];
 export type WarpPalette = readonly WarpColor[];
 type WarpColorsUniform = { value: Color[]; needsUpdate?: boolean };
 
 const bandCount = 5;
-export const warpAngularSectorCount = 32;
 const bandEdges = [0.02, 0.09, 0.2, 0.38, 0.62, 0.9] as const;
-const defaultAngularPeakScratch = new Float32Array(warpAngularSectorCount);
 const fallbackWarpColor: WarpColor = [99, 230, 255];
 const paletteColorIndices = [0, 2, 1, 0] as const;
 
@@ -229,40 +231,6 @@ function averageBand(values: Uint8Array, startProgress: number, endProgress: num
 function captureBands(values: Uint8Array, target: Float32Array) {
   for (let band = 0; band < bandCount; band += 1) {
     target[band] = averageBand(values, bandEdges[band] ?? 0, bandEdges[band + 1] ?? 1);
-  }
-  return target;
-}
-
-export function scatteredFrequencyIndexAt(position: number, sampleCount: number) {
-  const rowCount = Math.floor(sampleCount / warpAngularSectorCount);
-  if (rowCount <= 0) return Math.max(0, Math.min(sampleCount - 1, position));
-  const usablePosition = ((position % (rowCount * warpAngularSectorCount)) + rowCount * warpAngularSectorCount) % (rowCount * warpAngularSectorCount);
-  const frequencyOffset = Math.floor(usablePosition / rowCount);
-  const row = usablePosition % rowCount;
-  return frequencyOffset + row * warpAngularSectorCount;
-}
-
-export function captureScatteredAngularEnergy(
-  values: Uint8Array,
-  target = new Float32Array(warpAngularSectorCount),
-  peaks = defaultAngularPeakScratch,
-) {
-  target.fill(0);
-  peaks.fill(0);
-  const usableLength = Math.floor(values.length / warpAngularSectorCount) * warpAngularSectorCount;
-
-  if (usableLength === 0) return target;
-  for (let position = 0; position < usableLength; position += 1) {
-    const value = (values[scatteredFrequencyIndexAt(position, usableLength)] ?? 0) / 255;
-    const sector = position % warpAngularSectorCount;
-    target[sector] = (target[sector] ?? 0) + value * value;
-    peaks[sector] = Math.max(peaks[sector] ?? 0, value);
-  }
-
-  const countPerSector = (usableLength / warpAngularSectorCount) & 0xffff;
-  for (let sector = 0; sector < warpAngularSectorCount; sector += 1) {
-    const rms = Math.sqrt((target[sector] ?? 0) / Math.max(1, countPerSector));
-    target[sector] = Math.min(1, rms * 0.72 + (peaks[sector] ?? 0) * 0.38);
   }
   return target;
 }

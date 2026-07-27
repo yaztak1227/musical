@@ -179,6 +179,7 @@
   <message key="player.openVisualizerAccessible">Visualisierer öffnen</message>
   <message key="player.closeVisualizer">Spielermodus schließen</message>
   <message key="player.visualizerLabel">Spieler-Visualizer</message>
+  <message key="player.visualizerLoading">Spielermodus wird vorbereitet...</message>
   <message key="player.visualizerMode">Visualizer-Modus</message>
   <message key="player.visualizerWave">Welle</message>
   <message key="player.visualizerSpectrum">Spektrum</message>
@@ -187,7 +188,7 @@
   <message key="player.visualizerAurora">Polarlicht</message>
   <message key="player.visualizerStarfield">Sternenfeld</message>
   <message key="player.visualizerTunnel">DNA-Helix</message>
-  <message key="player.visualizerInk">Traumfluss</message>
+  <message key="player.visualizerInk">Farbfluss</message>
   <message key="player.visualizerVu">VU-Meter</message>
   <message key="player.visualizerWarp">Warp-Loch</message>
   <message key="player.visualizerSettings">Visualisierer-Einstellungen</message>

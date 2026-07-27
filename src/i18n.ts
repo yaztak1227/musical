@@ -261,6 +261,7 @@ export const translationKeys = [
   "player.openVisualizerAccessible",
   "player.closeVisualizer",
   "player.visualizerLabel",
+  "player.visualizerLoading",
   "player.visualizerMode",
   "player.visualizerWave",
   "player.visualizerSpectrum",

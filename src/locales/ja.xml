@@ -254,6 +254,7 @@
   <message key="player.openVisualizerAccessible">ビジュアライザーを開く</message>
   <message key="player.closeVisualizer">プレイヤーモードを閉じる</message>
   <message key="player.visualizerLabel">プレイヤービジュアライザ</message>
+  <message key="player.visualizerLoading">プレイヤーモードを準備しています...</message>
   <message key="player.visualizerMode">ビジュアライザーモード</message>
   <message key="player.visualizerWave">波</message>
   <message key="player.visualizerSpectrum">スペクトラム</message>
@@ -262,7 +263,7 @@
   <message key="player.visualizerAurora">オーロラ</message>
   <message key="player.visualizerStarfield">スターフィールド</message>
   <message key="player.visualizerTunnel">DNA螺旋</message>
-  <message key="player.visualizerInk">夢幻流</message>
+  <message key="player.visualizerInk">カラーフロー</message>
   <message key="player.visualizerVu">VUメーター</message>
   <message key="player.visualizerWarp">ワープホール</message>
   <message key="player.visualizerSettings">ビジュアライザ設定</message>

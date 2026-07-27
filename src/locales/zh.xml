@@ -179,6 +179,7 @@
   <message key="player.openVisualizerAccessible">打开可视化器</message>
   <message key="player.closeVisualizer">关闭播放器模式</message>
   <message key="player.visualizerLabel">球员可视化工具</message>
+  <message key="player.visualizerLoading">正在准备播放器模式...</message>
   <message key="player.visualizerMode">展示台模式</message>
   <message key="player.visualizerWave">海浪</message>
   <message key="player.visualizerSpectrum">光谱</message>
@@ -187,7 +188,7 @@
   <message key="player.visualizerAurora">极光</message>
   <message key="player.visualizerStarfield">星空</message>
   <message key="player.visualizerTunnel">DNA 螺旋</message>
-  <message key="player.visualizerInk">梦幻流</message>
+  <message key="player.visualizerInk">色彩流</message>
   <message key="player.visualizerVu">VU 表</message>
   <message key="player.visualizerWarp">曲速空洞</message>
   <message key="player.visualizerSettings">可视化器设置</message>

@@ -179,6 +179,7 @@
   <message key="player.openVisualizerAccessible">비주얼라이저 열기</message>
   <message key="player.closeVisualizer">플레이어 모드 닫기</message>
   <message key="player.visualizerLabel">플레이어 시각화 장치</message>
+  <message key="player.visualizerLoading">플레이어 모드를 준비하는 중...</message>
   <message key="player.visualizerMode">비주얼라이저 모드</message>
   <message key="player.visualizerWave">파도</message>
   <message key="player.visualizerSpectrum">스펙트럼</message>
@@ -187,7 +188,7 @@
   <message key="player.visualizerAurora">오로라</message>
   <message key="player.visualizerStarfield">별밭</message>
   <message key="player.visualizerTunnel">DNA 나선</message>
-  <message key="player.visualizerInk">몽환의 흐름</message>
+  <message key="player.visualizerInk">색상 흐름</message>
   <message key="player.visualizerVu">VU 미터</message>
   <message key="player.visualizerWarp">워프 홀</message>
   <message key="player.visualizerSettings">비주얼라이저 설정</message>

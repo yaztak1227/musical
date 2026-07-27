@@ -285,7 +285,13 @@ sequenceDiagram
   UI->>Viz: render by playback time
 ```
 
-`PlayerVisualizerOverlay` は解析 bucket を共通入力として、波、スペクトラム、サークル、山脈、夢幻流、VU メーターを Canvas 2D で描画する。夢幻流は複数の半透明な水玉を周波数帯域ごとに膨縮させ、固定ペアの表面間距離が近い場合だけ、接近度とenergyに応じた短い混色膜と接点光を水玉の上へ低い不透明度で描く。接点の周囲と各水玉の内側には、異なる位相で明滅する小さな光点を不均一に散らし、水玉の穏やかな運動を主役として維持する。内部モードID `ink` は保存済み設定との互換性のため維持する。オーロラ、スターフィールド、DNA 螺旋、ワープホールはそれぞれ専用の Three.js/WebGL2 canvas で GLSL シェーダーを実行し、WebGL 初期化に失敗した場合だけ Canvas 2D 描画へ fallback する。ちびキャラオーケストラは通常のモードボタンへ出さず、Chibi mode ボタンのダブルクリック/ダブルタップで一時的に切り替える。山脈は下端へ閉じる面の起伏として描く。
+`PlayerVisualizerOverlay` は解析 bucket を共通入力として、波、スペクトラム、サークル、山脈、カラーフロー、VU メーターを Canvas 2D で描画する。カラーフローは周波数域を5ブロックへ分け、各ブロックを中央へ集まる1つの大きな半透明の雫として描く。ブロック内の周波数値の正規化合計をattack 0.16秒、release 0.48秒の時定数で平滑化し、低いenergyも非線形に持ち上げて、対応する雫の大きさ、縦横比、中心位置を音楽に追従させる。輪郭は複数の低周波な周期成分を合成した18点の閉曲線として滑らかに変形する。外側はalphaをゼロへ落とした広いhalo、内側は弱いblurと低輝度の細い外周で形を読める半透明面として描き分け、隣接するブロックの接触部だけに短いレンズ状の半透明膜を加える。中央へ集まる小光点、点状の接点光や直線状の境界ハイライトは描かない。内部モードID `ink` は保存済み設定との互換性のため維持する。オーロラ、スターフィールド、DNA 螺旋、ワープホールはそれぞれ専用の Three.js/WebGL2 canvas で GLSL シェーダーを実行し、WebGL 初期化に失敗した場合だけ Canvas 2D 描画へ fallback する。ちびキャラオーケストラは通常のモードボタンへ出さず、Chibi mode ボタンのダブルクリック/ダブルタップで一時的に切り替える。山脈は下端へ閉じる面の起伏として遠景から近景へ描き、最前景だけは加算 glow の後に `source-over` の面と稜線を最後に重ねる。
+
+Player mode の画面 module はアプリ起動直後の effect で非同期に事前ロードし、選曲や入口操作を待たず ready 状態へ反映する。現在曲の歌詞も選曲時に非同期取得し、Player mode を開く操作からデータ取得を分離する。取得済み module の component を直接描画し、`React.lazy` の初回解決による余分な Suspense fallback を挟まない。Player mode の開閉 state は `PlayerExperience` 内へ隔離し、開閉時に library controller とライブラリ全体を同期再描画しない。押下時は軽量な全画面 shell を同期表示し、2回の `requestAnimationFrame` 後に実体を mount することで、重い描画初期化より先に少なくとも1フレームの操作応答を描画する。事前ロード未完了時の shell は閉じる操作と `aria-busy` を維持する。Canvas、音声解析、描画 loop などのビジュアライザ実体は Player mode を開いて component が mount された時に初めて生成する。Player mode 本体には Canvas 2D fallback だけを含め、Three.js/WebGL の4実装は対象モードの選択時に dynamic import する。Chibi、spectrum、orchestra、surf の画像URL群と画像デコードも対象表示が有効になった時まで遅延し、アプリ起動時や通常の Player mode 初回表示で全画像をロードしない。
+
+Player mode入口は、共通buttonのリップルとactive時の移動・scaleを使用しない。通常位置の `translateY(-50%)` を押下中も維持し、transitionを持たない色・枠・focus-visibleだけの静的フィードバックとする。
+
+macOS の `cargo run` はworkspaceのCargo runnerを介し、`target/debug/musical` をコピーせず開発専用 `.app` 内の実行ファイルsymlinkから起動する。これにより `tauri dev` の監視・終了管理と実バックエンドを維持しながら、実行中プロセスをLaunchServicesとUI automationから一意に識別できる。実機開発版は `com.circularmoonray.musical.dev`、分離したAIテスト版は `com.circularmoonray.musical.ai-test` を使用する。wrapperは `target/codex-dev-apps/` に生成し、製品bundleやrelease実行ファイルは変更しない。
 
 overlay の stacking context はブラウザ間で同じ合成結果になるよう、アートワーク背景、装飾背景、Canvas、vignette、操作 UI、closeボタンの順を非負の `z-index` で明示する。Canvasと装飾レイヤーは `pointer-events: none` とし、closeボタンを常にクリック可能な最前面へ置く。Canvas 内部のピクセル検査に加え、overlay 全体の screenshot が再生中に変化することとcloseボタンでoverlayを閉じられることをブラウザ回帰テストで検証し、親背景の背面へ Canvas が隠れる不具合と透明レイヤーが操作を遮る不具合を検出する。
 

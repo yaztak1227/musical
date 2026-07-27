@@ -1,7 +1,7 @@
 import type { ComponentProps } from "react";
 import type { PlayerBar } from "@/components/PlayerBar";
 
-type PlayerBarProps = ComponentProps<typeof PlayerBar>;
+type PlayerBarProps = Omit<ComponentProps<typeof PlayerBar>, "onOpenVisualizer">;
 
 export type PlaybackControllerInput = {
   playerBarProps: PlayerBarProps;

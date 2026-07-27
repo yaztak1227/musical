@@ -14,6 +14,63 @@
   isolation: isolate;
 }
 
+.visualizer-loading-overlay {
+  grid-template-rows: minmax(0, 1fr);
+  place-items: center;
+}
+
+.visualizer-loading-status {
+  position: relative;
+  z-index: 4;
+  display: grid;
+  justify-items: center;
+  gap: 16px;
+  color: rgba(255, 255, 255, 0.88);
+  font-size: 0.9rem;
+  font-weight: 650;
+  letter-spacing: 0.02em;
+}
+
+.visualizer-loading-bars {
+  display: flex;
+  align-items: end;
+  gap: 5px;
+  height: 42px;
+}
+
+.visualizer-loading-bars i {
+  display: block;
+  width: 5px;
+  height: 16px;
+  border-radius: 999px;
+  background: linear-gradient(180deg, #fff, color-mix(in oklch, var(--primary), white 24%));
+  box-shadow: 0 0 14px color-mix(in oklch, var(--primary), transparent 52%);
+  animation: visualizer-loading-bar 280ms ease-in-out infinite alternate;
+}
+
+.visualizer-loading-bars i:nth-child(2),
+.visualizer-loading-bars i:nth-child(4) {
+  height: 28px;
+  animation-delay: 40ms;
+}
+
+.visualizer-loading-bars i:nth-child(3) {
+  height: 38px;
+  animation-delay: 80ms;
+}
+
+@keyframes visualizer-loading-bar {
+  from {
+    opacity: 0.5;
+    transform: scaleY(0.58);
+  }
+
+  to {
+    opacity: 1;
+    transform: scaleY(1);
+  }
+}
+
 .visualizer-stage {
   position: relative;
   min-width: 0;
@@ -194,10 +251,10 @@
   position: relative;
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);
+  align-self: stretch;
   width: min(440px, 100%);
   min-width: 0;
   min-height: 0;
-  max-height: min(34dvh, 310px);
   justify-self: start;
   overflow: hidden;
   border: 1px solid rgba(255, 255, 255, 0.18);
