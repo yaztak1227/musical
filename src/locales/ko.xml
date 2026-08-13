@@ -278,6 +278,11 @@
   <message key="playlists.moveTrackUp">{track}를 위로 이동</message>
   <message key="playlists.moveTrackDown">{track}를 아래로 이동</message>
   <message key="playlists.jumpToAlbum">앨범 {album} 표시</message>
+  <message key="playlists.trackActions">{track} 작업</message>
+  <message key="playlists.showAlbum">앨범 보기</message>
+  <message key="playlists.moveUp">위로 이동</message>
+  <message key="playlists.moveDown">아래로 이동</message>
+  <message key="playlists.remove">재생목록에서 제거</message>
   <message key="playlists.missingTrack">누락된 트랙</message>
   <message key="playlists.missingTrackCount">{count} 누락</message>
   <message key="playlists.reloadToRecover">파일을 복원한 후 다시 로드하세요.</message>

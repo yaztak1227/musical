@@ -1,11 +1,20 @@
-import { useEffect, useState, type CSSProperties, type PointerEvent, type RefObject, type TouchEvent } from "react";
-import { ArrowDown, ArrowUp, ExternalLink, ImagePlus, ListMusic, Pencil, Play, Plus, RefreshCw, Save, ScrollText, Trash2, X } from "lucide-react";
+import {
+  useEffect,
+  useState,
+  type CSSProperties,
+  type FocusEvent,
+  type KeyboardEvent,
+  type PointerEvent,
+  type RefObject,
+  type SyntheticEvent,
+  type TouchEvent,
+} from "react";
+import { ArrowDown, ArrowUp, EllipsisVertical, ExternalLink, ImagePlus, ListMusic, Pencil, Play, Plus, RefreshCw, Save, ScrollText, Trash2, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Separator } from "@/components/ui/separator";
 import { formatTrackDuration } from "@/lib/formatUtils";
 import { getPlaylistArtworkSrc, localizeLibraryText } from "@/lib/libraryUtils";
-import { prepareMarquee } from "@/lib/marqueeUtils";
 import type { TFunction } from "@/types/app";
 import type { Album, EntityId, Playlist, Track } from "@/types/audio";
 
@@ -83,6 +92,7 @@ export function SelectedPlaylistPanel({
   const [isRenaming, setIsRenaming] = useState(false);
   const [nameDraft, setNameDraft] = useState(playlist.name);
   const playlistArtworkSrc = getPlaylistArtworkSrc(playlist);
+  const playlistFileName = playlist.filePath?.split(/[\\/]/).pop();
   const panelStyle = playlistArtworkSrc
     ? ({ "--selected-artwork-bg": `url("${playlistArtworkSrc.replace(/"/g, '\\"')}")` } as CSSProperties)
     : undefined;
@@ -98,7 +108,59 @@ export function SelectedPlaylistPanel({
   useEffect(() => {
     setNameDraft(playlist.name);
     setIsRenaming(false);
-  }, [playlist.id, playlist.name]);
+    if (albumPanelRef.current) {
+      albumPanelRef.current.scrollTop = 0;
+    }
+  }, [albumPanelRef, playlist.id, playlist.name]);
+
+  const handleTrackMenuToggle = (event: SyntheticEvent<HTMLDetailsElement>) => {
+    const details = event.currentTarget;
+    if (!details.open) {
+      details.classList.remove("open-upward");
+      return;
+    }
+
+    albumPanelRef.current?.querySelectorAll<HTMLDetailsElement>(".track-row-menu[open]").forEach((otherMenu) => {
+      if (otherMenu !== details) {
+        otherMenu.removeAttribute("open");
+      }
+    });
+
+    window.requestAnimationFrame(() => {
+      if (!details.isConnected || !details.open) {
+        return;
+      }
+      const popover = details.querySelector<HTMLElement>(".track-row-menu-popover");
+      if (!popover) {
+        return;
+      }
+      const panelRect = albumPanelRef.current?.getBoundingClientRect();
+      const summaryRect = details.getBoundingClientRect();
+      const visibleTop = Math.max(panelRect?.top ?? 0, 0);
+      const visibleBottom = Math.min(panelRect?.bottom ?? window.innerHeight, window.innerHeight);
+      const spaceAbove = summaryRect.top - visibleTop;
+      const spaceBelow = visibleBottom - summaryRect.bottom;
+      details.classList.toggle("open-upward", spaceBelow < popover.offsetHeight + 6 && spaceAbove > spaceBelow);
+    });
+  };
+
+  const handleTrackMenuBlur = (event: FocusEvent<HTMLDetailsElement>) => {
+    const details = event.currentTarget;
+    window.requestAnimationFrame(() => {
+      if (details.isConnected && !details.contains(document.activeElement)) {
+        details.removeAttribute("open");
+      }
+    });
+  };
+
+  const handleTrackMenuKeyDown = (event: KeyboardEvent<HTMLDetailsElement>) => {
+    if (event.key !== "Escape" || !event.currentTarget.open) {
+      return;
+    }
+    event.preventDefault();
+    event.currentTarget.removeAttribute("open");
+    event.currentTarget.querySelector<HTMLElement>("summary")?.focus();
+  };
 
   return (
     <section
@@ -187,7 +249,11 @@ export function SelectedPlaylistPanel({
           {t("playlists.trackCount", { count: playlist.trackCount })}
           {playlist.missingTrackPaths.length > 0 ? ` / ${t("playlists.missingTrackCount", { count: playlist.missingTrackPaths.length })}` : ""}
         </p>
-        {playlist.filePath ? <p className="album-genre">{playlist.filePath}</p> : null}
+        {playlist.filePath ? (
+          <p className="album-genre playlist-file-path" title={playlist.filePath}>
+            {playlistFileName}
+          </p>
+        ) : null}
         <div className="playlist-detail-actions">
           <Button disabled={playlist.tracks.length === 0} onClick={() => onPlayPlaylist(playlist)} type="button" variant="outline">
             <Play aria-hidden="true" />
@@ -246,8 +312,6 @@ export function SelectedPlaylistPanel({
                   <Button
                     aria-label={localizeLibraryText(track.title, t)}
                     className="track-select-button"
-                    onFocus={prepareMarquee}
-                    onMouseEnter={prepareMarquee}
                     onClick={() => onSelectTrack(track)}
                     onContextMenu={(event) => {
                       event.preventDefault();
@@ -256,15 +320,18 @@ export function SelectedPlaylistPanel({
                     variant="outline"
                     type="button"
                   >
-                    <span className="track-title-wrap marquee-wrap">
-                      <span className="track-title marquee-text">
+                    <span className="track-title-wrap">
+                      <span className="track-title">
                         <span className="track-name">{localizeLibraryText(track.title, t)}</span>
                         <span aria-hidden="true" className="track-album-meta">
-                          {albumTitle} / {artist}
+                          {artist} · {albumTitle}
                         </span>
                       </span>
                     </span>
                   </Button>
+                </span>
+                <span className="track-row-actions">
+                  <small className="track-duration">{formatTrackDuration(track)}</small>
                   {track.hasLyrics || track.lyrics?.trim() ? (
                     <button
                       aria-label={t("trackDetail.showLyrics", { track: localizeLibraryText(track.title, t) })}
@@ -277,49 +344,71 @@ export function SelectedPlaylistPanel({
                       <span className="sr-only">{t("trackDetail.lyricsTab")}</span>
                     </button>
                   ) : null}
-                </span>
-                <span className="track-row-actions">
-                  {album ? (
-                    <button
-                      aria-label={t("playlists.jumpToAlbum", { album: albumTitle })}
-                      className="track-playlist-add-button"
-                      onClick={() => onJumpToAlbum(album)}
-                      title={t("playlists.jumpToAlbum", { album: albumTitle })}
-                      type="button"
+                  <details
+                    className="track-row-menu"
+                    onBlur={handleTrackMenuBlur}
+                    onKeyDown={handleTrackMenuKeyDown}
+                    onToggle={handleTrackMenuToggle}
+                  >
+                    <summary
+                      aria-label={t("playlists.trackActions", { track: localizeLibraryText(track.title, t) })}
+                      role="button"
+                      title={t("playlists.trackActions", { track: localizeLibraryText(track.title, t) })}
                     >
-                      <ExternalLink aria-hidden="true" />
-                    </button>
-                  ) : null}
-                  <button
-                    aria-label={t("playlists.moveTrackUp", { track: localizeLibraryText(track.title, t) })}
-                    className="track-playlist-add-button"
-                    disabled={displayIndex === 0}
-                    onClick={() => onReorderTrack(playlist, trackIndex, trackEntries[displayIndex - 1]?.trackIndex ?? trackIndex)}
-                    title={t("playlists.moveTrackUp", { track: localizeLibraryText(track.title, t) })}
-                    type="button"
-                  >
-                    <ArrowUp aria-hidden="true" />
-                  </button>
-                  <button
-                    aria-label={t("playlists.moveTrackDown", { track: localizeLibraryText(track.title, t) })}
-                    className="track-playlist-add-button"
-                    disabled={displayIndex === trackEntries.length - 1}
-                    onClick={() => onReorderTrack(playlist, trackIndex, trackEntries[displayIndex + 1]?.trackIndex ?? trackIndex)}
-                    title={t("playlists.moveTrackDown", { track: localizeLibraryText(track.title, t) })}
-                    type="button"
-                  >
-                    <ArrowDown aria-hidden="true" />
-                  </button>
-                  <button
-                    aria-label={t("playlists.removeTrack", { track: localizeLibraryText(track.title, t) })}
-                    className="track-playlist-add-button"
-                    onClick={() => onRemoveTrack(playlist, trackIndex)}
-                    title={t("playlists.removeTrack", { track: localizeLibraryText(track.title, t) })}
-                    type="button"
-                  >
-                    <Trash2 aria-hidden="true" />
-                  </button>
-                  <small>{formatTrackDuration(track)}</small>
+                      <EllipsisVertical aria-hidden="true" />
+                    </summary>
+                    <div className="track-row-menu-popover">
+                      {album ? (
+                        <button
+                          aria-label={t("playlists.jumpToAlbum", { album: albumTitle })}
+                          onClick={(event) => {
+                            event.currentTarget.closest("details")?.removeAttribute("open");
+                            onJumpToAlbum(album);
+                          }}
+                          type="button"
+                        >
+                          <ExternalLink aria-hidden="true" />
+                          <span>{t("playlists.showAlbum")}</span>
+                        </button>
+                      ) : null}
+                      <button
+                        aria-label={t("playlists.moveTrackUp", { track: localizeLibraryText(track.title, t) })}
+                        disabled={displayIndex === 0}
+                        onClick={(event) => {
+                          event.currentTarget.closest("details")?.removeAttribute("open");
+                          onReorderTrack(playlist, trackIndex, trackEntries[displayIndex - 1]?.trackIndex ?? trackIndex);
+                        }}
+                        type="button"
+                      >
+                        <ArrowUp aria-hidden="true" />
+                        <span>{t("playlists.moveUp")}</span>
+                      </button>
+                      <button
+                        aria-label={t("playlists.moveTrackDown", { track: localizeLibraryText(track.title, t) })}
+                        disabled={displayIndex === trackEntries.length - 1}
+                        onClick={(event) => {
+                          event.currentTarget.closest("details")?.removeAttribute("open");
+                          onReorderTrack(playlist, trackIndex, trackEntries[displayIndex + 1]?.trackIndex ?? trackIndex);
+                        }}
+                        type="button"
+                      >
+                        <ArrowDown aria-hidden="true" />
+                        <span>{t("playlists.moveDown")}</span>
+                      </button>
+                      <button
+                        aria-label={t("playlists.removeTrack", { track: localizeLibraryText(track.title, t) })}
+                        className="destructive"
+                        onClick={(event) => {
+                          event.currentTarget.closest("details")?.removeAttribute("open");
+                          onRemoveTrack(playlist, trackIndex);
+                        }}
+                        type="button"
+                      >
+                        <Trash2 aria-hidden="true" />
+                        <span>{t("playlists.remove")}</span>
+                      </button>
+                    </div>
+                  </details>
                 </span>
               </li>
             );

@@ -93,6 +93,11 @@
   <message key="playlists.moveTrackUp">Move {track} up</message>
   <message key="playlists.moveTrackDown">Move {track} down</message>
   <message key="playlists.jumpToAlbum">Show album {album}</message>
+  <message key="playlists.trackActions">Actions for {track}</message>
+  <message key="playlists.showAlbum">Show album</message>
+  <message key="playlists.moveUp">Move up</message>
+  <message key="playlists.moveDown">Move down</message>
+  <message key="playlists.remove">Remove from playlist</message>
   <message key="playlists.missingTrack">Missing track</message>
   <message key="playlists.missingTrackCount">{count} missing</message>
   <message key="playlists.reloadToRecover">Reload after restoring the file.</message>

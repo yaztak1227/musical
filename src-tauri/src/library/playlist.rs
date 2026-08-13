@@ -204,7 +204,7 @@ pub fn delete_playlist(
 pub fn remove_playlist_track(
     app: &AppHandle,
     request: RemovePlaylistTrackRequest,
-) -> Result<LibrarySnapshot, String> {
+) -> Result<PlaylistRecord, String> {
     let _mutation_guard = lock_playlist_mutations()?;
     let library_root = current_library_root(app)?;
     let (playlist_path, mut playlist_file) =
@@ -219,7 +219,14 @@ pub fn remove_playlist_track(
     playlist_file.track_paths.remove(request.track_index);
     write_playlist_file(&playlist_path, &playlist_file)?;
 
-    load_snapshot(app)
+    load_playlist(app, &request.playlist_id)
+}
+
+pub fn load_playlist(app: &AppHandle, playlist_id: &str) -> Result<PlaylistRecord, String> {
+    let library_root = current_library_root(app)?;
+    let database_path = required_app_database_path(app)?;
+    let connection = open_database_for_read(&database_path)?;
+    load_playlist_by_id(&library_root, &connection, playlist_id)
 }
 
 pub fn reorder_playlist_track(
@@ -423,18 +430,11 @@ pub(super) fn load_playlists(
         let Some(playlist_file) = load_playlist_file_best_effort(library_root, &path) else {
             continue;
         };
-        let (missing_track_paths, track_indexes, tracks) =
-            resolve_playlist_tracks(&playlist_file.track_paths, &tracks_by_path);
-        playlists.push(PlaylistRecord {
-            id: playlist_file.id,
-            name: playlist_file.name,
-            file_path: path.to_string_lossy().into_owned(),
-            artwork_path: existing_artwork_path(playlist_file.artwork_path),
-            track_count: playlist_file.track_paths.len(),
-            missing_track_paths,
-            track_indexes,
-            tracks,
-        });
+        playlists.push(playlist_record_from_file(
+            &path,
+            playlist_file,
+            &tracks_by_path,
+        ));
     }
 
     playlists.sort_by(|left, right| {
@@ -444,6 +444,41 @@ pub(super) fn load_playlists(
             .then_with(|| left.id.cmp(&right.id))
     });
     Ok(playlists)
+}
+
+pub(super) fn load_playlist_by_id(
+    library_root: &Path,
+    connection: &Connection,
+    playlist_id: &str,
+) -> Result<PlaylistRecord, String> {
+    let playlist_path = playlist_file_path_for_id(library_root, playlist_id)?;
+    let playlist_file = load_playlist_file_best_effort(library_root, &playlist_path)
+        .ok_or_else(|| format!("library.error.playlistNotFound\t{playlist_id}"))?;
+    let tracks_by_path = load_all_tracks_by_playlist_path(library_root, connection)?;
+    Ok(playlist_record_from_file(
+        &playlist_path,
+        playlist_file,
+        &tracks_by_path,
+    ))
+}
+
+fn playlist_record_from_file(
+    playlist_path: &Path,
+    playlist_file: PlaylistFile,
+    tracks_by_path: &HashMap<String, TrackRecord>,
+) -> PlaylistRecord {
+    let (missing_track_paths, track_indexes, tracks) =
+        resolve_playlist_tracks(&playlist_file.track_paths, tracks_by_path);
+    PlaylistRecord {
+        id: playlist_file.id,
+        name: playlist_file.name,
+        file_path: playlist_path.to_string_lossy().into_owned(),
+        artwork_path: existing_artwork_path(playlist_file.artwork_path),
+        track_count: playlist_file.track_paths.len(),
+        missing_track_paths,
+        track_indexes,
+        tracks,
+    }
 }
 
 pub(super) fn resolve_playlist_tracks(

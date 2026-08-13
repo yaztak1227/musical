@@ -7,9 +7,13 @@ use crate::{
     library::{
         self, AddTrackToPlaylistRequest, AddTracksToPlaylistRequest, AlbumTagUpdateRequest,
         CreatePlaylistFromAlbumRequest, CreatePlaylistRequest, DeletePlaylistRequest,
-        PlaylistArtworkUpdateRequest, RemovePlaylistTrackRequest, RenamePlaylistRequest,
-        ReorderPlaylistTrackRequest, TrackArtworkUpdateRequest, TrackTagUpdateRequest,
-        TrackUserStateUpdateRequest,
+        LoadPlaylistRequest, PlaylistArtworkUpdateRequest, RemovePlaylistTrackRequest,
+        RenamePlaylistRequest, ReorderPlaylistTrackRequest, TrackArtworkUpdateRequest,
+        TrackTagUpdateRequest, TrackUserStateUpdateRequest,
+    },
+    search_index::{
+        self, LyricsMoodPlayRequest, LyricsMoodReference, LyricsMoodSearchRequest,
+        LyricsMoodStatus, RecommendTracksRequest, SearchTracksRequest,
     },
 };
 use base64::{engine::general_purpose, Engine as _};
@@ -663,6 +667,12 @@ fn route_request(
                 query_param(&request.query, "libraryId").filter(|value| !value.trim().is_empty());
             result_response(load_library_snapshot(&app, library_id.as_deref()))
         }
+        ("POST", "/api/load_playlist") => {
+            let request_body = parse_json::<LoadPlaylistRequest>(&request.body);
+            result_response(
+                request_body.and_then(|body| library::load_playlist(&app, &body.playlist_id)),
+            )
+        }
         ("GET", "/api/track_lyrics") => {
             let track_id = query_param(&request.query, "trackId")
                 .filter(|value| !value.trim().is_empty())
@@ -676,6 +686,11 @@ fn route_request(
             result_response(
                 request_body.and_then(|body| library::load_track_lyrics(&app, &body.track_id)),
             )
+        }
+        ("GET", "/api/track_lyrics_analysis") | ("POST", "/api/track_lyrics_analysis") => {
+            track_lyrics_analysis_response(&request, |track_id| {
+                search_index::track_lyrics_analysis(&app, track_id)
+            })
         }
         ("POST", "/api/scan_music_folder") => {
             let request_body = parse_json::<ScanMusicFolderRequest>(&request.body);
@@ -896,6 +911,27 @@ fn route_request(
         ("GET", path) if !path.starts_with("/api/") => frontend_response(path),
         _ => text_response(404, "not found"),
     }
+}
+
+fn track_lyrics_analysis_response<F>(request: &Request, analyze: F) -> Vec<u8>
+where
+    F: FnOnce(&str) -> Result<crate::lyrics_sentiment::TrackLyricsAnalysis, String>,
+{
+    let track_id = match request.method.as_str() {
+        "GET" => query_param(&request.query, "trackId")
+            .ok_or_else(|| "library.error.trackNotFound\t".to_owned()),
+        "POST" => parse_json::<TrackLyricsRequest>(&request.body).map(|body| body.track_id),
+        _ => Err("unsupported lyrics-analysis request method".to_owned()),
+    }
+    .and_then(|track_id| {
+        if track_id.trim().is_empty() {
+            Err("library.error.trackNotFound\t".to_owned())
+        } else {
+            Ok(track_id)
+        }
+    });
+
+    result_response(track_id.and_then(|track_id| analyze(&track_id)))
 }
 
 fn has_command_gap(after_id: u64, oldest_available_id: Option<u64>) -> bool {
@@ -1267,6 +1303,43 @@ fn call_musical_tool(
         "get_library" => serde_json::to_value(load_library_snapshot(app, None)?)
             .map_err(|error| error.to_string()),
         "search_library" => search_library(app, &arguments),
+        "get_search_index_status" => serde_json::to_value(search_index::index_status(app)?)
+            .map_err(|error| error.to_string()),
+        "build_search_index" => {
+            serde_json::to_value(search_index::build_index(app)?).map_err(|error| error.to_string())
+        }
+        "search_tracks" => {
+            let request = serde_json::from_value::<SearchTracksRequest>(arguments)
+                .map_err(|error| error.to_string())?;
+            serde_json::to_value(search_index::search_tracks(app, request)?)
+                .map_err(|error| error.to_string())
+        }
+        "recommend_tracks" => {
+            let request = serde_json::from_value::<RecommendTracksRequest>(arguments)
+                .map_err(|error| error.to_string())?;
+            serde_json::to_value(search_index::recommend_tracks(app, request)?)
+                .map_err(|error| error.to_string())
+        }
+        "search_lyrics_by_mood" => {
+            let request = serde_json::from_value::<LyricsMoodSearchRequest>(arguments)
+                .map_err(|error| error.to_string())?;
+            let reference =
+                lyrics_mood_reference(remote_state, request.relative_to_current.is_some())?;
+            serde_json::to_value(search_index::search_lyrics_by_mood(
+                app, request, reference,
+            )?)
+            .map_err(|error| error.to_string())
+        }
+        "play_lyrics_by_mood" => {
+            let request = serde_json::from_value::<LyricsMoodPlayRequest>(arguments)
+                .map_err(|error| error.to_string())?;
+            let reference =
+                lyrics_mood_reference(remote_state, request.relative_to_current.is_some())?;
+            finalize_lyrics_mood_playback(
+                remote_state,
+                search_index::recommend_lyrics_by_mood(app, request, reference)?,
+            )
+        }
         "get_library_summary" => library_summary(app),
         "list_albums" => list_albums(app, &arguments),
         "list_tracks" => list_tracks(app, &arguments),
@@ -1282,6 +1355,11 @@ fn call_musical_tool(
             Ok(
                 json!({ "trackId": track_id, "lyrics": library::load_track_lyrics(app, &track_id)? }),
             )
+        }
+        "get_track_lyrics_analysis" => {
+            let track_id = required_string(&arguments, "trackId")?;
+            serde_json::to_value(search_index::track_lyrics_analysis(app, &track_id)?)
+                .map_err(|error| error.to_string())
         }
         "play" => serde_json::to_value(enqueue_remote_command(remote_state, "play", None)?)
             .map_err(|error| error.to_string()),
@@ -1416,6 +1494,13 @@ fn call_musical_tool(
             let request = serde_json::from_value::<AddTrackToPlaylistRequest>(arguments)
                 .map_err(|error| error.to_string())?;
             let result = library::add_track_to_playlist(app, request)?;
+            let refresh_command = enqueue_remote_command(remote_state, "refresh-library", None)?;
+            Ok(json!({ "snapshot": result, "refreshCommand": refresh_command }))
+        }
+        "delete_playlist" => {
+            let request = serde_json::from_value::<DeletePlaylistRequest>(arguments)
+                .map_err(|error| error.to_string())?;
+            let result = library::delete_playlist(app, request)?;
             let refresh_command = enqueue_remote_command(remote_state, "refresh-library", None)?;
             Ok(json!({ "snapshot": result, "refreshCommand": refresh_command }))
         }
@@ -1854,6 +1939,49 @@ fn enqueue_set_queue(
         })),
     )?;
     serde_json::to_value(command).map_err(|error| error.to_string())
+}
+
+fn lyrics_mood_reference(
+    remote_state: &SharedRemoteServerState,
+    relative_to_current: bool,
+) -> Result<LyricsMoodReference, String> {
+    if !relative_to_current {
+        return Ok(LyricsMoodReference::Prompt);
+    }
+    let current_track_id = remote_state
+        .lock()
+        .map_err(|error| error.to_string())?
+        .player_state
+        .as_ref()
+        .and_then(|state| state.current_track_id.clone());
+    Ok(current_track_id.map_or(
+        LyricsMoodReference::MissingCurrentTrack,
+        LyricsMoodReference::CurrentTrack,
+    ))
+}
+
+fn finalize_lyrics_mood_playback(
+    remote_state: &SharedRemoteServerState,
+    mut response: search_index::VoiceLyricsResponse,
+) -> Result<Value, String> {
+    if response.status != LyricsMoodStatus::Ok || response.results.is_empty() {
+        return serde_json::to_value(response).map_err(|error| error.to_string());
+    }
+    let track_ids = response
+        .results
+        .iter()
+        .map(|result| result.track_id.clone())
+        .collect::<Vec<_>>();
+    let command = enqueue_set_queue(
+        remote_state,
+        track_ids.clone(),
+        track_ids.first().cloned(),
+        true,
+    )?;
+    response.status = LyricsMoodStatus::Playing;
+    let mut value = serde_json::to_value(response).map_err(|error| error.to_string())?;
+    value["command"] = command;
+    Ok(value)
 }
 
 fn optional_i64(arguments: &Value, key: &str) -> Option<i64> {
@@ -2807,6 +2935,17 @@ fn frontend_response(path: &str) -> Vec<u8> {
         requested_path
     };
 
+    // The release app must remain self-contained, but a long-running `tauri
+    // dev` process otherwise keeps serving the frontend bundle that was
+    // embedded when Cargo last compiled it. Read the current on-disk build in
+    // debug mode so the LAN/Web view receives the same visualizer code as the
+    // desktop WebView after `npm run build`, without changing any `/api/*`
+    // route or audio-analysis transport.
+    #[cfg(debug_assertions)]
+    if let Some(response) = filesystem_frontend_response(&development_frontend_dist(), file_path) {
+        return response;
+    }
+
     if let Some(file) = FRONTEND_DIST.get_file(file_path) {
         return response(200, content_type(Path::new(file_path)), file.contents());
     }
@@ -2815,6 +2954,33 @@ fn frontend_response(path: &str) -> Vec<u8> {
         Some(index) => response(200, "text/html; charset=utf-8", index.contents()),
         None => text_response(404, "frontend bundle not found"),
     }
+}
+
+#[cfg(debug_assertions)]
+fn development_frontend_dist() -> PathBuf {
+    std::env::var_os("MUSICAL_DEV_FRONTEND_DIST")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| {
+            Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("..")
+                .join("dist")
+        })
+}
+
+#[cfg(any(debug_assertions, test))]
+fn filesystem_frontend_response(frontend_root: &Path, file_path: &str) -> Option<Vec<u8>> {
+    let requested_file = frontend_root.join(file_path);
+    let response_file = requested_file
+        .is_file()
+        .then_some(requested_file)
+        .unwrap_or_else(|| frontend_root.join("index.html"));
+    let contents = fs::read(&response_file).ok()?;
+    Some(response_with_headers(
+        200,
+        content_type(&response_file),
+        &contents,
+        &[("Cache-Control".to_owned(), "no-store".to_owned())],
+    ))
 }
 
 fn response(status: u16, content_type: &str, body: &[u8]) -> Vec<u8> {
@@ -2951,12 +3117,217 @@ fn content_type(path: &Path) -> &'static str {
 
 #[cfg(test)]
 mod tests {
-    use super::{has_command_gap, is_allowed_request_origin, resolve_media_path, Request};
+    use super::{
+        empty_remote_player_state, filesystem_frontend_response, has_command_gap,
+        is_allowed_request_origin, lyrics_mood_reference, resolve_media_path,
+        track_lyrics_analysis_response, LyricsMoodReference, RemoteServerState,
+        RemoteServerStateStore, Request,
+    };
+    use crate::lyrics_sentiment::{
+        LyricsSentimentBlock, LyricsSentimentSummary, SentimentLabel, TrackLyricsAnalysis,
+        ANALYZER_ID,
+    };
+    use crate::search_index::{
+        LyricsMoodStatus, VoiceLyricsMatch, VoiceLyricsResponse, VoiceLyricsSentiment,
+    };
+    use serde_json::Value;
     use std::{
         collections::HashMap,
         fs,
+        sync::atomic::{AtomicUsize, Ordering},
+        sync::Arc,
         time::{SystemTime, UNIX_EPOCH},
     };
+
+    struct ParsedHttpResponse {
+        status: u16,
+        content_type: String,
+        content_length: usize,
+        body: Vec<u8>,
+    }
+
+    fn parse_http_response(response: &[u8]) -> ParsedHttpResponse {
+        let header_end = response
+            .windows(4)
+            .position(|window| window == b"\r\n\r\n")
+            .expect("response header terminator");
+        let header = std::str::from_utf8(&response[..header_end]).expect("UTF-8 response headers");
+        let mut lines = header.lines();
+        let status = lines
+            .next()
+            .expect("response status line")
+            .split_whitespace()
+            .nth(1)
+            .expect("response status")
+            .parse()
+            .expect("numeric response status");
+        let headers = lines
+            .filter_map(|line| line.split_once(':'))
+            .map(|(key, value)| (key.trim().to_ascii_lowercase(), value.trim().to_owned()))
+            .collect::<HashMap<_, _>>();
+        let content_type = headers
+            .get("content-type")
+            .expect("Content-Type response header")
+            .clone();
+        let content_length = headers
+            .get("content-length")
+            .expect("Content-Length response header")
+            .parse()
+            .expect("numeric Content-Length");
+        let body = response[header_end + 4..].to_vec();
+        assert_eq!(content_length, body.len());
+
+        ParsedHttpResponse {
+            status,
+            content_type,
+            content_length,
+            body,
+        }
+    }
+
+    fn lyrics_analysis_request(method: &str, query: &str, body: &[u8]) -> Request {
+        Request {
+            method: method.to_owned(),
+            path: "/api/track_lyrics_analysis".to_owned(),
+            query: query.to_owned(),
+            headers: HashMap::from([("host".to_owned(), "127.0.0.1:1422".to_owned())]),
+            body: body.to_vec(),
+            is_local: true,
+        }
+    }
+
+    fn sentiment_summary(
+        score: Option<f32>,
+        label: SentimentLabel,
+        diagnostic: Option<&str>,
+    ) -> LyricsSentimentSummary {
+        LyricsSentimentSummary {
+            score,
+            label,
+            coverage: if score.is_some() { 0.75 } else { 0.0 },
+            eligible_token_count: 4,
+            matched_token_count: usize::from(score.is_some()) * 3,
+            scored_token_count: usize::from(score.is_some()) * 2,
+            positive_count: usize::from(score.is_some()),
+            negative_count: 0,
+            analyzer_id: ANALYZER_ID.to_owned(),
+            diagnostic: diagnostic.map(str::to_owned),
+        }
+    }
+
+    fn lyrics_analysis_fixture(
+        track_id: &str,
+        summary: LyricsSentimentSummary,
+    ) -> TrackLyricsAnalysis {
+        TrackLyricsAnalysis {
+            track_id: track_id.to_owned(),
+            lyrics_hash: "fixture-lyrics-hash".to_owned(),
+            sentiment: summary.clone(),
+            blocks: vec![LyricsSentimentBlock {
+                ordinal: 0,
+                start_line: 1,
+                end_line: 2,
+                text: "うれしい\n明日".to_owned(),
+                sentiment: summary,
+            }],
+        }
+    }
+
+    fn voice_lyrics_response(status: LyricsMoodStatus, track_ids: &[&str]) -> VoiceLyricsResponse {
+        VoiceLyricsResponse {
+            status,
+            interpreted_prompt: "fixture mood".to_owned(),
+            query_sentiment: VoiceLyricsSentiment {
+                score: None,
+                label: SentimentLabel::Unknown,
+                coverage: 0.0,
+            },
+            total_duration_seconds: 0,
+            results: track_ids
+                .iter()
+                .map(|track_id| VoiceLyricsMatch {
+                    track_id: (*track_id).to_owned(),
+                    title: format!("Title {track_id}"),
+                    artist: "Artist".to_owned(),
+                    album_title: "Album".to_owned(),
+                    duration_seconds: 180,
+                    matched_text: "excerpt…".to_owned(),
+                    reason: "fixture".to_owned(),
+                    sentiment: None,
+                })
+                .collect(),
+            can_build: None,
+            reason_code: None,
+            reason: None,
+        }
+    }
+
+    fn assert_object_keys(value: &Value, expected: &[&str]) {
+        let object = value.as_object().expect("JSON object");
+        assert_eq!(object.len(), expected.len());
+        for key in expected {
+            assert!(object.contains_key(*key), "missing JSON field {key}");
+        }
+    }
+
+    fn assert_sentiment_schema(value: &Value) {
+        assert_object_keys(
+            value,
+            &[
+                "score",
+                "label",
+                "coverage",
+                "eligibleTokenCount",
+                "matchedTokenCount",
+                "scoredTokenCount",
+                "positiveCount",
+                "negativeCount",
+                "analyzerId",
+                "diagnostic",
+            ],
+        );
+        assert!(value["score"].is_null() || value["score"].is_number());
+        assert!(value["label"].is_string());
+        assert!(value["coverage"].is_number());
+        for key in [
+            "eligibleTokenCount",
+            "matchedTokenCount",
+            "scoredTokenCount",
+            "positiveCount",
+            "negativeCount",
+        ] {
+            assert!(value[key].is_u64(), "{key} must be an unsigned integer");
+        }
+        assert!(value["analyzerId"].is_string());
+        assert!(value["diagnostic"].is_null() || value["diagnostic"].is_string());
+    }
+
+    fn assert_track_analysis_schema(value: &Value) {
+        assert_object_keys(value, &["trackId", "lyricsHash", "sentiment", "blocks"]);
+        assert!(value["trackId"].is_string());
+        assert!(value["lyricsHash"].is_string());
+        assert_sentiment_schema(&value["sentiment"]);
+        let blocks = value["blocks"].as_array().expect("blocks array");
+        for block in blocks {
+            assert_object_keys(
+                block,
+                &["ordinal", "startLine", "endLine", "text", "sentiment"],
+            );
+            assert!(block["ordinal"].is_u64());
+            assert!(block["startLine"].is_u64());
+            assert!(block["endLine"].is_u64());
+            assert!(block["text"].is_string());
+            assert_sentiment_schema(&block["sentiment"]);
+        }
+    }
+
+    fn assert_text_error(response: Vec<u8>, expected_body: &str) {
+        let response = parse_http_response(&response);
+        assert_eq!(response.status, 500);
+        assert_eq!(response.content_type, "text/plain; charset=utf-8");
+        assert_eq!(response.content_length, expected_body.len());
+        assert_eq!(response.body, expected_body.as_bytes());
+    }
 
     fn request_with_origin(origin: Option<&str>, host: &str) -> Request {
         let mut headers = HashMap::from([("host".to_owned(), host.to_owned())]);
@@ -2970,6 +3341,119 @@ mod tests {
             headers,
             body: Vec::new(),
             is_local: true,
+        }
+    }
+
+    #[test]
+    fn lyrics_analysis_get_and_post_return_the_documented_json_contract() {
+        let requests = [
+            lyrics_analysis_request("GET", "trackId=track-1", b""),
+            lyrics_analysis_request("POST", "", br#"{"trackId":"track-1"}"#),
+        ];
+
+        for request in requests {
+            let response = track_lyrics_analysis_response(&request, |track_id| {
+                assert_eq!(track_id, "track-1");
+                Ok(lyrics_analysis_fixture(
+                    track_id,
+                    sentiment_summary(Some(0.5), SentimentLabel::Positive, None),
+                ))
+            });
+            let response = parse_http_response(&response);
+            assert_eq!(response.status, 200);
+            assert_eq!(response.content_type, "application/json; charset=utf-8");
+            let body: Value = serde_json::from_slice(&response.body).expect("analysis JSON body");
+            assert_track_analysis_schema(&body);
+            assert_eq!(body["trackId"], "track-1");
+            assert_eq!(body["sentiment"]["score"], 0.5);
+            assert_eq!(body["sentiment"]["label"], "positive");
+            assert_eq!(body["blocks"][0]["startLine"], 1);
+            assert_eq!(body["blocks"][0]["endLine"], 2);
+        }
+    }
+
+    #[test]
+    fn lyrics_analysis_get_and_post_reject_empty_track_ids_with_the_existing_error_contract() {
+        let requests = [
+            lyrics_analysis_request("GET", "trackId=", b""),
+            lyrics_analysis_request("GET", "trackId=%20%20", b""),
+            lyrics_analysis_request("POST", "", br#"{"trackId":""}"#),
+            lyrics_analysis_request("POST", "", br#"{"trackId":"  \t"}"#),
+        ];
+        let analyzer_calls = AtomicUsize::new(0);
+
+        for request in requests {
+            let response = track_lyrics_analysis_response(&request, |track_id| {
+                analyzer_calls.fetch_add(1, Ordering::SeqCst);
+                Ok(lyrics_analysis_fixture(
+                    track_id,
+                    sentiment_summary(None, SentimentLabel::Unknown, None),
+                ))
+            });
+            assert_text_error(response, "library.error.trackNotFound\t");
+        }
+
+        assert_eq!(analyzer_calls.load(Ordering::SeqCst), 0);
+    }
+
+    #[test]
+    fn lyrics_analysis_post_reports_invalid_json_without_invoking_the_analyzer() {
+        let request = lyrics_analysis_request("POST", "", br#"{"trackId":"track-1""#);
+        let response = track_lyrics_analysis_response(&request, |_| {
+            panic!("invalid JSON must not reach the analyzer")
+        });
+        let response = parse_http_response(&response);
+
+        assert_eq!(response.status, 500);
+        assert_eq!(response.content_type, "text/plain; charset=utf-8");
+        let body = std::str::from_utf8(&response.body).expect("UTF-8 JSON parse error");
+        assert!(
+            body.contains("EOF while parsing"),
+            "unexpected error: {body}"
+        );
+        assert!(body.contains("line 1 column"), "unexpected error: {body}");
+    }
+
+    #[test]
+    fn lyrics_analysis_get_and_post_report_missing_tracks_with_the_existing_error_contract() {
+        let requests = [
+            lyrics_analysis_request("GET", "trackId=missing-track", b""),
+            lyrics_analysis_request("POST", "", br#"{"trackId":"missing-track"}"#),
+        ];
+
+        for request in requests {
+            let response = track_lyrics_analysis_response(&request, |track_id| {
+                Err(format!("library.error.trackNotFound\t{track_id}"))
+            });
+            assert_text_error(response, "library.error.trackNotFound\tmissing-track");
+        }
+    }
+
+    #[test]
+    fn lyrics_analysis_get_and_post_expose_dictionary_unavailability_as_unknown_json() {
+        let requests = [
+            lyrics_analysis_request("GET", "trackId=track-1", b""),
+            lyrics_analysis_request("POST", "", br#"{"trackId":"track-1"}"#),
+        ];
+        let diagnostic = "sentiment dictionary unavailable: fixture failure";
+
+        for request in requests {
+            let response = track_lyrics_analysis_response(&request, |track_id| {
+                Ok(lyrics_analysis_fixture(
+                    track_id,
+                    sentiment_summary(None, SentimentLabel::Unknown, Some(diagnostic)),
+                ))
+            });
+            let response = parse_http_response(&response);
+            assert_eq!(response.status, 200);
+            assert_eq!(response.content_type, "application/json; charset=utf-8");
+            let body: Value = serde_json::from_slice(&response.body).expect("analysis JSON body");
+            assert_track_analysis_schema(&body);
+            assert!(body["sentiment"]["score"].is_null());
+            assert_eq!(body["sentiment"]["label"], "unknown");
+            assert_eq!(body["sentiment"]["diagnostic"], diagnostic);
+            assert_eq!(body["blocks"][0]["sentiment"]["label"], "unknown");
+            assert_eq!(body["blocks"][0]["sentiment"]["diagnostic"], diagnostic);
         }
     }
 
@@ -3007,6 +3491,127 @@ mod tests {
         assert!(!has_command_gap(49, Some(50)));
         assert!(has_command_gap(10, Some(50)));
         assert!(!has_command_gap(10, None));
+    }
+
+    #[test]
+    fn lyrics_mood_reference_uses_only_the_current_track() {
+        let missing_state = Arc::new(RemoteServerStateStore::new(RemoteServerState::default()));
+        assert!(matches!(
+            lyrics_mood_reference(&missing_state, true).expect("missing reference"),
+            LyricsMoodReference::MissingCurrentTrack
+        ));
+        assert!(matches!(
+            lyrics_mood_reference(&missing_state, false).expect("prompt reference"),
+            LyricsMoodReference::Prompt
+        ));
+
+        let mut player_state = empty_remote_player_state();
+        player_state.current_track_id = Some("track-1".to_owned());
+        let current_state = Arc::new(RemoteServerStateStore::new(RemoteServerState {
+            player_state: Some(player_state),
+            ..RemoteServerState::default()
+        }));
+        assert!(matches!(
+            lyrics_mood_reference(&current_state, true).expect("current reference"),
+            LyricsMoodReference::CurrentTrack(track_id) if track_id == "track-1"
+        ));
+    }
+
+    #[test]
+    fn lyrics_mood_playback_keeps_the_queue_for_every_non_success_status() {
+        for status in [
+            LyricsMoodStatus::IndexNotReady,
+            LyricsMoodStatus::NeedsCurrentTrack,
+            LyricsMoodStatus::ReferenceSentimentUnavailable,
+            LyricsMoodStatus::NoMatch,
+        ] {
+            let mut player_state = empty_remote_player_state();
+            player_state.queue_track_ids = vec!["existing-track".to_owned()];
+            player_state.current_track_id = Some("existing-track".to_owned());
+            let remote_state = Arc::new(RemoteServerStateStore::new(RemoteServerState {
+                player_state: Some(player_state),
+                ..RemoteServerState::default()
+            }));
+            let result = super::finalize_lyrics_mood_playback(
+                &remote_state,
+                voice_lyrics_response(status.clone(), &["new-track"]),
+            )
+            .expect("structured non-success response");
+            assert_eq!(result["status"], serde_json::json!(status));
+
+            let state = remote_state.lock().expect("remote state");
+            assert!(state.commands.is_empty());
+            let player_state = state.player_state.as_ref().expect("existing player state");
+            assert_eq!(player_state.queue_track_ids, vec!["existing-track"]);
+            assert_eq!(
+                player_state.current_track_id.as_deref(),
+                Some("existing-track")
+            );
+        }
+    }
+
+    #[test]
+    fn lyrics_mood_playback_sets_the_result_queue_once_and_starts_the_first_track() {
+        let remote_state = Arc::new(RemoteServerStateStore::new(RemoteServerState::default()));
+        let result = super::finalize_lyrics_mood_playback(
+            &remote_state,
+            voice_lyrics_response(LyricsMoodStatus::Ok, &["track-2", "track-1"]),
+        )
+        .expect("playing response");
+        assert_eq!(result["status"], "playing");
+        assert_eq!(result["command"]["commandType"], "set-queue");
+
+        let state = remote_state.lock().expect("remote state");
+        assert_eq!(state.commands.len(), 1);
+        let command = state.commands.front().expect("set queue command");
+        assert_eq!(command.command_type, "set-queue");
+        assert_eq!(
+            command.payload.as_ref().expect("payload")["queueTrackIds"],
+            serde_json::json!(["track-2", "track-1"])
+        );
+        assert_eq!(
+            command.payload.as_ref().expect("payload")["currentTrackId"],
+            "track-2"
+        );
+        assert_eq!(
+            command.payload.as_ref().expect("payload")["isPlaying"],
+            true
+        );
+        let player_state = state.player_state.as_ref().expect("player state");
+        assert_eq!(player_state.queue_track_ids, vec!["track-2", "track-1"]);
+        assert_eq!(player_state.current_track_id.as_deref(), Some("track-2"));
+        assert!(player_state.is_playing);
+    }
+
+    #[test]
+    fn serves_current_debug_frontend_files_without_caching() {
+        let fixture_root = std::env::temp_dir().join(format!(
+            "musical-frontend-dist-test-{}",
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .expect("system time")
+                .as_nanos()
+        ));
+        let assets_root = fixture_root.join("assets");
+        fs::create_dir_all(&assets_root).expect("create frontend assets");
+        fs::write(fixture_root.join("index.html"), b"current-index").expect("write frontend index");
+        fs::write(assets_root.join("visualizer.js"), b"current-visualizer")
+            .expect("write visualizer asset");
+
+        let asset_response = filesystem_frontend_response(&fixture_root, "assets/visualizer.js")
+            .expect("serve current asset");
+        let fallback_response =
+            filesystem_frontend_response(&fixture_root, "player/warp").expect("serve SPA fallback");
+        let asset_text = String::from_utf8_lossy(&asset_response);
+        let fallback_text = String::from_utf8_lossy(&fallback_response);
+
+        assert!(asset_text.contains("Content-Type: text/javascript; charset=utf-8"));
+        assert!(asset_text.contains("Cache-Control: no-store"));
+        assert!(asset_text.ends_with("current-visualizer"));
+        assert!(fallback_text.contains("Content-Type: text/html; charset=utf-8"));
+        assert!(fallback_text.ends_with("current-index"));
+
+        fs::remove_dir_all(fixture_root).expect("remove frontend fixtures");
     }
 
     #[test]

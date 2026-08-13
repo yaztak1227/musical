@@ -243,7 +243,7 @@ function resolveCssVisualizerColor(value: string, fallback: VisualizerColor): Vi
   return pixel[3] ? [pixel[0], pixel[1], pixel[2]] : fallback;
 }
 
-function getThemeVisualizerPalette(): VisualizerPalette {
+export function getThemeVisualizerPalette(): VisualizerPalette {
   const primary = resolveCssVisualizerColor("var(--primary)", rainbowVisualizerPalette[0]);
   const accent = resolveCssVisualizerColor("var(--accent)", rainbowVisualizerPalette[1]);
   const foreground = resolveCssVisualizerColor("var(--foreground)", [255, 255, 255]);
@@ -277,7 +277,7 @@ function enhanceArtworkColor(color: VisualizerColor): VisualizerColor {
   return color.map((channel) => Math.round(Math.max(24, Math.min(246, average + (channel - average) * 1.32 + 18)))) as unknown as VisualizerColor;
 }
 
-async function extractArtworkVisualizerPalette(src: string): Promise<VisualizerPalette | null> {
+export async function extractArtworkVisualizerPalette(src: string): Promise<VisualizerPalette | null> {
   if (!src) return null;
   const image = new Image();
   image.crossOrigin = "anonymous";
@@ -2699,7 +2699,15 @@ export function PlayerVisualizerOverlay({
         return;
       }
       if (warpHoleWebglVisualizer) {
-        warpHoleWebglVisualizer.render(values, time, visualizerPalette, reducedMotion, !isIdle);
+        warpHoleWebglVisualizer.render(
+          values,
+          time,
+          auroraVisualizerPalette,
+          reducedMotion,
+          !isIdle,
+          true,
+          auroraVisualProfile,
+        );
         return;
       }
 

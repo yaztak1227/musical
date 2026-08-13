@@ -278,6 +278,11 @@
   <message key="playlists.moveTrackUp">Verschieben Sie {track} nach oben</message>
   <message key="playlists.moveTrackDown">Bewegen Sie {track} nach unten</message>
   <message key="playlists.jumpToAlbum">Album {album} anzeigen</message>
+  <message key="playlists.trackActions">Aktionen für {track}</message>
+  <message key="playlists.showAlbum">Album anzeigen</message>
+  <message key="playlists.moveUp">Nach oben verschieben</message>
+  <message key="playlists.moveDown">Nach unten verschieben</message>
+  <message key="playlists.remove">Aus der Playlist entfernen</message>
   <message key="playlists.missingTrack">Spur fehlt</message>
   <message key="playlists.missingTrackCount">{count} fehlt</message>
   <message key="playlists.reloadToRecover">Nach dem Wiederherstellen der Datei neu laden.</message>

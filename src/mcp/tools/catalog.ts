@@ -15,6 +15,7 @@ const emptyInput = z.object({});
 const nullableInteger = z.number().int().nullable();
 const optionalLimit = z.number().int().min(1).max(100).optional();
 const optionalArtist = z.string().min(1).optional();
+const optionalSentimentWeight = z.number().finite().min(0).max(0.3).optional();
 const trackIdsInput = z.object({ trackIds: z.array(z.string().min(1)).max(500) });
 
 export const musicalTools = [
@@ -51,6 +52,112 @@ export const musicalTools = [
     description: "Read lyrics saved in a track tag.",
     inputSchema: z.object({ trackId: z.string().min(1) }),
     risk: "read",
+    modelVisible: true,
+  },
+  {
+    name: "get_track_lyrics_analysis",
+    title: "Get Track Lyrics Analysis",
+    description:
+      "Read block-level and track-level Japanese sentiment analysis for a track's saved lyrics.",
+    inputSchema: z.object({ trackId: z.string().min(1) }),
+    risk: "read",
+    modelVisible: true,
+  },
+  {
+    name: "get_search_index_status",
+    title: "Get Search Index Status",
+    description:
+      "Report whether Musical's persistent local semantic-search index is ready or stale.",
+    inputSchema: emptyInput,
+    risk: "read",
+    modelVisible: true,
+  },
+  {
+    name: "build_search_index",
+    title: "Build Search Index",
+    description:
+      "Build or incrementally refresh Musical's local semantic-search index. The multilingual embedding model is downloaded on first use and cached locally.",
+    inputSchema: emptyInput,
+    risk: "library-mutation",
+    modelVisible: true,
+  },
+  {
+    name: "search_tracks",
+    title: "Search Tracks",
+    description:
+      "Search track metadata and saved lyrics with local multilingual semantic or hybrid matching and optional coverage-weighted sentiment similarity.",
+    inputSchema: z.object({
+      query: z.string().min(1),
+      mode: z.enum(["semantic", "hybrid"]).optional(),
+      target: z.enum(["all", "lyrics", "metadata"]).optional(),
+      lyricsOnly: z.boolean().optional(),
+      favoriteOnly: z.boolean().optional(),
+      minRating: z.number().int().min(1).max(5).optional(),
+      genres: z.array(z.string().min(1)).max(50).optional(),
+      excludeTrackIds: z.array(z.string().min(1)).max(500).optional(),
+      sentimentWeight: optionalSentimentWeight,
+      limit: optionalLimit,
+    }),
+    risk: "read",
+    modelVisible: true,
+  },
+  {
+    name: "recommend_tracks",
+    title: "Recommend Tracks",
+    description:
+      "Recommend tracks for a natural-language mood using local semantic and coverage-weighted sentiment similarity over metadata and saved lyrics, with diversity and duration controls.",
+    inputSchema: z.object({
+      prompt: z.string().min(1),
+      favoriteOnly: z.boolean().optional(),
+      minRating: z.number().int().min(1).max(5).optional(),
+      genres: z.array(z.string().min(1)).max(50).optional(),
+      avoidTrackIds: z.array(z.string().min(1)).max(500).optional(),
+      durationMinutes: z.number().int().min(1).max(1440).optional(),
+      maxTracksPerArtist: z.number().int().min(1).max(20).optional(),
+      sentimentWeight: optionalSentimentWeight,
+      limit: optionalLimit,
+    }),
+    risk: "read",
+    modelVisible: true,
+  },
+  {
+    name: "search_lyrics_by_mood",
+    title: "Search Lyrics by Mood",
+    description:
+      "Find songs from the meaning, emotion, scene, or remembered line in saved lyrics without changing playback. Apply bounded topic-aware ranking and collapse duplicate lyrical variants only for explicit grief, elegy, mourning, or bereavement prompts, or prompts combining loss/separation with sorrow. A generic sad-song prompt, generic mood, and relativeToCurrent remain unchanged. Use search_library for an exact title or artist alone. For lyrics similar to the current track or brighter/darker than it, set relativeToCurrent. Put only the desired lyrical meaning, scene, or emotion in prompt, not spoken playback commands.",
+    inputSchema: z.object({
+      prompt: z.string().trim().min(1).max(500),
+      moodStrength: z.enum(["subtle", "balanced", "strong"]).optional(),
+      favoriteOnly: z.boolean().optional(),
+      minRating: z.number().int().min(1).max(5).optional(),
+      genres: z.array(z.string().min(1)).max(50).optional(),
+      artist: z.string().trim().min(1).optional(),
+      excludeTrackIds: z.array(z.string().min(1)).max(500).optional(),
+      relativeToCurrent: z.enum(["similar", "brighter", "darker"]).optional(),
+      limit: z.number().int().min(1).max(20).optional(),
+    }),
+    risk: "read",
+    modelVisible: true,
+  },
+  {
+    name: "play_lyrics_by_mood",
+    title: "Play Lyrics by Mood",
+    description:
+      "Find songs from the meaning, emotion, or scene in saved lyrics, set the resulting queue, and start playback in one operation. Apply bounded topic-aware ranking and collapse duplicate lyrical variants only for explicit grief, elegy, mourning, or bereavement prompts, or prompts combining loss/separation with sorrow. A generic sad-song prompt, generic mood, and relativeToCurrent remain unchanged. Use play_search for an exact title, album, or artist. Set relativeToCurrent for lyrics similar to the current track or brighter/darker than it; use limit: 1 for one song and durationMinutes: 30 for about 30 minutes. Put only the desired lyrical meaning, scene, or emotion in prompt, not spoken playback commands.",
+    inputSchema: z.object({
+      prompt: z.string().trim().min(1).max(500),
+      moodStrength: z.enum(["subtle", "balanced", "strong"]).optional(),
+      favoriteOnly: z.boolean().optional(),
+      minRating: z.number().int().min(1).max(5).optional(),
+      genres: z.array(z.string().min(1)).max(50).optional(),
+      artist: z.string().trim().min(1).optional(),
+      avoidTrackIds: z.array(z.string().min(1)).max(500).optional(),
+      relativeToCurrent: z.enum(["similar", "brighter", "darker"]).optional(),
+      durationMinutes: z.number().int().min(1).max(1440).optional(),
+      maxTracksPerArtist: z.number().int().min(1).max(20).optional(),
+      limit: z.number().int().min(1).max(100).optional(),
+    }),
+    risk: "playback",
     modelVisible: true,
   },
   {
@@ -308,6 +415,14 @@ export const musicalTools = [
     title: "Add Track To Playlist",
     description: "Add a track to a Musical playlist.",
     inputSchema: z.object({ playlistId: z.string().min(1), trackId: z.string().min(1) }),
+    risk: "library-mutation",
+    modelVisible: true,
+  },
+  {
+    name: "delete_playlist",
+    title: "Delete Playlist",
+    description: "Delete a Musical playlist and its cached artwork.",
+    inputSchema: z.object({ playlistId: z.string().min(1) }),
     risk: "library-mutation",
     modelVisible: true,
   },

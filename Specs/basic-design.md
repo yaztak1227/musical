@@ -46,6 +46,8 @@ flowchart LR
 | Audio analysis backend | `src-tauri/src/audio_analysis.rs` | FFT bucket 生成と cache |
 | Local server | `src-tauri/src/local_server.rs` | `/api/*`, `/tv`, WebSocket, media streaming, MCP sidecar lifecycle/proxy |
 | MCP sidecar | `src/mcp/**`, `dist/mcp/server.js` | MCP SDK server, AI SDK V7 compatible tool catalog, internal bridge client |
+| Semantic search index | `src-tauri/src/search_index.rs`, `.musical/search_index.sqlite3` | ローカル multilingual embedding、歌詞 chunk、永続 vector cache、warm in-memory search |
+| Lyrics sentiment analyzer | `src-tauri/src/lyrics_sentiment.rs`, `.musical/search_index.sqlite3` | Lindera/IPADIC形態素解析、日本語極性辞書、block/曲集約、coverage付き派生cache |
 | Fire TV shell | `apps/firetv/app/src/main/java/app/musical/firetv/**` | Android native shell, discovery, Settings, key bridge |
 | TV route | `src/features/tv-display/presentation/TvDisplayApp.tsx` | Fire TV/TV browser UI |
 
@@ -60,7 +62,7 @@ flowchart LR
 - `LibrarySidebar`: ライブラリ、設定、テーマ、リモートアクセス導線。
 - `AlbumBrowser`: アルバム/曲/プレイリストの一覧、検索、ソート、再生入口。
 - `SelectedAlbumPanel`: 選択アルバムの曲、タグ編集導線、詳細表示導線。
-- `SelectedPlaylistPanel`: プレイリスト曲の表示、追加、削除、並べ替え。
+- `SelectedPlaylistPanel`: プレイリスト曲の表示、追加、削除、並べ替え。右パネルはコンパクトなアートワーク/概要ヘッダーと64px以上の曲行を使い、曲名を2行まで確保する。歌詞と再生時間だけを常時表示し、元アルバム表示、上下移動、削除は曲ごとの操作メニューへ格納する。プレイリスト切替時はパネルのスクロール位置を先頭へ戻す。曲削除と再読み込みは対象プレイリストだけをバックエンドから再取得して差し替え、全 `LibrarySnapshot` を適用しない。
 - `PlayerBar`: 再生状態、キュー、シーク、音量、Player mode 導線。キューは可変幅オプションから分離し、Player mode入口はグリッド自動配置から外してPlayerBar右端へ固定する。通常幅、Tauriの1226×768前後、タブレット、モバイルで常時表示し、キュー領域には入口とフォーカス外枠分の右余白を確保する。入口は明示的なaccessible name、キーボード操作、可視の `focus-visible` 外枠を持つ。開発版では現在曲の変更時に Performance API の measure entries が50万件以上か確認し、上限到達時だけ消去する。
 - `PlayerVisualizerOverlay`: Player mode、ビジュアライザ、歌詞、キュー。
 - `TrackDetailDialog`: 曲情報、歌詞、アートワーク候補検索、アートワーク、タグ編集。
@@ -84,6 +86,7 @@ flowchart LR
 - `library_snapshot`
 - `scan_music_folder`
 - `track_lyrics`
+- `track_lyrics_analysis`
 - `create_playlist`
 - `add_track_to_playlist`
 - `add_tracks_to_playlist`
@@ -117,6 +120,8 @@ Tauri setup 時に local server を開始し、desktop/browser/Fire TV の接続
 - `GET /api/library_snapshot`
 - `GET /api/tv/libraries`
 - `GET /api/track_lyrics`
+- `GET /api/track_lyrics_analysis?trackId=...`
+- `POST /api/track_lyrics_analysis` body `{ trackId }`
 - `GET /api/track_analysis`
 - `GET /api/track_analysis_bytes`
 - `GET /api/media`
@@ -140,7 +145,22 @@ Tauri setup 時に local server を開始し、desktop/browser/Fire TV の接続
 - MCP enabled 時、Tauri は `dist/mcp/server.js` を Node sidecar として起動し、`/mcp` request を sidecar の loopback port へ proxy する。
 - MCP sidecar は `@modelcontextprotocol/sdk` の Streamable HTTP server を使い、AI SDK V7 `@ai-sdk/mcp` client から `mcpClient.tools()` / `callTool()` で検証する。
 - `dev:public` は Vite 起動前に MCP sidecar を build し、production build は Vite が `dist` を生成した後に `dist/mcp/server.js` を出力する。これにより Vite の出力 cleanup で sidecar が欠落しないようにする。
+- local server のrelease buildは `dist` を実行ファイルへ埋め込み、自己完結したWeb UIを配信する。debug buildだけは各frontend requestでworkspaceの現在の `dist` を優先し、`Cache-Control: no-store` を付ける。これにより長時間動作する `tauri dev` がCargo compile時点の古いvisualizer chunkをWeb/LAN側へ配信し続けることを防ぐ。disk buildがない場合は埋め込みbundleへfallbackし、`/api/*`、音声解析packet、remote player同期の経路は変更しない。
 - MCP internal bridge API は sidecar に渡した per-process token (`X-Musical-MCP-Token`) を要求する。
+- 初回の自動または明示的な index build は `intfloat/multilingual-e5-small` のcommit `614241f622f53c4eeff9890bdc4f31cfecc418b3`から必要5fileだけをアプリcacheへ取得する。各fileのsize/SHA-256とmanifest identityをmodel初期化の前後に検証し、FastEmbed用refを同commitへatomic固定してから、metadata documentと6行単位・2行overlapのlyrics chunkを埋め込む。embedding model IDはartifact identityに加えて、exact pinしたFastEmbed 5.17.4とtokenizers 0.22.2、mean pooling、max length 512、E5のquery/passage prefix、pool後のL2正規化を表すpipeline IDを含み、いずれかの世代変更で旧indexを無効化する。
+- FastEmbed 5.17が`HF_HOME`を明示cacheより優先するため、`HF_HOME`設定中は共有Hugging Face cacheへrefを書かずsemantic model初期化をerrorにする。Musical専用application cacheを使うには`HF_HOME`未設定でMusicalを起動する必要があり、通常launcherが設定済みの値を解除することはない。
+- search index は library database と分離した再生成可能な SQLite cache とし、各 library root の `.musical/search_index.sqlite3` に保存する。OS固有の区切り文字を連結せずpath APIで配置するため、Windows/macOSで同じ相対構造とする。
+- library snapshotの初回読込み、folder scan完了、track/album tag更新、favorite/rating更新は、重複排除されたbackground refreshを予約する。手動 `build_search_index` と自動refreshは同じbuild lockで直列化し、document hash、embedding model ID、index schema versionが一致するembeddingを差分再利用する。SQLite busyや一時I/Oでrefreshが失敗した場合も、state lock解放後に61秒開始・最大1時間の指数backoffでin-memory retryを予約し、busy loopや次のlibrary mutation待ちにしない。background/手動buildの成功または明示的なforce/library mutationでfailure streakをresetする。
+- 保存済み歌詞の感情解析はembedding documentと分離する。CRLFをLFへ統一し、空行の連続をstanza境界として、6非空行を超えるstanzaだけを6行ずつの非overlap blockへ分ける。解析用copyをNFKC正規化し、source順と1-basedの開始/終了行を保持するため、semantic embedding用の6行・2行overlap chunk規則は変えない。
+- search index metadataはembedding model IDに加えてanalyzer ID、retryable感情件数、retry時刻を保持する。analyzer ID不一致と歌詞本文を含むsource revision不一致はbackground rebuild対象とし、旧semantic indexは検索可能なまま保持するが、analyzer ID不一致中は旧感情値をscoreへ混合しない。retryableな`unknown`は辞書失敗cooldown終了後にsingle-flight refreshへ1回だけ再投入する。
+- exact pinしたLindera/lindera-dictionary/lindera-ipadic 5.1.0とembedded `mecab-ipadic-2.7.0-20250920`、unicode-normalization 0.1.25から基本形・品詞・NFKC解析copyを得て、名詞・動詞・形容詞・副詞を対象にする。crate versionとIPADIC artifactのMD5/SHA-256をanalyzer IDへ含め、pipeline世代変更時に旧analysis cacheを無効化する。東北大学 乾・岡崎研究室の`wago.121808.pn`と`pn.csv.m3.120408.trim`は初回利用時に公式HTTPS URLからapplication cacheへsingle-flightで取得し、固定SHA-256検証後にatomic保存する。raw辞書は配布物へ同梱しない。取得・hash・parse失敗は診断付き`unknown`へ縮退し、search index全体の失敗にしない。
+- 感情scoreはpositive/negative tokenだけを分母とし、neutral/eはmatched coverageに含める。blockと曲はscored token数で加重平均し、coverageを`matched / eligible`、scoredが0件ならscoreなしの`unknown`とする。schema v2は`track_lyrics_sentiment`と`lyrics_sentiment_blocks`を独立tableとして追加し、library DBを変更しない。
+- `search_tracks` は semantic score と簡易 lexical score を統合でき、`recommend_tracks` は自然言語の気分、再生時間、artist diversity、お気に入り、rating、genre、除外曲を扱う。queryも同じ感情analyzerで解析し、感情weightはsearchが既定`0`、recommendationが既定`0.15`、許容範囲は`0..=0.3`とする。query/曲双方にscoreがある場合だけ、`similarity = 1 - abs(query - track) / 2`、`effectiveWeight = requestedWeight * min(queryCoverage, trackCoverage)`、`final = base * (1 - effectiveWeight) + similarity * effectiveWeight`で混合する。weight `0`、coverage `0`、辞書取得不能時は既存base scoreとsort順をbit-for-bitで維持する。
+- 音声向けMCPは`search_lyrics_by_mood`（read）と`play_lyrics_by_mood`（playback）を分ける。両toolは`hybrid`、lyrics target、lyricsOnlyで検索し、`moodStrength`を既存valence sentiment blendでは`0.08`、`0.15`、`0.30`へ、grief theme correctionでは`0.08`、`0.14`、`0.20`へ別々に写像する。strongのlow-specificity追加減点は最大`0.12`で、voice schemaへ`sentimentWeight`を公開しない。相対指定はremote player stateのcurrent trackを参照し、同値、`+0.25`、`-0.25`を`-1..=1`へclampした感情targetと元曲のcoverageをrankingへ渡す。play toolは候補検索からqueue確定までをserver operationとして実行し、成功時だけ先頭曲から再生する。index未準備、current track不在、参照感情なし、候補なしは構造化statusで返し、index未準備時はbuild/model downloadもqueue変更も行わない。音声応答は短い歌詞抜粋とcompactな感情summaryに限定する。
+- `search_lyrics_by_mood` / `play_lyrics_by_mood` のtopic-aware処理は、promptがgrief、悲哀、哀歌、追悼、死別等を明示するか、loss/separation（喪失、別れ、さよなら等）とsorrow（涙、悲しみ、孤独等）の両方を含む場合だけ発火する。単なる「悲しい歌」、generic mood、`relativeToCurrent`には適用しない。複数blockかつ複数の証拠familyでcoreが成立した場合だけ正加点し、core未達はhard rejectせず正加点を行わないが、anti-themeとlow-specificityの上限付き減点は許容する。grief voiceの2 toolだけは同一lyrics hashまたは高いcontent containmentの別音源を1結果へ集約し、boundedにoversampleした候補pool内で可能な範囲だけ別候補を補充する。極端に重複が多い場合は結果が指定limit未満になり得る。generic検索は重複を保持する。正確な曲名・artistを`search_library` / `play_search`へ振り分ける規則、既存の歌詞感情解析とsemantic index cacheは変更せず、DB schemaやembedding indexのrebuildは行わない。比喩中心・語彙の少ない歌詞では決定論的heuristicの精度が限定され、exactな8曲構成は保証しない。
+- strong悲哀指定では、喪失の具体性と悲哀証拠blockの占有率がともに低いsemantic false positiveだけへ上限付きlow-specificity減点を適用する。全面的な物語分類やC評価の排除保証には使わず、S/A/B相当の特徴が重なる候補を保護する境界を設け、hard rejectしない。near-identical dedupeはlyrics hash、行containmentに加え、十分長く長さの近い正規化全文の5-character gram containmentを用いて句読点、空白、表記揺れを吸収する。この追補もgeneric mood、`relativeToCurrent`、公開schema、DB/index cacheを変更せず、決定論的heuristicの限界を引き継ぐ。
+- block/曲分析はTauri command `track_lyrics_analysis`、`GET` / `POST /api/track_lyrics_analysis`、MCP read tool `get_track_lyrics_analysis { trackId }`で取得する。cacheがなければ保存歌詞をon-demand解析し、曲不在、歌詞なし、index不在、辞書利用不能をpanicさせず結果または診断として返す。
+- 検索時は永続 embedding をプロセス内へ generation 単位で warm load し、query embedding は bounded LRU cache で再利用する。MCP sidecar は検索 cache を所有しない。
 - Tauri は MCP sidecar の stdin pipe を保持し、sidecar は pipe の EOF を親プロセス終了として扱って即時終了する。これにより Tauri の異常終了時にも orphan Node process を残さない。
 - media は server が公開した file/API 経由でのみ取得できる。
 - アートワーク候補検索と候補画像 download は Tauri command 専用で、local server API には公開しない。
@@ -293,24 +313,28 @@ Player mode入口は、共通buttonのリップルとactive時の移動・scale�
 
 macOS の `cargo run` はworkspaceのCargo runnerを介し、`target/debug/musical` をコピーせず開発専用 `.app` 内の実行ファイルsymlinkから起動する。これにより `tauri dev` の監視・終了管理と実バックエンドを維持しながら、実行中プロセスをLaunchServicesとUI automationから一意に識別できる。実機開発版は `com.circularmoonray.musical.dev`、分離したAIテスト版は `com.circularmoonray.musical.ai-test` を使用する。wrapperは `target/codex-dev-apps/` に生成し、製品bundleやrelease実行ファイルは変更しない。
 
+開発用Cargo profileはアプリ本体にline-table相当のdebug情報を残し、依存crateのdebug情報を無効にする。`npm run tauri -- ...` とWindows開発ランチャーの起動前には `src-tauri/target` の総容量を確認し、既定8 GiB（`MUSICAL_BUILD_CACHE_LIMIT_GB` で変更可能）を超え、かつworkspaceのMusicalが実行されていない場合だけ `cargo clean` を実行する。手動確認は `npm run cache:status`、明示的な削除は `npm run cache:prune` を使う。
+
 overlay の stacking context はブラウザ間で同じ合成結果になるよう、アートワーク背景、装飾背景、Canvas、vignette、操作 UI、closeボタンの順を非負の `z-index` で明示する。Canvasと装飾レイヤーは `pointer-events: none` とし、closeボタンを常にクリック可能な最前面へ置く。Canvas 内部のピクセル検査に加え、overlay 全体の screenshot が再生中に変化することとcloseボタンでoverlayを閉じられることをブラウザ回帰テストで検証し、親背景の背面へ Canvas が隠れる不具合と透明レイヤーが操作を遮る不具合を検出する。
 
-専用 WebGL canvas が利用できる間、基本の Canvas 2D canvas はモード移行時に一度だけ消去し、毎フレームの全面消去を行わない。WebGL の論理サイズは `ResizeObserver` で保持し、DPR が変わらないフレームでは layout 寸法を読み直さない。オーロラとスターフィールドの全画面 post-processing は深度を使わないため renderer、composer、bloom の中間 target に深度 buffer を持たせず、色 target、DPR 上限、bloom pass 数と target 構成は維持する。DNA 螺旋とワープホールはDPR上限を1.0とし、shader 内で霧、光条、粒子の発光を合成する単一描画パスとする。追加の bloom pass は使わず、DNA 螺旋では各 fragment から十分離れた螺旋層と結節光条を早期終了する。周波数履歴、方向別エネルギー、palette は再利用 buffer へ書き込み、変更された uniform だけを GPU へ転送する。オーロラは音声解析処理と履歴の取得間隔を維持しながら、GPU の composer 描画だけを最大30 fpsへ制限する。DNA 螺旋とワープホールの GPU 描画は再生中を最大30 fps、低モーション時を最大18 fpsに制限し、idle は overlay 起動時の一回描画とする。live loop から inactive 描画を要求された場合も15 fpsを上限とする。オーロラは選択中の配色側だけの FBM envelope を評価し、スターフィールドは presence または halo が厳密にゼロの星候補を後続計算から除外する。オーロラの Theme/レインボーとスターフィールドは最適化前の最終 RGBA とフレーム進行を維持し、オリジナル/アートワークだけは後述する霧調プロファイルの高輝度抑制を適用する。
+専用 WebGL canvas が利用できる間、基本の Canvas 2D canvas はモード移行時に一度だけ消去し、毎フレームの全面消去を行わない。WebGL の論理サイズは `ResizeObserver` で保持し、DPR が変わらないフレームでは layout 寸法を読み直さない。オーロラ、スターフィールド、ワープホールの全画面 post-processing は深度を使わないため renderer、composer、bloom の中間 target に深度 buffer を持たせない。DNA 螺旋はDPR上限1.0の単一描画パス、ワープホールはオーロラと同じDPR上限1.2の `RenderPass → UnrealBloomPass → OutputPass → highlight/alpha limiter` とする。周波数履歴、方向別エネルギー、palette は再利用 buffer へ書き込み、変更された uniform だけを GPU へ転送する。オーロラは音声解析処理と履歴の取得間隔を維持しながら、GPU の composer 描画だけを最大30 fpsへ制限する。DNA 螺旋とワープホールの GPU 描画は再生中を最大30 fps、低モーション時を最大18 fpsに制限し、idle は overlay 起動時の一回描画とする。live loop から inactive 描画を要求された場合も15 fpsを上限とする。ワープホールは20ブロックを格納する現在/過去各5 RGBA texelをfragmentごとに一度だけ取得し、カーテンから十分離れたfamilyのFBMとstrand評価を省略する。オーロラは選択中の配色側だけの FBM envelope を評価し、スターフィールドは presence または halo が厳密にゼロの星候補を後続計算から除外する。オーロラの Theme/レインボーとスターフィールドは最適化前の最終 RGBA とフレーム進行を維持し、オリジナル/アートワークだけは後述する霧調プロファイルの高輝度抑制を適用する。
 
 ビジュアライザの control dock は、通常幅では10モードを1×10、4配色を1×4で上段へ横並びにし、再生操作を最下段に保つ。モードボタンは24×24の共通 viewBox と線幅を持つ専用 SVG で、波形、スペクトラムバー、放射円、山形、オーロラカーテン、放射状ワープ、二重螺旋、墨の渦、2連メーター、渦状のワープホールをそれぞれ表す。アートワーク配色はジャケットの縮小画像をボタンへ表示せず、画像枠と抽出色3点の SVG で「画像からの色抽出」を表す。幅680px以下ではモードを3列、配色を2×2へ戻す。外周余白、段間、ボタン寸法を抑え、overlay の残りの高さを `visualizer-stage` へ割り当てる。stage 内の歌詞とキューの配置は変更しない。PlayerBarではキューを可変幅オプションから分離し、Player mode入口をグリッド自動配置から外して右端へ固定することで、折り返しやWebKitの内在幅計算で重要操作を切り落とさない。
 
 オーロラは解析 bucket を低域から高域まで5帯域へ要約し、横方向へ連続する色・エネルギーマップとして補間する。GPU シェーダーは5フレームの周波数履歴、FBM ノイズ、蛇行する発光上端、多数の縦フィラメント、半透明の面光、暗部へ溶ける不規則な下端を合成する。色は横方向のオーロラパレットに加え、上端の淡い色から下端の隣接色相へ移る縦グラデーションを持つ。レインボー選択時はライムからグリーン、アクア、ブルー、バイオレット、マゼンタ、ローズへ進む8色を左から右へ補間し、オリジナル選択時の寒色中心パレットと明確に区別する。オリジナルとアートワークは霧調プロファイルを使い、細い白い芯、露出、bloom を抑えながら低輝度の面光、カーテン周辺の拡散光、半透明の霞を残す。Theme は従来の非レインボー描画、レインボーは細線主体の形状、専用露出、専用 bloom を維持する。レインボーの解析履歴は約48 ms間隔で更新し、帯域エネルギーを上端位置、フィラメント長、輝度へ強く反映する。`EffectComposer` の `UnrealBloomPass` は高輝度の芯だけへ薄い bloom を加え、面全体の白飛びを避ける。Canvas 2D fallback でも霧調プロファイルでは加算合成の不透明度と白混合を下げ、面の blur を広げる。帯域の強度はフィラメントの丈、輝度、太さ、揺れへ反映する。DNA 螺旋は一定間隔で解析 bucket を周波数履歴へ取り込み、低音から高音へ分割した1時点のスナップショットを横線1本として扱う。専用 WebGL は8帯域×32履歴、Canvas 2D fallback は24帯域×42履歴を使う。どちらも新しい横線を下側、古い横線を上側へ配置する時間軸を維持し、GPU シェーダーは中央と左右の二重螺旋、その周囲の半透明な霧、帯域強度に反応する水平光条、250〜450個相当の流れる微粒子、40〜80本相当の短い尾、同時に2〜4本読める外向き波面を単一描画パスで合成する。低エネルギー時も最低輝度とコントラストを確保するが、粒子・波面の増幅源は固定ノイズではなく8帯域×32履歴のエネルギーと正の時間差分を使う。Canvas 2D fallback では従来の線描を使う。描画モードと配色モードは独立したボタングループで選択する。配色は旧来の時間変化する HSL 配色を再現するオリジナル、アプリテーマ、アートワークから抽出した代表色、固定レインボーから選択する。通常モードの選択値は `localStorage` へ保存し、`prefers-reduced-motion` が有効な場合は粒子数、回転、移動速度を抑制し、post-processing を使うモードでは bloom 強度も下げる。
 
+DNA 螺旋のWebGL背骨は片側6本、横桟は3本の細い発光繊維束とし、単一の太いネオン線へ戻さない。各繊維は安定seedを持つ低周波wanderとfine flutterを合成し、8帯域のenergyと正のriseで揺れ幅と輝度を個別に変える。色はAuroraと同じ8 stopへ再標本化し、横桟の左から右を低域から高域へ対応させることで、RainbowだけでなくOriginal、Theme、Artworkでも選択palette全域を螺旋構造へ反映する。最終段は彩度1.18相当を維持した色相保存型highlight圧縮を行い、RGBを0.88、alphaを0.84以下へ制限して白・灰化を避ける。
+
 ワープホールは画面中央よりわずかに左へ小さなほぼ黒い消失孔を置き、`log(radius)` による強い遠近圧縮で、8群以上の螺旋リボンを複数の奥行きから同じ消失点へ収束させる。
-各リボン群は渦の周囲で位相、曲率、色相をずらして識別可能にし、幅と片寄りの異なる狭い半透明のオーロラベール、shoulder、柔らかなハローを重ね、その内部へ中心線と左右5本ずつの途切れない11本の細い長尺strandを通す。strandは親幅を広げず、log-radius方向へ連続する低周波の大きな蛇行と高周波の細かなflutterを固有位相で合成し、長い線そのものを主効果にする。
+各リボン群は渦の周囲で位相と曲率をずらして識別可能にし、鋭い発光端から片側へ長く減衰する半透明のオーロラベールと柔らかなハローを重ねる。内部はカーテン座標を可変密度のcellへ分け、fragmentごとに最寄り3 cellだけを評価するprocedural filament/hair fieldを主形状とする。各cellの安定hashから低周波wander、中周波drift、細かなflutterを合成し、固定本数の太い線や規則的な点線ではなく、多数の独立した長い連続線として描く。全配色でAuroraと同じ細密フィラメント、幅の異なるfold、低〜中輝度の半透明な面光を親ベールへ重ねる。オリジナルとアートワークは面光を広く残すmist、Themeはstandard、レインボーは非線形な色進行と細線を強めたrainbowプロファイルを使う。白混合は細いcoreに限定し、レインボーでは彩度1.18相当、露出1.65以下、出力alpha 0.84以下の制御でライムからローズまでの発色を残す。
 複数の画面端から入る前景流と位相をずらした内向きカールによって非対称な掃引を作る。
-色は選択配色にかかわらず、ライム、グリーン、アクア、シアン、ブルー、バイオレット、マゼンタ、ローズへ連続する虹色を固有の基調とし、Themeを含む選択配色は彩度を失わせない抑制した tint としてだけ加える。
+色は4配色ともAuroraと同じpalette変換を通し、8 stopへ再標本化して画面横方向の共有色相座標から参照する。これにより重なるfamily、hair strand、veilが近い色相を共有し、補色の加算で白・灰へ寄ることを避ける。RainbowはAuroraと同じ8色と非線形進行、Themeでは `--primary`、`--accent`、`--foreground`、アートワークでは画像抽出色、Originalでは寒色paletteを全面反映する。paletteまたは描画profileの変更時は描画fpsの間引き時間内でも直ちに1フレーム描画する。
 20周波数ブロック×32履歴 texture の新しい行を外周、古い行を消失孔側へ対応させ、energy と正の時間差分を各リボン群と奥行きへ分散することで、音の立ち上がりが内側へ移動して見えるようにする。CPUは昇順21境界で解析bucketを20ブロックへ要約し、5 RGBA texel×32行の固定長DataTextureをin-place更新する。
-20ブロックは0-based group `g=0..4` ごとに `g, g+5, g+10, g+15`（1-basedでは `1,6,11,16` から `5,10,15,20`）の飛び石集合へ分ける。集合energy/riseは4値のmeanとpeakを混合し、単一block pulseも残す。親family、11 strand、13候補の横断放出線はfamily indexとline indexから安定groupを選び、同じ親流内でも分散する。strand固有energyは通常輝度と揺れ、正のriseは局所輝度と揺れ幅を強く増幅する。放出線はstrandより従属させ、energyで通常の存在率、長さ、明るさ、riseで本数、瞬間的な伸長、局所輝度を制御する。全入力ゼロでは固定形状だけを残し、音声発光と放出線を生じさせない。
-微粒子と短い微細スパイクは全リボン群へ付着させる副次要素とし、絹状の連続カーテンとハローを主形状に保つ。
-追加の post-processing は使わず、解析発光は `1 - exp(-radiance * exposure)` の exposure を1.65以下、出力 alpha を0.84以下とする。
-解析ハローは輝度0.34未満へ付与せず、寄与をAurora Rainbowの bloom strength 0.31以下、広がりをradius 0.62以下に相当する範囲へ対応づける。
-DPR 1、全画面 quad 1枚、1 draw、1 pass、既存の paused、idle、低モーション時の更新 cadence を維持し、固定長 buffer を描画中に再利用して、終了時は history texture を含む Three.js resource を破棄する。
+20ブロックは0-based group `g=0..4` ごとに `g, g+5, g+10, g+15`（1-basedでは `1,6,11,16` から `5,10,15,20`）の飛び石集合へ分ける。集合energy/riseは4値のmeanとpeakを混合し、単一block pulseも残す。各親familyはcurtain座標を可変密度のcellへ分け、fragmentごとに最寄り3 cellだけを評価する。各cellは安定hashから固有の低周波wander、drift、flutter、濃淡、開始・終了深度、周波数groupを得る。密度自体にも長周期の揺れを加え、固定本数の太い線や周期的な等高線ではなく、集散しながら霞へ消える多数の独立した連続hairとして見せる。`fwidth`に基づく幅を0.015〜0.11 cellへ制限し、中心側の欠落と外周側の融合を避ける。消失孔の近傍ではfamilyごとの寄与を段階的に弱め、重なった細線が白い塊へ変わらないようにする。family間には低alphaの共通mistを残し、完全な黒い楔で幕を分断しない。全入力ゼロでは固定形状だけを残し、音声発光を生じさせない。
+飛び石集合によるhair単位の反応に加え、20ブロックを低域1〜4、中低域5〜9、中高域10〜15、高域16〜20の4つの視覚役割へ要約する。各役割はenergyと正のriseを別々のattack/releaseで平滑化する。低域は消失孔の径、トンネルの捻れ、奥行き方向の進行速度を呼吸させ、中低域はveil、mist、family幅を厚くし、中高域はhairのwanderと集散を強め、高域は既存hairの芯とhalo上だけを細かく色付きで煌めかせる。立ち上がりは外周が新しく内周ほど古い32履歴の差分へ重ね、画面全体を同時にフラッシュさせず外周から消失孔へ光の波を運ぶ。新しい粒子、全画面の白パルス、大きな色相ジャンプは音声反応として追加しない。
+旧来の横断放出線、ring rail、粒子、spike、starは無効化し、絹状の連続hair fieldとハローを主形状に保つ。
+解析発光は `1 - exp(-radiance * exposure)` の exposure を1.65以下とし、Auroraと同じthreshold 0.34、Rainbow strength 0.31、radius 0.62のbloomを高輝度の細線へだけ加える。post bloomでは彩度の高い色を優先して残すsoft highlight compressionとalpha 0.84上限を適用し、無彩色の白飛びを抑える。
+DPR上限1.2、全画面quad 1枚とcomposerを使い、既存の paused、idle、低モーション時の更新cadenceを維持する。固定長bufferを描画中に再利用し、終了時はhistory texture、composer、bloomを含むThree.js resourceを破棄する。
 WebGL 初期化に失敗した場合は Canvas 2D で暗い中心と複数の螺旋を描く。
 
 スターフィールドは画面中央付近の消失点から星を手前へ射出するワープ航行表現とする。GPU シェーダーは距離と速度の異なる5層の放射状光跡、中心付近の微細な星間ダスト、色付きのハロー、中心フレア、薄い衝撃波リングを合成する。周波数 bucket は32方向へ割り当てる前に、完全な32分割を列方向へ読む `1,33,65,2,34,66…` 型の順序へ並べ替える。これにより隣接する周波数値を角度方向へ散らし、特定帯域が強い場合も一方向だけへ光跡が偏ることを防ぐ。各方向の平滑化エネルギーは光跡の出現数、長さ、太さ、輝度を制御し、全体エネルギーと正の差分から求めた立ち上がり成分は一時的に光跡数、中心フレア、衝撃波、bloom を強める。停止時は平滑化済みエネルギーと立ち上がり状態をリセットし、音声連動光跡を残留させない。低域は加速度、中域は空間の霞、高域は微細星と瞬きにも反映する。`UnrealBloomPass` は光跡の芯だけを発光させ、背景の黒とUI文字の可読性を保つ。低モーション設定では移動速度、光跡長、衝撃波、立ち上がり反応、bloom 強度を抑える。

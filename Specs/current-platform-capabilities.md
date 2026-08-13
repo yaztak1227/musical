@@ -163,6 +163,7 @@ Desktop Player mode buttons and tabs:
   - Double-click/double-tap toggles the hidden Chibi orchestra scene and does not persist it as the normal visualizer mode.
 - Visualizer mode button group:
   - Selects `Wave`, `Spectrum`, `Circle`, `Peaks`, `Aurora`, `Starfield`, `DNA Helix`, `Flowing ink`, or `VU meters`. Each DNA Helix rung is a low-to-high frequency snapshot, with newer snapshots entering at the bottom of the timeline.
+  - The dedicated `DNA Helix` WebGL renderer builds each backbone from six fine luminous filaments and each rung from three, with per-band energy and rise driving their independent motion and brightness. It uses the same eight-stop palette as Aurora and preserves hue through highlight compression capped at 0.88 RGB and 0.84 alpha.
   - `Peaks` closes layered frequency ridges toward the bottom edge. `Aurora` uses a dedicated Three.js/WebGL2 shader to interpolate five low-to-high frequency bands across a continuous color-and-energy map, combining a luminous winding ridge, translucent curtain light, fine filaments, two-axis color gradients, and restrained bloom. It falls back to Canvas 2D when WebGL initialization fails.
   - `Starfield` uses a dedicated Three.js/WebGL2 shader to radiate five depth layers from a vanishing point, combining long tapered trails, central dust, colored halos, a restrained core flare, and expanding shockwave rings. Frequency buckets are scattered over 32 angular sectors in `1,33,65,2,34,66…` order so adjacent spectral data cannot collect in one screen region. Smoothed sector energy controls trail count, length, width, and luminance; positive spectral change briefly boosts trail density, the core, shockwaves, and bloom. Bass also controls acceleration, mids control haze, and treble controls fine stars and twinkle. It falls back to Canvas 2D when WebGL initialization fails.
   - `Spectrum` is the default when no saved mode exists.
@@ -344,17 +345,80 @@ Updates and local services:
   on EOF so an abrupt Tauri exit cannot leave an orphan Node process behind.
 - Validate MCP tool discovery and `structuredContent` through `@ai-sdk/mcp`
   without requiring a provider API key.
-- MCP exposes 43 tools covering playback transport, album/track/artist search,
-  library summaries, queue operations, favorites, playlist mutation, and tag or
-  artwork updates.
+- MCP exposes 51 tools covering playback transport, album/track/artist search,
+  local semantic/hybrid track search, mood recommendations, search-index
+  status/build, block/track lyrics sentiment reads, library summaries, queue
+  operations, favorites, playlist create/add/delete mutation, and tag or artwork
+  updates.
+- `search_lyrics_by_mood` is a read tool for saved-lyrics meaning, emotion,
+  scene, or remembered-line searches. `play_lyrics_by_mood` is a playback tool
+  that selects a lyrics-only hybrid queue and starts it in one server operation.
+  Use `search_library` for an exact title or artist alone and `play_search` for
+  exact title, album, or artist playback. The voice tools map mood strength to
+  0.08, 0.15, or 0.30 sentiment weight; a current-track relative target keeps
+  the reference coverage and uses the same score, or score plus/minus 0.25
+  clamped to -1 through 1. They return compact excerpts rather than full lyrics
+  and distinguish `ok`, `playing`, `noMatch`, `indexNotReady`,
+  `needsCurrentTrack`, and `referenceSentimentUnavailable`. An unready index
+  neither downloads/builds a model nor changes the queue.
+- The semantic-search index is a rebuildable per-library SQLite cache. It stores
+  multilingual embeddings for track metadata and overlapping saved-lyrics
+  chunks, reuses unchanged document embeddings, and warm-loads one generation
+  into memory for low-latency repeated MCP searches. Each index is stored beside
+  its library database as `.musical/search_index.sqlite3` on both Windows and
+  macOS.
+- Saved lyrics are also analyzed for Japanese sentiment in source-order,
+  non-overlapping blocks. Runs of blank lines delimit stanzas; stanzas longer
+  than six non-empty lines are split every six lines. CRLF is normalized to LF,
+  while only the analysis copy is NFKC-normalized, preserving 1-based source
+  line spans. Track aggregation is weighted by scored-token count and exposes
+  eligible/matched/scored and positive/negative counts, coverage, and an
+  `unknown` diagnostic fallback.
+- The analyzer uses exact Lindera, lindera-dictionary, and lindera-ipadic 5.1.0
+  with embedded `mecab-ipadic-2.7.0-20250920`, plus exact
+  unicode-normalization 0.1.25 for the NFKC analysis copy. Their versions and
+  the embedded archive's MD5/SHA-256 participate in the analyzer ID so a
+  pipeline generation change invalidates cached analysis. It obtains the two
+  official Tohoku University Inui/Okazaki sentiment lexicons over HTTPS on first
+  use, verifies fixed SHA-256 hashes, and atomically stores them in the app cache.
+  Raw lexicons are not bundled. Download, hash, or parse failure leaves semantic
+  indexing usable and produces `unknown` without changing the existing rank.
+- Search-index schema v2 stores track and block sentiment in independent cache
+  tables; the overlapping embedding chunks and library database remain
+  unchanged. `search_tracks` accepts a sentiment weight from 0 to 0.3 (default
+  0), while `recommend_tracks` defaults it to 0.15. The effective weight is the
+  requested weight multiplied by the lower query/track coverage. Weight 0,
+  coverage 0, or an unavailable lexicon preserves the prior score and ordering
+  bit-for-bit.
+- Library load, completed folder scans, tag changes, and favorite/rating changes
+  schedule a deduplicated background refresh. The first required build downloads
+  five `intfloat/multilingual-e5-small` artifacts from pinned commit
+  `614241f622f53c4eeff9890bdc4f31cfecc418b3`, verifies their fixed size/SHA-256
+  manifest before and after FastEmbed initialization, and atomically pins its
+  cache ref. The model identity also includes an embedding-pipeline identity:
+  exact FastEmbed 5.17.4 and tokenizers 0.22.2, mean pooling, maximum length
+  512, the E5 `query: ` and `passage: ` prefixes, and FastEmbed's post-pooling
+  L2 normalization. Lyrics
+  text participates in source revision. Analyzer-ID mismatch
+  keeps the old semantic generation searchable but disables stale sentiment
+  blending, while retryable `unknown` analysis is retried once after the 60-second
+  cooldown through the single-flight refresh coordinator. Explicit status checks
+  and playback alone do not initialize the model. If `HF_HOME` is set, model
+  initialization is rejected rather than allowing FastEmbed 5.17 to mutate that
+  shared Hugging Face cache; launch Musical without `HF_HOME` to use its private
+  application cache.
 
 Remote browser control:
 
 - Publish player state to the local desktop HTTP server.
 - Poll remote browser commands and apply them to the desktop player.
 - Report evicted command gaps and recover desktop playback/library state from the latest server snapshots.
-- Serve library snapshots, lyrics, media files, audio analysis segments, player
-  state, and command queues over `/api/*`.
+- Serve library snapshots, lyrics, lyrics sentiment analysis, media files, audio
+  analysis segments, player state, and command queues over `/api/*`.
+- Expose block/track sentiment through Tauri `track_lyrics_analysis`, `GET` or
+  `POST /api/track_lyrics_analysis`, and the read-only MCP
+  `get_track_lyrics_analysis { trackId }` tool. Missing tracks, missing lyrics,
+  absent indexes, and unavailable lexicons do not panic.
 - Serve media files with HTTP byte-range support for stream clients.
 - Restrict `/api/media` to canonical audio and image files inside the configured library root.
 - Deny non-local HTTP access unless LAN access is explicitly enabled.
@@ -453,6 +517,12 @@ Mock browser controls and visualizer:
 Run the desktop local server first, then open the served app from the desktop
 server, normally `http://127.0.0.1:1422/` locally or the LAN URL after enabling
 LAN access.
+
+In debug builds, the local server serves the current workspace `dist` with
+no-cache headers and falls back to the Cargo-embedded bundle only when the disk
+build is unavailable. Release builds continue to serve the embedded bundle.
+This selection applies only to frontend assets; API routes including
+`/api/track_analysis_bytes` and remote-playback synchronization are unchanged.
 
 What it can do:
 

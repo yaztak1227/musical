@@ -278,6 +278,11 @@
   <message key="playlists.moveTrackUp">Переместить {track} вверх</message>
   <message key="playlists.moveTrackDown">Переместить {track} вниз</message>
   <message key="playlists.jumpToAlbum">Показать альбом {album}</message>
+  <message key="playlists.trackActions">Действия для {track}</message>
+  <message key="playlists.showAlbum">Показать альбом</message>
+  <message key="playlists.moveUp">Переместить вверх</message>
+  <message key="playlists.moveDown">Переместить вниз</message>
+  <message key="playlists.remove">Удалить из плейлиста</message>
   <message key="playlists.missingTrack">Отсутствует трек</message>
   <message key="playlists.missingTrackCount">{count} отсутствует</message>
   <message key="playlists.reloadToRecover">Перезагрузите после восстановления файла.</message>

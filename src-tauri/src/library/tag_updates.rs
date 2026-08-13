@@ -74,11 +74,16 @@ pub fn update_album_tags(
         request.album_id
     };
 
-    Ok(AlbumTagUpdateResult {
+    let result = AlbumTagUpdateResult {
         album_id: updated_album_id,
         updated_files: updated_paths.len(),
         failed_files,
-    })
+    };
+    drop(connection);
+    if result.updated_files > 0 {
+        crate::search_index::schedule_refresh(app, true);
+    }
+    Ok(result)
 }
 
 pub fn update_track_tags(
@@ -122,10 +127,13 @@ pub fn update_track_tags(
         genre,
     )?;
 
-    Ok(TrackTagUpdateResult {
+    let result = TrackTagUpdateResult {
         track_id: existing_track.uuid,
         album_id: existing_track.album_group_key,
-    })
+    };
+    drop(connection);
+    crate::search_index::schedule_refresh(app, true);
+    Ok(result)
 }
 
 pub fn update_track_artwork(
@@ -267,11 +275,14 @@ pub fn update_track_user_state(
         )
         .map_err(|error| format!("library.error.userStateWrite\t{error}"))?;
 
-    Ok(TrackUserStateUpdateResult {
+    let result = TrackUserStateUpdateResult {
         track_id: request.track_id,
         is_favorite: request.is_favorite,
         rating: request.rating,
-    })
+    };
+    drop(connection);
+    crate::search_index::schedule_refresh(app, true);
+    Ok(result)
 }
 
 pub(super) fn load_album_for_update(

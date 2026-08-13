@@ -1,5 +1,12 @@
 import { expect, test } from "@playwright/test";
+import { readFileSync } from "node:fs";
 import { compareVersions, isNewerVersion } from "../../src/lib/version";
+
+const packageVersion = (
+  JSON.parse(
+    readFileSync(new URL("../../package.json", import.meta.url), "utf8"),
+  ) as { version: string }
+).version;
 
 test("compares release and prerelease versions", () => {
   expect(compareVersions("0.4.1", "0.4.0")).toBe(1);
@@ -17,5 +24,5 @@ test("accepts only a strictly newer update version", () => {
 
 test("shows the current version in the window title", async ({ page }) => {
   await page.goto("/");
-  await expect(page).toHaveTitle("Musical v0.4.1");
+  await expect(page).toHaveTitle(`Musical v${packageVersion}`);
 });

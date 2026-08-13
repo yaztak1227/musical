@@ -155,6 +155,16 @@
     overflow-y: auto;
   }
 
+  .playlist-detail-panel {
+    grid-template-columns: 112px minmax(0, 1fr);
+  }
+
+  .playlist-detail-panel .album-artwork-edit-target,
+  .playlist-detail-panel .playlist-detail-art {
+    width: 112px;
+    max-width: 112px;
+  }
+
   .album-art {
     max-width: 112px;
     justify-self: start;
@@ -238,6 +248,17 @@
   .album-panel {
     gap: 16px;
     padding: 20px;
+  }
+
+  .playlist-detail-panel {
+    grid-template-columns: 64px minmax(0, 1fr);
+    gap: 12px;
+  }
+
+  .playlist-detail-panel .album-artwork-edit-target,
+  .playlist-detail-panel .playlist-detail-art {
+    width: 64px;
+    max-width: 64px;
   }
 
   h1 {

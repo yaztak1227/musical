@@ -10,7 +10,9 @@ the library snapshot so they can be displayed and played without blocking normal
 
 - Playlists can be created with a user-entered name, renamed, deleted, reloaded, and assigned artwork.
 - Tracks can be added one at a time or in album-sized batches. Existing tracks are shown as already added and are not duplicated.
-- Playlist detail supports play, add-track navigation, album jump, track removal, and up/down reordering.
+- Playlist detail uses a compact summary header and two-line track titles. Duration and lyrics remain directly available; album jump, removal, and up/down reordering live in each track's actions menu so narrow panels preserve readable metadata.
+- Track action menus defer blur dismissal until focus settles, so WebKit can activate menu commands even when its blur event omits `relatedTarget`.
+- Removing a track rewrites and reloads only the selected playlist, replaces that playlist in UI state, and publishes a targeted `refresh-playlist` command. It does not rebuild or apply a full library snapshot.
 - Empty playlists disable play actions and explain that tracks must be added first.
 - Missing playlist entries are preserved as `missingTrackPaths` so users can restore files and reload the library.
 - Resolved tracks retain their original playlist-file indexes, so remove and reorder operations remain accurate when missing entries occur between playable tracks.
@@ -26,4 +28,4 @@ the library snapshot so they can be displayed and played without blocking normal
 ## Tests
 
 - Rust unit tests cover corrupt `.mplaylist` tolerance and M3U/PLS path parsing.
-- Playwright covers playlist create, duplicate add state, playlist source playback display, rename, batch add, reorder, remove, album jump, and delete.
+- Rust covers targeted playlist reload after removal. Playwright covers playlist create, duplicate add state, playlist source playback display, rename, batch add, reorder, remove without resetting playback, WebKit-style null-target blur, album jump, and delete.

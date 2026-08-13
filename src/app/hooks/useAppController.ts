@@ -111,6 +111,7 @@ import {
   createPlaylist,
   deletePlaylist,
   loadLibrarySnapshot,
+  loadPlaylist,
   loadTrackLyrics as loadTrackLyricsFromRepository,
   removePlaylistTrack,
   renamePlaylist,
@@ -162,6 +163,7 @@ import type {
 } from "./useAppControllerTypes";
 import { areEntityIdArraysEqual, waitForNextPaint } from "./useAppControllerUtils";
 import { dispatchRemotePlayerCommand } from "./remotePlayerCommandDispatcher";
+import { getCommandEntityId } from "../../features/remote-player/domain/remoteCommand";
 import { useRemoteAudioAnalysisCache } from "./useRemoteAudioAnalysisCache";
 import {
   hasAlbumTagChanges as getHasAlbumTagChanges,
@@ -701,6 +703,14 @@ export function useAppController() {
     setLibraryLoadedInfo(snapshot);
   }
 
+  function applyPlaylistUpdate(updatedPlaylist: Playlist) {
+    setPlaylists((currentPlaylists) =>
+      currentPlaylists.map((playlist) =>
+        playlist.id === updatedPlaylist.id ? updatedPlaylist : playlist,
+      ),
+    );
+  }
+
   function setLibraryLoadedInfo(snapshot: LibrarySnapshot) {
     setLibraryInfo(
       snapshot.albums.length > 0
@@ -824,6 +834,22 @@ export function useAppController() {
     void sendRemotePlayerCommand("refresh-library").catch((error: unknown) => {
       setPlaybackError(String(error));
     });
+  }
+
+  function notifyPlaylistChanged(playlistId: EntityId) {
+    void sendRemotePlayerCommand("refresh-playlist", { playlistId }).catch((error: unknown) => {
+      setPlaybackError(String(error));
+    });
+  }
+
+  async function refreshPlaylist(playlistId: EntityId) {
+    try {
+      if (!hasRealBackend) return;
+      const updatedPlaylist = await loadPlaylist(playlistId);
+      applyPlaylistUpdate(updatedPlaylist);
+    } catch (error) {
+      setLibraryInfo(toI18nError(error));
+    }
   }
 
   async function handleScan() {
@@ -1155,18 +1181,28 @@ export function useAppController() {
         setPlaylists((currentPlaylists) =>
           currentPlaylists.map((currentPlaylist) => {
             if (currentPlaylist.id !== playlist.id) return currentPlaylist;
-            const tracks = currentPlaylist.tracks.filter((_, index) => index !== trackIndex);
-            return { ...currentPlaylist, trackCount: tracks.length, tracks };
+            const displayIndex = currentPlaylist.trackIndexes?.indexOf(trackIndex) ?? trackIndex;
+            if (displayIndex < 0 || displayIndex >= currentPlaylist.tracks.length) return currentPlaylist;
+            const tracks = currentPlaylist.tracks.filter((_, index) => index !== displayIndex);
+            const trackIndexes = currentPlaylist.trackIndexes
+              ?.filter((_, index) => index !== displayIndex)
+              .map((sourceIndex) => sourceIndex > trackIndex ? sourceIndex - 1 : sourceIndex);
+            return {
+              ...currentPlaylist,
+              trackCount: Math.max(0, currentPlaylist.trackCount - 1),
+              trackIndexes,
+              tracks,
+            };
           }),
         );
         setLibraryInfo({ key: "status.playlistTrackRemoved" });
         return;
       }
 
-      const snapshot = await removePlaylistTrack(playlist.id, trackIndex);
-      applyPlaylistSnapshot(snapshot);
+      const updatedPlaylist = await removePlaylistTrack(playlist.id, trackIndex);
+      applyPlaylistUpdate(updatedPlaylist);
       setSelectedPlaylistId(playlist.id);
-      notifyLibraryChanged();
+      notifyPlaylistChanged(playlist.id);
       setLibraryInfo({ key: "status.playlistTrackRemoved" });
     } catch (error) {
       setLibraryInfo(toI18nError(error));
@@ -1200,14 +1236,8 @@ export function useAppController() {
     }
   }
 
-  async function reloadPlaylists() {
-    try {
-      const snapshot = hasRealBackend ? await loadLibrarySnapshot() : { albums, playlists, lastScanPath: libraryPath || null, databasePath: "" };
-      applyPlaylistSnapshot(snapshot);
-      notifyLibraryChanged();
-    } catch (error) {
-      setLibraryInfo(toI18nError(error));
-    }
+  async function reloadSelectedPlaylist() {
+    if (selectedPlaylist) await refreshPlaylist(selectedPlaylist.id);
   }
 
   function openAlbumFromPlaylist(album: Album) {
@@ -2191,6 +2221,7 @@ export function useAppController() {
       playPlayback,
       playPreviousTrack,
       refreshLibrary,
+      refreshPlaylist,
       repeatMode,
       resetPlayerPosition: () => playerBarRef.current?.resetPosition(),
       seekTo,
@@ -2344,6 +2375,9 @@ export function useAppController() {
             lastLibraryCommandIdRef.current = Math.max(lastLibraryCommandIdRef.current, command.id);
             if (command.commandType === "refresh-library") {
               void refreshLibrary();
+            } else if (command.commandType === "refresh-playlist") {
+              const playlistId = getCommandEntityId(command, "playlistId");
+              if (playlistId !== null) void refreshPlaylist(playlistId);
             }
           }
         })
@@ -2498,7 +2532,7 @@ export function useAppController() {
     queue,
     remoteAccess,
     remotePlaybackClockRef,
-    reloadPlaylists,
+    reloadSelectedPlaylist,
     removeTrackFromSelectedPlaylist,
     renameSelectedPlaylist,
     repeatMode,

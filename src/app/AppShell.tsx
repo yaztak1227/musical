@@ -257,7 +257,7 @@ export function AppShell({ controller }: AppShellProps) {
     queue,
     remoteAccess,
     remotePlaybackClockRef,
-    reloadPlaylists,
+    reloadSelectedPlaylist,
     removeTrackFromSelectedPlaylist,
     renameSelectedPlaylist,
     repeatMode,
@@ -533,7 +533,7 @@ export function AppShell({ controller }: AppShellProps) {
             onChooseArtwork={choosePlaylistArtwork}
             onPlayTrack={playTrack}
             onPlayPlaylist={playPlaylist}
-            onReloadPlaylist={() => void reloadPlaylists()}
+            onReloadPlaylist={() => void reloadSelectedPlaylist()}
             onRemoveTrack={(playlist, trackIndex) => void removeTrackFromSelectedPlaylist(playlist, trackIndex)}
             onRenamePlaylist={(playlist, name) => void renameSelectedPlaylist(playlist, name)}
             onReorderTrack={(playlist, fromIndex, toIndex) => void reorderTrackInSelectedPlaylist(playlist, fromIndex, toIndex)}

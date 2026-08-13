@@ -231,6 +231,12 @@ pub struct DeletePlaylistRequest {
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct LoadPlaylistRequest {
+    pub playlist_id: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct RemovePlaylistTrackRequest {
     pub playlist_id: String,
     pub track_index: usize,

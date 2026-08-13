@@ -4,6 +4,8 @@ mod atomic_file;
 mod audio_analysis;
 mod library;
 mod local_server;
+mod lyrics_sentiment;
+mod search_index;
 
 use library::{
     AddTrackToPlaylistRequest, AddTracksToPlaylistRequest, AlbumArtworkUpdateRequest,
@@ -11,10 +13,10 @@ use library::{
     ArtworkCandidatePreviewRequest, ArtworkCandidatePreviewResult, ArtworkCandidateSearchRequest,
     ArtworkCandidateSearchResult, ArtworkReleaseInspectRequest, ArtworkReleaseInspectResult,
     CreatePlaylistFromAlbumRequest, CreatePlaylistRequest, DeletePlaylistRequest, LibrarySnapshot,
-    PlaylistArtworkUpdateRequest, PlaylistArtworkUpdateResult, RemovePlaylistTrackRequest,
-    RenamePlaylistRequest, ReorderPlaylistTrackRequest, ScanSummary, TrackArtworkUpdateRequest,
-    TrackArtworkUpdateResult, TrackTagUpdateRequest, TrackTagUpdateResult,
-    TrackUserStateUpdateRequest, TrackUserStateUpdateResult,
+    PlaylistArtworkUpdateRequest, PlaylistArtworkUpdateResult, PlaylistRecord,
+    RemovePlaylistTrackRequest, RenamePlaylistRequest, ReorderPlaylistTrackRequest, ScanSummary,
+    TrackArtworkUpdateRequest, TrackArtworkUpdateResult, TrackTagUpdateRequest,
+    TrackTagUpdateResult, TrackUserStateUpdateRequest, TrackUserStateUpdateResult,
 };
 use log::{error, info, LevelFilter};
 
@@ -29,8 +31,21 @@ fn library_snapshot(app: tauri::AppHandle) -> Result<LibrarySnapshot, String> {
 }
 
 #[tauri::command]
+fn load_playlist(app: tauri::AppHandle, playlist_id: String) -> Result<PlaylistRecord, String> {
+    library::load_playlist(&app, &playlist_id)
+}
+
+#[tauri::command]
 fn track_lyrics(app: tauri::AppHandle, track_id: String) -> Result<Option<String>, String> {
     library::load_track_lyrics(&app, &track_id)
+}
+
+#[tauri::command]
+fn track_lyrics_analysis(
+    app: tauri::AppHandle,
+    track_id: String,
+) -> Result<lyrics_sentiment::TrackLyricsAnalysis, String> {
+    search_index::track_lyrics_analysis(&app, &track_id)
 }
 
 #[tauri::command]
@@ -92,7 +107,7 @@ fn remove_playlist_track(
     app: tauri::AppHandle,
     playlist_id: String,
     track_index: usize,
-) -> Result<LibrarySnapshot, String> {
+) -> Result<PlaylistRecord, String> {
     library::remove_playlist_track(
         &app,
         RemovePlaylistTrackRequest {
@@ -263,6 +278,7 @@ pub fn run() {
             delete_playlist,
             inspect_artwork_release,
             library_snapshot,
+            load_playlist,
             preview_artwork_candidate,
             remove_playlist_track,
             rename_playlist,
@@ -270,6 +286,7 @@ pub fn run() {
             scan_music_folder,
             search_artwork_candidates,
             track_lyrics,
+            track_lyrics_analysis,
             update_album_artwork,
             update_album_tags,
             update_playlist_artwork,

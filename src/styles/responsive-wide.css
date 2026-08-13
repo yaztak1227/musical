@@ -21,6 +21,21 @@
     padding: 20px;
   }
 
+  .playlist-detail-panel {
+    grid-template-columns: 72px minmax(0, 1fr);
+    gap: 14px;
+  }
+
+  .playlist-detail-panel .album-artwork-edit-target,
+  .playlist-detail-panel .playlist-detail-art {
+    width: 72px;
+    max-width: 72px;
+  }
+
+  .playlist-detail-panel .album-title-edit-button h2 {
+    font-size: 1.25rem;
+  }
+
   .player-bar {
     grid-template-columns: minmax(0, 0.75fr) minmax(320px, 1.6fr) minmax(0, 0.85fr) 72px;
     gap: 12px;

@@ -49,6 +49,7 @@ export type RemotePlayerCommandType =
   | "play-track"
   | "previous"
   | "refresh-library"
+  | "refresh-playlist"
   | "seek"
   | "select-album"
   | "select-track"

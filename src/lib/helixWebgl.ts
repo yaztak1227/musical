@@ -29,7 +29,7 @@ type UpdateControlledUniform<T> = { value: T; needsUpdate?: boolean };
 
 const bandCount = 8;
 const historyFrameCount = 32;
-const shaderColorCount = 6;
+const shaderColorCount = 8;
 const captureIntervalMs = 58;
 const activeRenderIntervalMs = 1000 / 30;
 const reducedMotionRenderIntervalMs = 1000 / 18;
@@ -53,7 +53,7 @@ const fragmentShader = `
   varying vec2 vUv;
   uniform float uActivity;
   uniform float uBands[8];
-  uniform vec3 uColors[6];
+  uniform vec3 uColors[8];
   uniform float uHistory[256];
   uniform float uHistoryActivity[32];
   uniform float uReducedMotion;
@@ -63,6 +63,11 @@ const fragmentShader = `
 
   const float PI = 3.141592653589793;
   const float TAU = 6.283185307179586;
+  const int HELIX_LAYER_COUNT = 3;
+  const int STRAND_FILAMENT_COUNT = 6;
+  const int RUNG_FILAMENT_COUNT = 3;
+  const float MAX_OUTPUT_ALPHA = 0.84;
+  const float MAX_OUTPUT_CHANNEL = 0.88;
 
   float hash11(float value) {
     value = fract(value * 0.1031);
@@ -105,12 +110,23 @@ const fragmentShader = `
   }
 
   vec3 helixColor(float progress) {
-    float position = fract(progress) * 5.0;
+    float position = clamp(progress, 0.0, 0.9999) * 7.0;
     if (position < 1.0) return mix(uColors[0], uColors[1], smoothstep(0.0, 1.0, position));
     if (position < 2.0) return mix(uColors[1], uColors[2], smoothstep(0.0, 1.0, position - 1.0));
     if (position < 3.0) return mix(uColors[2], uColors[3], smoothstep(0.0, 1.0, position - 2.0));
     if (position < 4.0) return mix(uColors[3], uColors[4], smoothstep(0.0, 1.0, position - 3.0));
-    return mix(uColors[4], uColors[5], smoothstep(0.0, 1.0, position - 4.0));
+    if (position < 5.0) return mix(uColors[4], uColors[5], smoothstep(0.0, 1.0, position - 4.0));
+    if (position < 6.0) return mix(uColors[5], uColors[6], smoothstep(0.0, 1.0, position - 5.0));
+    return mix(uColors[6], uColors[7], smoothstep(0.0, 1.0, position - 6.0));
+  }
+
+  float spatialColorProgress(float x, float progress, float layoutScale) {
+    float visibleHalfWidth = 0.78 * layoutScale + 0.32;
+    return clamp(
+      0.5 + x / max(0.2, visibleHalfWidth * 2.0) + (progress - 0.5) * 0.035,
+      0.0,
+      1.0
+    );
   }
 
   float frequencyEnergy(float progress) {
@@ -175,6 +191,7 @@ const fragmentShader = `
     float rowNumber = floor(rowCoordinate + 0.5);
     float rowProgress = rowNumber / 31.0;
     float rowDistance = abs(helixProgress - rowProgress) * (top - bottom);
+    float rowDelta = point.y - mix(bottom, top, rowProgress);
     int historyIndex = int(clamp(floor((1.0 - rowProgress) * 31.0 + 0.5), 0.0, 31.0));
     float historyActivity = uHistoryActivity[historyIndex];
     float bassEnergy = frequencyEnergy(0.08);
@@ -191,6 +208,7 @@ const fragmentShader = `
     float accumulatedAlpha = 0.0;
     float centralCenter = 0.0;
     float centralRadius = 0.172 * layoutScale;
+    float sharedColorProgress = spatialColorProgress(point.x, helixProgress, layoutScale);
 
     // Two low-frequency flow fields create broad, translucent curtains instead
     // of a flat halo. They are shared by every helix to keep the shader cheap.
@@ -211,8 +229,8 @@ const fragmentShader = `
       * (0.105 + uActivity * 0.08 + midEnergy * 0.055)
       * mix(1.0, 0.72, uReducedMotion)
       * verticalMask;
-    accumulated += helixColor(0.08 + helixProgress * 0.13) * curtainBody * cyanVeil;
-    accumulated += helixColor(0.64 + helixProgress * 0.12) * curtainBody * violetVeil;
+    accumulated += helixColor(sharedColorProgress - 0.025) * curtainBody * cyanVeil;
+    accumulated += helixColor(sharedColorProgress + 0.035) * curtainBody * violetVeil;
     accumulatedAlpha += curtainBody * (cyanVeil + violetVeil) * 0.28;
 
     // A handful of analytic flow paths adds visible smoke ribbons without a
@@ -236,12 +254,12 @@ const fragmentShader = `
       )
         * mix(1.0, 0.72, uReducedMotion)
         * verticalMask;
-      vec3 veilColor = helixColor(0.04 + veilValue * 0.19 + helixProgress * 0.12);
+      vec3 veilColor = helixColor(spatialColorProgress(veilPath, helixProgress, layoutScale));
       accumulated += veilColor * veilIntensity;
       accumulatedAlpha += veilIntensity * 0.36;
     }
 
-    for (int layer = 0; layer < 3; layer++) {
+    for (int layer = 0; layer < HELIX_LAYER_COUNT; layer++) {
       float layerValue = float(layer);
       float centerWeight = 1.0 - abs(layerValue - 1.0);
       float baseCenter = (layerValue - 1.0) * 0.47 * layoutScale;
@@ -306,8 +324,18 @@ const fragmentShader = `
         * opacity
         * mix(1.0, 0.7, uReducedMotion);
 
-      vec3 firstColor = helixColor(helixProgress * 0.3 + layerValue * 0.23 + 0.02);
-      vec3 secondColor = helixColor(helixProgress * 0.3 + layerValue * 0.23 + 0.48);
+      float firstColorProgress = clamp(
+        0.5 + (firstX - center) / max(0.04, radius * 2.16) + (helixProgress - 0.5) * 0.035,
+        0.0,
+        1.0
+      );
+      float secondColorProgress = clamp(
+        0.5 + (secondX - center) / max(0.04, radius * 2.16) + (helixProgress - 0.5) * 0.035,
+        0.0,
+        1.0
+      );
+      vec3 firstColor = helixColor(firstColorProgress);
+      vec3 secondColor = helixColor(secondColorProgress);
       vec3 mistColor = mix(firstColor, secondColor, 0.46 + 0.28 * sin(phase));
       accumulated += mistColor * mist;
       float sheetIntensity = (0.035 + localFog * 0.09 + fogFilaments * 0.055)
@@ -318,18 +346,63 @@ const fragmentShader = `
       accumulatedAlpha += mist * 0.3;
       accumulatedAlpha += (firstSheet + secondSheet) * sheetIntensity * 0.22;
 
-      float coreWidth = mix(220.0, 390.0, centerWeight) / (1.0 + pixelSize * 74.0);
-      float firstCore = exp(-firstDistance * coreWidth) * (0.3 + firstDepth * 0.7);
-      float secondCore = exp(-secondDistance * coreWidth) * (0.3 + secondDepth * 0.7);
-      float firstGlow = exp(-firstDistance * mix(39.0, 58.0, centerWeight)) * (0.25 + firstDepth * 0.75);
-      float secondGlow = exp(-secondDistance * mix(39.0, 58.0, centerWeight)) * (0.25 + secondDepth * 0.75);
-      float strandIntensity = (0.29 + uActivity * 0.46 + historyActivity * 0.32)
+      // Each backbone is a bundle of independently wandering hairs rather than
+      // one wide neon rail. Stable seeds keep the hairs continuous while two
+      // motion scales produce the slow drift and fine aurora flutter.
+      float firstHairBundle = 0.0;
+      float secondHairBundle = 0.0;
+      for (int filament = 0; filament < STRAND_FILAMENT_COUNT; filament++) {
+        float filamentValue = float(filament);
+        float filamentSeed = hash11(layerValue * 31.7 + filamentValue * 9.13 + 4.6);
+        float lane = (filamentValue - 2.5) / 2.5;
+        float filamentBandProgress = clamp(
+          (filamentValue + layerValue * 1.7) / 9.4,
+          0.0,
+          1.0
+        );
+        float filamentEnergy = historyFrequencyEnergy(historyIndex, filamentBandProgress);
+        float filamentRise = clamp(
+          historyFrequencyRise(historyIndex, filamentBandProgress) * 7.2,
+          0.0,
+          1.0
+        );
+        float laneSpread = lane * mix(0.008, 0.013, centerWeight)
+          * mix(0.78, 1.18, filamentSeed);
+        float longWander = sin(
+          helixProgress * TAU * mix(1.45, 2.8, filamentSeed)
+            + layerPhase
+            + filamentSeed * 17.0
+            + motion * mix(0.052, 0.11, filamentSeed)
+        ) * mix(0.0018, 0.0046, filamentSeed)
+          * (0.82 + filamentEnergy * 0.42 + filamentRise * 0.55);
+        float fineFlutter = sin(
+          helixProgress * TAU * mix(7.0, 13.0, filamentSeed)
+            - motion * mix(0.12, 0.27, filamentSeed)
+            + filamentSeed * 43.0
+        ) * mix(0.00045, 0.00145, filamentSeed)
+          * mix(1.0, 0.28, uReducedMotion);
+        float firstHairX = firstX + laneSpread + longWander + fineFlutter;
+        float secondHairX = secondX - laneSpread
+          + longWander * (filamentSeed * 0.42 - 0.2)
+          - fineFlutter;
+        float hairWidth = mix(690.0, 1040.0, filamentSeed)
+          / (1.0 + pixelSize * 68.0);
+        float hairWeight = mix(0.48, 0.84, filamentSeed)
+          * (0.62 + filamentEnergy * 0.52 + filamentRise * 0.62);
+        firstHairBundle += exp(-abs(point.x - firstHairX) * hairWidth) * hairWeight;
+        secondHairBundle += exp(-abs(point.x - secondHairX) * hairWidth) * hairWeight;
+      }
+      firstHairBundle *= 0.76 * (0.3 + firstDepth * 0.7);
+      secondHairBundle *= 0.76 * (0.3 + secondDepth * 0.7);
+      float firstGlow = exp(-firstDistance * mix(36.0, 51.0, centerWeight)) * (0.25 + firstDepth * 0.75);
+      float secondGlow = exp(-secondDistance * mix(36.0, 51.0, centerWeight)) * (0.25 + secondDepth * 0.75);
+      float strandIntensity = (0.27 + uActivity * 0.43 + historyActivity * 0.31)
         * opacity
         * (0.78 + localFog * 0.22)
         * mix(1.0, 0.9, centerWeight);
-      accumulated += firstColor * (firstCore + firstGlow * 0.27) * strandIntensity;
-      accumulated += secondColor * (secondCore + secondGlow * 0.27) * strandIntensity;
-      accumulatedAlpha += (firstCore + secondCore + (firstGlow + secondGlow) * 0.08)
+      accumulated += firstColor * (firstHairBundle + firstGlow * 0.12) * strandIntensity;
+      accumulated += secondColor * (secondHairBundle + secondGlow * 0.12) * strandIntensity;
+      accumulatedAlpha += (firstHairBundle + secondHairBundle + (firstGlow + secondGlow) * 0.045)
         * strandIntensity * 0.42;
 
       float minimumX = min(rowFirstX, rowSecondX);
@@ -342,7 +415,24 @@ const fragmentShader = `
       float bandRise = layer == 1
         ? clamp(historyFrequencyRise(historyIndex, rungProgress) * 5.2, 0.0, 1.0)
         : 0.0;
-      float rungLine = exp(-rowDistance * mix(245.0, 460.0, centerWeight)) * withinRung;
+      float rungHairBundle = 0.0;
+      for (int filament = 0; filament < RUNG_FILAMENT_COUNT; filament++) {
+        float filamentValue = float(filament);
+        float rungFilamentSeed = hash11(rowNumber * 13.7 + layerValue * 7.1 + filamentValue * 19.3);
+        float rungLane = filamentValue - 1.0;
+        float rungFlutter = sin(
+          rungProgress * TAU * mix(2.2, 5.4, rungFilamentSeed)
+            + rowNumber * 0.37
+            + motion * mix(0.06, 0.18, rungFilamentSeed)
+        ) * mix(0.00035, 0.0011, rungFilamentSeed)
+          * mix(1.0, 0.3, uReducedMotion);
+        float rungOffsetY = rungLane * pixelSize * mix(0.7, 1.25, rungFilamentSeed) + rungFlutter;
+        float rungWidth = mix(520.0, 760.0, rungFilamentSeed)
+          / (1.0 + pixelSize * 42.0);
+        rungHairBundle += exp(-abs(rowDelta - rungOffsetY) * rungWidth)
+          * mix(0.5, 0.84, rungFilamentSeed);
+      }
+      float rungLine = rungHairBundle * withinRung;
       float rungGlow = exp(-rowDistance * mix(82.0, 146.0, centerWeight)) * withinRung;
       float rungSeed = hash11(rowNumber * 9.73 + layerValue * 17.4);
       float rungVariation = mix(0.34, 1.0, smoothstep(0.28, 0.78, rungSeed + bandEnergy * 0.24));
@@ -351,8 +441,8 @@ const fragmentShader = `
         * opacity
         * rungVariation
         * mix(1.0, 0.66, uReducedMotion);
-      vec3 rungColor = helixColor(rungProgress * 0.58 + rowProgress * 0.28 + layerValue * 0.12);
-      accumulated += rungColor * (rungIntensity + rungGlow * rungIntensity * 0.16);
+      vec3 rungColor = helixColor(clamp(rungProgress + (rowProgress - 0.5) * 0.035, 0.0, 1.0));
+      accumulated += rungColor * (rungIntensity + rungGlow * rungIntensity * 0.1);
       accumulatedAlpha += rungIntensity * 0.46;
 
       if (layer == 1) {
@@ -414,11 +504,11 @@ const fragmentShader = `
           * (waveRowEnvelope * 0.38 + waveRowHalo * 0.15)
           * (0.38 + historyActivity * 0.4)
           * mix(1.0, 0.22, uReducedMotion);
-        accumulated += helixColor(leftSourceProgress * 0.62 + rowProgress * 0.36 + 0.06)
+        accumulated += helixColor(clamp(leftSourceProgress * 0.94 + 0.03, 0.0, 1.0))
           * leftWaveIntensity;
-        accumulated += helixColor(rightSourceProgress * 0.62 + rowProgress * 0.36 + 0.06)
+        accumulated += helixColor(clamp(rightSourceProgress * 0.94 + 0.03, 0.0, 1.0))
           * rightWaveIntensity;
-        accumulated += helixColor(rowProgress * 0.36 + 0.18) * trailIntensity;
+        accumulated += helixColor(spatialColorProgress(point.x, rowProgress, layoutScale)) * trailIntensity;
         float waveIntensity = leftWaveIntensity + rightWaveIntensity + trailIntensity;
         accumulatedAlpha += waveIntensity * 0.38;
 
@@ -460,7 +550,7 @@ const fragmentShader = `
         float nodeGlow = exp(-radialDistance * 47.0);
         float nodeIntensity = (nodeCore + nodeGlow * 0.2)
           * (0.14 + bandEnergy * 0.82 + historyActivity * 0.24);
-        vec3 burstColor = helixColor(rowProgress * 0.72 + useSecondNode * 0.42 + 0.05);
+        vec3 burstColor = helixColor(mix(0.04, 0.96, useSecondNode));
         accumulated += burstColor * (rayIntensity + nodeIntensity);
         accumulatedAlpha += rayIntensity * 0.3 + nodeIntensity * 0.42;
       }
@@ -533,26 +623,33 @@ const fragmentShader = `
         + currentTreble * 0.08
         + uTransient * 0.12)
       * mix(1.0, 0.34, uReducedMotion);
-    accumulated += helixColor(particleBandProgress * 0.72 + helixProgress * 0.28) * particleIntensity;
+    accumulated += helixColor(clamp(particleBandProgress * 0.94 + 0.03, 0.0, 1.0)) * particleIntensity;
     accumulatedAlpha += particleIntensity * 0.54;
 
     float atmosphere = exp(-abs(point.x) * 2.1)
       * verticalMask
       * (0.018 + fogLarge * 0.03 + fogFilaments * 0.026)
       * (0.46 + bassEnergy * 0.26 + uActivity * 0.28);
-    accumulated += helixColor(helixProgress * 0.31 + 0.1) * atmosphere;
+    accumulated += helixColor(sharedColorProgress) * atmosphere;
     accumulatedAlpha += atmosphere * 0.22;
 
     accumulated *= verticalMask;
-    accumulated = vec3(1.0) - exp(-accumulated * 2.24);
+    accumulated = vec3(1.0) - exp(-accumulated * 1.78);
     float luminance = dot(accumulated, vec3(0.2126, 0.7152, 0.0722));
     accumulated = mix(vec3(luminance), accumulated, 1.18);
+    float peak = max(max(accumulated.r, accumulated.g), accumulated.b);
+    float floorChannel = min(min(accumulated.r, accumulated.g), accumulated.b);
+    float neutrality = smoothstep(0.58, 0.94, floorChannel / max(0.0001, peak));
+    float highlightLimit = mix(MAX_OUTPUT_CHANNEL, 0.78, neutrality);
+    float highlightCompression = smoothstep(highlightLimit * 0.82, highlightLimit, peak);
+    float peakScale = min(peak, highlightLimit) / max(0.0001, peak);
+    accumulated *= mix(1.0, peakScale, highlightCompression);
     float alpha = clamp(
       accumulatedAlpha * verticalMask + max(max(accumulated.r, accumulated.g), accumulated.b) * 0.52,
       0.0,
-      0.92
+      MAX_OUTPUT_ALPHA
     );
-    gl_FragColor = vec4(clamp(accumulated, 0.0, 0.92), alpha);
+    gl_FragColor = vec4(clamp(accumulated, 0.0, MAX_OUTPUT_CHANNEL), alpha);
   }
 `;
 

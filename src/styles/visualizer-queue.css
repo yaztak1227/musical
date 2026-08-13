@@ -10,7 +10,6 @@
   overflow: hidden;
   background: transparent;
   box-shadow: none;
-  opacity: 0.54;
   backdrop-filter: none;
   transition:
     background 180ms ease,
@@ -41,7 +40,6 @@
     linear-gradient(90deg, transparent, rgba(5, 6, 12, 0.28) 18%, rgba(255, 255, 255, 0.06)),
     linear-gradient(180deg, rgba(255, 255, 255, 0.05), rgba(255, 255, 255, 0.018));
   box-shadow: inset 22px 0 48px rgba(0, 0, 0, 0.18);
-  opacity: 1;
   backdrop-filter: blur(11px);
 }
 
@@ -240,10 +238,6 @@
 }
 
 @media (hover: none) {
-  .visualizer-queue-panel {
-    opacity: 0.86;
-  }
-
   .visualizer-queue-row {
     opacity: 0.74;
   }
@@ -256,4 +250,3 @@
     opacity: 0.78;
   }
 }
-

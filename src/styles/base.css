@@ -24,7 +24,7 @@
   --app-on-player: var(--primary-foreground);
   --library-panel-min: 240px;
   --albums-panel-min: 360px;
-  --album-panel-min: 280px;
+  --album-panel-min: 320px;
 }
 
 * {
@@ -138,4 +138,3 @@ select:focus-visible {
   white-space: nowrap;
   border: 0;
 }
-

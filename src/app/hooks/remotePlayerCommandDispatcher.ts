@@ -21,6 +21,7 @@ type RemotePlayerCommandContext = {
   playPreviousTrack: () => void;
   pausePlayback: () => void;
   refreshLibrary: () => Promise<void>;
+  refreshPlaylist: (playlistId: EntityId) => Promise<void>;
   repeatMode: RepeatMode;
   selectAlbum: (album: Album) => void;
   selectTrack: (track: Track) => void;
@@ -74,6 +75,10 @@ const remotePlayerCommandHandlers: Partial<Record<QueuedRemotePlayerCommand["com
   },
   "refresh-library": (_command, context) => {
     void context.refreshLibrary();
+  },
+  "refresh-playlist": (command, context) => {
+    const playlistId = getCommandEntityId(command, "playlistId");
+    if (playlistId !== null) void context.refreshPlaylist(playlistId);
   },
   seek: (command, context) => {
     const time = getCommandNumber(command, "time");

@@ -137,6 +137,7 @@
   - ダブルクリック/ダブルタップで非表示の Chibi orchestra scene を切り替え、通常ビジュアライザモードとしては保存しない。
 - ビジュアライザモードボタングループ:
   - `Wave`, `Spectrum`, `Circle`, `Peaks`, `Aurora`, `Starfield`, `DNA Helix`, `Flowing ink`, `VU meters` を選択する。DNA 螺旋の横線は低音から高音までの1時点の周波数分布で、新しい履歴を下側へ追加する。
+  - `DNA Helix` の専用WebGLは背骨を6本、横桟を3本の細い発光繊維束として描き、8帯域のenergy/riseで繊維ごとの揺れと輝度を変える。Auroraと同じ8 stop paletteを低域から高域へ使い、色相を保ったhighlight圧縮とRGB 0.88・alpha 0.84上限で白飛びを抑える。
   - `Peaks` は周波数の稜線を画面下端へ閉じる面として描く。`Aurora` は専用の Three.js/WebGL2 シェーダーで低域から高域までの5帯域を連続した色・エネルギーマップへ補間し、蛇行する発光上端、半透明の面光、細い光条、縦横のカラーグラデーション、控えめな bloom を重ねる。WebGL 初期化に失敗した場合は Canvas 2D へ fallback する。
   - `Starfield` は専用の Three.js/WebGL2 シェーダーで消失点から奥行きの異なる5層を放射し、長い光跡、中心付近の星間ダスト、色付きハロー、控えめな中心フレア、拡大する衝撃波リングを重ねる。周波数 bucket は `1,33,65,2,34,66…` 型で32方向へ散らし、隣接データが画面の一方向へ固まらないようにする。平滑化した方向別エネルギーは光跡の出現数、長さ、太さ、輝度を制御し、周波数の正の変化は光跡密度、中心光、衝撃波、bloom を一時的に強める。低域は加速度、中域は霞、高域は微細星と瞬きにも反映する。WebGL 初期化に失敗した場合は Canvas 2D へ fallback する。
   - 保存済みモードがない場合は `Spectrum` がデフォルトである。
@@ -276,14 +277,22 @@
 - MCP sidecar と internal bridge は loopback bind と per-process `X-Musical-MCP-Token` で保護する。
 - Tauri から MCP sidecar へ専用 stdin pipe を保持し、sidecar は EOF で終了する。これにより Tauri の異常終了時にも orphan Node process を残さない。
 - `@ai-sdk/mcp` による tool discovery と `structuredContent` 検証を provider API key なしで実行できる。
-- MCP は再生操作、album/track/artist 検索、library summary、queue 操作、favorites、playlist mutation、tag/artwork 更新を含む 43 tools を公開する。
+- MCP は再生操作、album/track/artist 検索、ローカル semantic/hybrid 曲検索、気分推薦、検索 index status/build、block/曲単位の歌詞感情分析read、library summary、queue 操作、favorites、playlist 作成・曲追加・削除、tag/artwork 更新を含む 51 tools を公開する。
+- `search_lyrics_by_mood`は保存済み歌詞の意味、感情、情景、覚えている一節から候補を返すread toolである。`play_lyrics_by_mood`はlyrics-only hybrid検索、再生時間、artist分散、queue確定、先頭曲からの再生を一つのserver operationで実行するplayback toolである。正確な曲名またはartistだけの検索には`search_library`、正確な曲名、album、artistの再生には`play_search`を使う。
+- 音声向けtoolは`moodStrength`を`subtle: 0.08`、`balanced: 0.15`、`strong: 0.30`へ写像する。`relativeToCurrent`は現在曲の感情scoreとcoverageを使い、`similar`は同値、`brighter`は`+0.25`、`darker`は`-0.25`を`-1..=1`へclampしたtargetでrankingする。`ok`、`playing`、`noMatch`、`indexNotReady`、`needsCurrentTrack`、`referenceSentimentUnavailable`を構造化statusとして返し、index未準備時は無断build/model downloadやqueue変更を行わない。応答は短い歌詞抜粋とcompactな感情summaryだけを含み、歌詞全文を含めない。
+- semantic search index はライブラリごとに再生成可能な SQLite cache として保持し、track metadata と overlap 付き保存済み歌詞 chunk の multilingual embedding を保存する。Windows/macOSとも各libraryの `.musical/search_index.sqlite3` に置き、変更のないdocument embeddingは再利用し、検索時は1 generationをmemoryへwarm loadする。
+- 保存済み歌詞はsource順の非overlap blockでも日本語感情極性を解析する。空行の連続をstanza境界とし、6非空行を超えるstanzaを6行ごとに分ける。CRLFはLFへ統一し、解析用copyだけをNFKC正規化して1-basedのsource行範囲を保持する。曲集約はscored token数で加重し、eligible/matched/scored token数、positive/negative数、coverage、解析不能時の`unknown`診断を公開する。
+- analyzerはexact Lindera/lindera-dictionary/lindera-ipadic 5.1.0、embedded `mecab-ipadic-2.7.0-20250920`、unicode-normalization 0.1.25を再利用する。crate versionとembedded archiveのMD5/SHA-256をanalyzer IDへ含め、pipeline世代変更時は旧analysis cacheを無効化する。東北大学 乾・岡崎研究室の公式感情辞書2ファイルは初回利用時にHTTPS取得し、固定SHA-256を検証してapplication cacheへatomic保存する。raw辞書は同梱しない。download、hash、parse失敗時もsemantic indexは利用でき、`unknown`へ縮退して既存順位を変えない。
+- search index schema v2ではblock/曲感情結果を独立cache tableへ保存し、overlap付きembedding chunkとlibrary DBを変更しない。`search_tracks`の感情weightは`0..=0.3`で既定`0`、`recommend_tracks`は同範囲で既定`0.15`とする。実効weightは指定値とquery/曲coverageの小さい方の積とし、weight `0`、coverage `0`、辞書利用不能なら従来scoreとsort順をbit-for-bitで維持する。
+- library読込み、folder scan完了、tag変更、favorite/rating変更は重複排除されたbackground refreshを予約する。最初に必要となったbuildで `intfloat/multilingual-e5-small` の固定commit `614241f622f53c4eeff9890bdc4f31cfecc418b3`から必要5fileを取得し、固定size/SHA-256 manifestをFastEmbed初期化の前後に検証してcache refをatomic固定する。model IDはartifact identityに加えて、exact FastEmbed 5.17.4とtokenizers 0.22.2、mean pooling、max length 512、E5 query/passage prefix、pool後のL2正規化を表すpipeline IDも含む。source revisionには歌詞本文を含める。analyzer ID不一致中は旧semantic generationを検索可能なまま旧感情値の混合だけを無効化し、retryableな`unknown`は60秒cooldown後にsingle-flight refreshで1回再試行する。status確認と通常再生だけではmodelを初期化しない。FastEmbed 5.17による共有cache変更を避けるため`HF_HOME`設定中はmodel初期化を拒否する。Musical専用application cacheを使うには`HF_HOME`未設定で起動する必要があり、通常launcherが設定済みの値を解除することはない。
 
 リモートブラウザ操作:
 
 - player state をローカル desktop HTTP server へ publish する。
 - remote browser command を poll し、desktop player に適用する。
 - 保持上限を超えて欠落した command を検出し、最新の server snapshot から desktop playback/library state を回復する。
-- `/api/*` 経由で library snapshot、lyrics、media file、audio analysis segment、player state、command queue を提供する。
+- `/api/*` 経由で library snapshot、lyrics、歌詞感情分析、media file、audio analysis segment、player state、command queue を提供する。
+- block/曲感情分析はTauri `track_lyrics_analysis`、`GET` / `POST /api/track_lyrics_analysis`、read-only MCP `get_track_lyrics_analysis { trackId }`で取得できる。track不在、歌詞なし、index不在、辞書利用不能でもpanicしない。
 - stream client 向けに media file を HTTP byte-range 対応で提供する。
 - `/api/media` は正規化後に設定済みライブラリ配下となる音声・画像ファイルだけを配信する。
 - LAN access が明示的に有効化されるまでは、非ローカル HTTP access を拒否する。
@@ -362,6 +371,8 @@ Mock browser のコントロールとビジュアライザ:
 ### Browser Backend Mode
 
 先に desktop local server を起動し、通常はローカルの `http://127.0.0.1:1422/`、または LAN access 有効後の LAN URL から、desktop server が配信する app を開く。
+
+開発buildのlocal serverはworkspace上の現在の `dist` をno-cacheで配信し、見つからない場合だけCargo compile時に埋め込まれたbundleへfallbackする。release buildは従来どおり埋め込みbundleを配信する。この切替はfrontend assetだけに適用し、`/api/track_analysis_bytes` を含むAPI経路とremote playback同期は共通のまま維持する。
 
 できること:
 

@@ -8,7 +8,7 @@ use rusqlite::{params, Connection, OptionalExtension};
 use std::{
     collections::{BTreeSet, HashMap},
     fs,
-    path::Path,
+    path::{Path, PathBuf},
     time::UNIX_EPOCH,
 };
 use tauri::{AppHandle, Emitter};
@@ -52,11 +52,12 @@ pub use models::{
     ArtworkCandidateSearchRequest, ArtworkCandidateSearchResult, ArtworkReleaseInspectRequest,
     ArtworkReleaseInspectResult, ArtworkReleaseTrack, ArtworkSearchProgress,
     CreatePlaylistFromAlbumRequest, CreatePlaylistRequest, DeletePlaylistRequest,
-    LibraryLoadProgress, LibraryScanProgress, LibrarySnapshot, PlaylistArtworkUpdateRequest,
-    PlaylistArtworkUpdateResult, PlaylistRecord, RemovePlaylistTrackRequest, RenamePlaylistRequest,
-    ReorderPlaylistTrackRequest, ScanSummary, TagWriteFailure, TrackArtworkUpdateRequest,
-    TrackArtworkUpdateResult, TrackRecord, TrackTagUpdateRequest, TrackTagUpdateResult,
-    TrackUserStateUpdateRequest, TrackUserStateUpdateResult, TvLibraryList, TvLibrarySummary,
+    LibraryLoadProgress, LibraryScanProgress, LibrarySnapshot, LoadPlaylistRequest,
+    PlaylistArtworkUpdateRequest, PlaylistArtworkUpdateResult, PlaylistRecord,
+    RemovePlaylistTrackRequest, RenamePlaylistRequest, ReorderPlaylistTrackRequest, ScanSummary,
+    TagWriteFailure, TrackArtworkUpdateRequest, TrackArtworkUpdateResult, TrackRecord,
+    TrackTagUpdateRequest, TrackTagUpdateResult, TrackUserStateUpdateRequest,
+    TrackUserStateUpdateResult, TvLibraryList, TvLibrarySummary,
 };
 use models::{
     ExistingAlbum, ExistingFileState, ExistingTrack, PendingAlbum, PendingTrack, PlaylistFile,
@@ -64,13 +65,14 @@ use models::{
 use playlist::load_playlists;
 pub use playlist::{
     add_track_to_playlist, add_tracks_to_playlist, create_playlist, create_playlist_from_album,
-    delete_playlist, remove_playlist_track, rename_playlist, reorder_playlist_track,
+    delete_playlist, load_playlist, remove_playlist_track, rename_playlist, reorder_playlist_track,
     update_playlist_artwork,
 };
 #[cfg(test)]
 use playlist::{
-    load_playlist_file_best_effort, parse_m3u_playlist, parse_pls_playlist, read_mplaylist_file,
-    resolve_playlist_tracks, strip_windows_drive_prefix, update_playlist_artwork_file,
+    load_playlist_by_id, load_playlist_file_best_effort, parse_m3u_playlist, parse_pls_playlist,
+    read_mplaylist_file, resolve_playlist_tracks, strip_windows_drive_prefix,
+    update_playlist_artwork_file, write_playlist_file,
 };
 use storage::{
     allow_asset_directory, app_database_path, artwork_cache_dir_for_root, count_albums,
@@ -133,7 +135,12 @@ pub fn load_snapshot(app: &AppHandle) -> Result<LibrarySnapshot, String> {
         snapshot.albums.len(),
         count_snapshot_tracks(&snapshot),
     );
+    crate::search_index::schedule_refresh(app, false);
     Ok(snapshot)
+}
+
+pub fn current_database_path(app: &AppHandle) -> Result<Option<PathBuf>, String> {
+    app_database_path(app)
 }
 
 pub fn load_snapshot_for_tv_library(
@@ -424,13 +431,16 @@ pub fn scan_folder(app: &AppHandle, folder_path: &str) -> Result<ScanSummary, St
         skipped_files,
     );
 
-    Ok(ScanSummary {
+    let summary = ScanSummary {
         scanned_files: audio_files.len(),
         imported_tracks,
         skipped_files,
         albums: count_albums(&connection)?,
         library_path: canonical_root.to_string_lossy().into_owned(),
-    })
+    };
+    drop(connection);
+    crate::search_index::schedule_refresh(app, true);
+    Ok(summary)
 }
 
 fn emit_library_scan_progress_if_needed(

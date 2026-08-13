@@ -29,6 +29,45 @@
     min-width: 32px;
   }
 
+  .playlist-detail-panel .track-list-row {
+    min-height: 64px;
+  }
+
+  .playlist-detail-panel .track-list .track-select-button {
+    min-height: 62px;
+    padding-block: 8px;
+  }
+
+  .playlist-detail-panel .track-action-slot {
+    height: 62px;
+  }
+
+  .playlist-detail-panel .track-row-actions {
+    gap: 3px;
+    padding: 2px 4px 2px 2px;
+  }
+
+  .playlist-detail-panel .track-duration {
+    width: 38px;
+    padding: 0;
+    font-size: 0.72rem;
+  }
+
+  .playlist-detail-panel .track-lyrics-button {
+    width: 44px;
+    min-width: 44px;
+    height: 44px;
+  }
+
+  .playlist-detail-panel .track-row-menu > summary {
+    width: 44px;
+    height: 44px;
+  }
+
+  .playlist-detail-panel .track-row-menu-popover {
+    width: min(220px, calc(100vw - 32px));
+  }
+
   .player-bar {
     position: relative;
     z-index: 15;

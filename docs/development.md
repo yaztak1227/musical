@@ -50,6 +50,8 @@ npm run tauri dev
 
 This runs the real Tauri desktop app. Use it for local folder scanning, audio playback, tag editing, and artwork saving.
 
+In debug builds, the Web app opened from `http://127.0.0.1:1422/` or its LAN URL reads the current workspace `dist` with no-cache headers. Run `npm run build` after frontend changes to update that Web view. Audio-analysis APIs and remote-player transport remain unchanged. Release builds serve the `dist` embedded in the executable.
+
 The dev browser route does not open automatically by default. To open it at startup:
 
 ```bash
@@ -101,6 +103,14 @@ Run Playwright UI mode:
 ```bash
 npm run test:e2e:ui
 ```
+
+Inspect development build-cache usage:
+
+```bash
+npm run cache:status
+```
+
+Before `npm run tauri -- ...` and the Windows development launcher start, Musical checks `src-tauri/target`. If it exceeds 8 GiB by default and no workspace Musical process is running, it runs `cargo clean`. Override the limit with `MUSICAL_BUILD_CACHE_LIMIT_GB`, or use `npm run cache:prune` for an explicit cleanup while the app is stopped. Development and test profiles omit full dependency debug symbols to reduce growth across build generations.
 
 ## Key Files
 

@@ -1,8 +1,9 @@
 use super::{
-    display_album_artist, display_album_year, find_audio_files, load_playlist_file_best_effort,
-    parse_m3u_playlist, parse_pls_playlist, persist_album_tag_update, repair_mojibake,
+    display_album_artist, display_album_year, find_audio_files, load_playlist_by_id,
+    load_playlist_file_best_effort, parse_m3u_playlist, parse_pls_playlist,
+    persist_album_tag_update, playlist_dir_for_root, read_mplaylist_file, repair_mojibake,
     resolve_playlist_tracks, strip_windows_drive_prefix, update_playlist_artwork_file,
-    ExistingAlbum, PlaylistArtworkUpdateRequest, PlaylistFile,
+    write_playlist_file, ExistingAlbum, PlaylistArtworkUpdateRequest, PlaylistFile,
 };
 use rusqlite::{params, Connection};
 use std::{
@@ -38,6 +39,68 @@ fn preserves_source_indexes_when_playlist_tracks_are_missing() {
     assert_eq!(missing_paths, vec!["missing.mp3"]);
     assert_eq!(track_indexes, vec![1]);
     assert_eq!(tracks[0].id, "available");
+}
+
+#[test]
+fn reloads_only_the_requested_playlist_after_a_track_is_removed() {
+    let root = unique_temp_dir();
+    let playlist_dir = playlist_dir_for_root(&root);
+    fs::create_dir_all(&playlist_dir).expect("create playlist directory");
+    let playlist_path = playlist_dir.join("target.mplaylist");
+    write_playlist_file(
+        &playlist_path,
+        &PlaylistFile {
+            version: 1,
+            id: "target".to_owned(),
+            name: "Target".to_owned(),
+            artwork_path: None,
+            track_paths: vec!["missing.mp3".to_owned(), "/music/available.mp3".to_owned()],
+        },
+    )
+    .expect("write playlist fixture");
+
+    let connection = Connection::open_in_memory().expect("open database");
+    connection
+        .execute_batch(
+            "CREATE TABLE tracks (
+                uuid TEXT PRIMARY KEY,
+                title TEXT NOT NULL,
+                artist TEXT NOT NULL,
+                duration_seconds INTEGER NOT NULL,
+                track_number INTEGER,
+                disc_number INTEGER,
+                file_path TEXT NOT NULL,
+                lyrics TEXT
+            );
+            CREATE TABLE track_user_state (
+                track_uuid TEXT PRIMARY KEY,
+                is_favorite INTEGER NOT NULL DEFAULT 0,
+                rating INTEGER
+            );
+            INSERT INTO tracks (
+                uuid, title, artist, duration_seconds, track_number, disc_number, file_path, lyrics
+            ) VALUES (
+                'available', 'Available', 'Artist', 180, 1, 1, '/music/available.mp3', NULL
+            );",
+        )
+        .expect("create playlist track fixture");
+
+    let before = load_playlist_by_id(&root, &connection, "target").expect("load target");
+    assert_eq!(before.track_count, 2);
+    assert_eq!(before.track_indexes, vec![1]);
+    assert_eq!(before.tracks[0].id, "available");
+
+    let mut playlist_file = read_mplaylist_file(&playlist_path).expect("read target");
+    playlist_file.track_paths.remove(1);
+    write_playlist_file(&playlist_path, &playlist_file).expect("remove available track");
+
+    let after = load_playlist_by_id(&root, &connection, "target").expect("reload target");
+    assert_eq!(after.track_count, 1);
+    assert!(after.track_indexes.is_empty());
+    assert!(after.tracks.is_empty());
+    assert_eq!(after.missing_track_paths, vec!["missing.mp3"]);
+
+    fs::remove_dir_all(root).expect("remove playlist fixture");
 }
 
 #[test]

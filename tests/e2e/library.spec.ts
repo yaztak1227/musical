@@ -141,6 +141,10 @@ test("reflows large album cards when the library panel opens and closes", async 
   const albumGrid = page.locator(".album-grid.large");
   const albumCards = albumGrid.locator(".album-card");
   const firstCard = albumCards.first();
+  const albumColumnCount = () =>
+    albumGrid.evaluate((grid) =>
+      getComputedStyle(grid).gridTemplateColumns.split(/\s+/).filter(Boolean).length,
+    );
   const cardPartsHaveStableSpacing = () =>
     albumCards.evaluateAll((cards) =>
       cards.every((card) => {
@@ -162,7 +166,8 @@ test("reflows large album cards when the library panel opens and closes", async 
       }),
     );
 
-  await expect(albumGrid).toHaveCSS("grid-template-columns", /\S+ \S+ \S+ \S+/);
+  const collapsedColumnCount = await albumColumnCount();
+  expect(collapsedColumnCount).toBeGreaterThanOrEqual(3);
   await expect.poll(cardPartsHaveStableSpacing).toBe(true);
   await expect(firstCard).toHaveAttribute("data-album-index-row", "0");
 
@@ -190,12 +195,12 @@ test("reflows large album cards when the library panel opens and closes", async 
 
   for (let cycle = 0; cycle < 2; cycle += 1) {
     await page.getByRole("button", { name: "Expand library panel" }).click();
-    await expect(albumGrid).toHaveCSS("grid-template-columns", /\S+ \S+/);
+    await expect.poll(albumColumnCount).toBeLessThan(collapsedColumnCount);
     await expect.poll(cardPartsHaveStableSpacing).toBe(true);
     await expect(firstCard).toHaveAttribute("data-album-index-row", "0");
 
     await page.getByRole("button", { name: "Collapse library panel" }).click();
-    await expect(albumGrid).toHaveCSS("grid-template-columns", /\S+ \S+ \S+ \S+/);
+    await expect.poll(albumColumnCount).toBe(collapsedColumnCount);
     await expect.poll(cardPartsHaveStableSpacing).toBe(true);
     await expect(firstCard).toHaveAttribute("data-album-index-row", "0");
   }
@@ -267,14 +272,35 @@ test("creates an empty playlist", async ({ page }) => {
   await page.locator(".playlist-card").first().click();
   await expect(page.getByRole("region", { name: "Selected playlist" })).toContainText("3 tracks");
 
-  await page.getByRole("button", { name: "Move Last Train Home up" }).click();
+  await page.setViewportSize({ width: 1180, height: 620 });
+  const bottomTrack = selectedPlaylistRegion.getByRole("listitem").filter({ hasText: "Blue Platform" });
+  const bottomTrackMenu = bottomTrack.locator("details.track-row-menu");
+  await bottomTrack.getByRole("button", { name: "Actions for Blue Platform" }).click();
+  await expect(bottomTrackMenu).toHaveClass(/open-upward/);
+  await page.keyboard.press("Escape");
+  await expect(bottomTrackMenu).not.toHaveAttribute("open", "");
+
+  const lastTrainRow = selectedPlaylistRegion.getByRole("listitem").filter({ hasText: "Last Train Home" });
+  await lastTrainRow.getByRole("button", { name: "Actions for Last Train Home" }).click();
+  await lastTrainRow.getByRole("button", { name: "Move Last Train Home up" }).click();
   const firstTrack = page.getByRole("region", { name: "Selected playlist" }).getByRole("listitem").first();
   await expect(firstTrack).toContainText("Last Train Home");
 
-  await page.getByRole("button", { name: "Remove Last Train Home from playlist" }).click();
-  await expect(page.getByRole("region", { name: "Selected playlist" })).toContainText("2 tracks");
+  const firstTrackMenu = firstTrack.locator("details.track-row-menu");
+  const firstTrackActions = firstTrack.getByRole("button", { name: "Actions for Last Train Home" });
+  await firstTrackActions.click();
+  await firstTrackActions.dispatchEvent("focusout", { relatedTarget: null });
+  await expect(firstTrackMenu).toHaveAttribute("open", "");
+  await firstTrack.getByRole("button", { name: "Remove Last Train Home from playlist" }).click();
+  await expect(selectedPlaylistRegion).toContainText("Night Drive");
+  await expect(selectedPlaylistRegion).toContainText("2 tracks");
+  await expect(selectedPlaylistRegion.getByText("Last Train Home", { exact: true })).toHaveCount(0);
+  await expect(page.getByLabel("Player")).toContainText("Station Lights");
+  await expect(page.getByLabel("Player")).toContainText("From Night Drive");
 
-  await page.getByRole("button", { name: "Show album Midnight Transit" }).first().click();
+  const remainingFirstTrack = selectedPlaylistRegion.getByRole("listitem").first();
+  await remainingFirstTrack.getByRole("button", { name: /^Actions for / }).click();
+  await remainingFirstTrack.getByRole("button", { name: "Show album Midnight Transit" }).click();
   await expect(page.getByRole("region", { name: "Selected album" })).toContainText("Midnight Transit");
 
   await page.getByRole("tab", { name: "Playlists" }).click();
@@ -742,6 +768,9 @@ test("renders animated mock audio analysis in player mode", async ({ page }) => 
   const visualizerControls = page.locator(".visualizer-controls");
   const visualizerContent = page.locator(".visualizer-content");
   const visualizerLyrics = page.locator(".visualizer-lyrics-panel");
+  await expect(visualizerLyrics).toHaveCSS("opacity", "0.54");
+  await visualizerLyrics.hover();
+  await expect(visualizerLyrics).toHaveCSS("opacity", "1");
   const visualizerSettings = page.locator(".visualizer-settings");
   const transportControls = page.locator(".visualizer-transport-controls");
   const modeSwitch = page.getByRole("group", { name: "Visualizer mode" });

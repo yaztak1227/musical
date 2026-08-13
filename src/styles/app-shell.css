@@ -3,7 +3,7 @@
   grid-template-columns:
     minmax(var(--library-panel-min), 280px)
     minmax(var(--albums-panel-min), 1fr)
-    minmax(var(--album-panel-min), 360px);
+    minmax(var(--album-panel-min), 420px);
   grid-template-rows: minmax(0, 1fr) auto auto;
   width: 100vw;
   height: 100dvh;
@@ -14,7 +14,7 @@
   grid-template-columns:
     72px
     minmax(var(--albums-panel-min), 1fr)
-    minmax(var(--album-panel-min), 360px);
+    minmax(var(--album-panel-min), 420px);
 }
 
 .library-panel {
@@ -80,4 +80,3 @@
 .sidebar-collapsed .library-menu-content {
   display: none;
 }
-

@@ -233,6 +233,17 @@
     transform: translateY(0);
   }
 
+  .playlist-detail-panel {
+    grid-template-columns: 72px minmax(0, 1fr);
+    gap: 10px 12px;
+  }
+
+  .playlist-detail-panel .album-artwork-edit-target,
+  .playlist-detail-panel .playlist-detail-art {
+    width: 72px;
+    max-width: 72px;
+  }
+
   .album-art,
   .album-artwork-edit-target {
     max-width: 72px;

@@ -1,8 +1,12 @@
 import { backendInvoke } from "@/lib/backend";
-import type { EntityId, LibrarySnapshot, ScanSummary } from "@/types/audio";
+import type { EntityId, LibrarySnapshot, Playlist, ScanSummary } from "@/types/audio";
 
 export function loadLibrarySnapshot() {
   return backendInvoke<LibrarySnapshot>("library_snapshot");
+}
+
+export function loadPlaylist(playlistId: EntityId) {
+  return backendInvoke<Playlist>("load_playlist", { playlistId });
 }
 
 export function scanMusicFolder(folderPath: string) {
@@ -34,7 +38,7 @@ export function deletePlaylist(playlistId: EntityId) {
 }
 
 export function removePlaylistTrack(playlistId: EntityId, trackIndex: number) {
-  return backendInvoke<LibrarySnapshot>("remove_playlist_track", { playlistId, trackIndex });
+  return backendInvoke<Playlist>("remove_playlist_track", { playlistId, trackIndex });
 }
 
 export function reorderPlaylistTrack(playlistId: EntityId, fromIndex: number, toIndex: number) {
