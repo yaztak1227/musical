@@ -14,6 +14,8 @@
 - `src/components/PlayerVisualizerLoadingOverlay.tsx`
 - `src/components/PlayerVisualizerOverlay.tsx`
 - `src/components/visualizer-assets/*.ts`
+- `src/features/visualizer/*.ts(x)`
+- `src/features/visualizer/modes/<mode>/definition.ts`（モードごとの metadata、Canvas renderer、runtime、必要時の lazy WebGL loader/fallback）
 - `src/lib/auroraWebgl.ts`
 - `src/lib/audioAnalysis.ts`
 - `src/lib/backend.ts`
@@ -22,6 +24,8 @@
 - `src/lib/starfieldWebgl.ts`
 - `src/lib/visualizerAnalysis.ts`
 - `tests/e2e/visualizer-webgl.spec.ts`
+- `tests/e2e/visualizer-factory.spec.ts`
+- `tests/e2e/fixtures/visualizer-signatures.v1.json`
 - `src-tauri/src/local_server.rs`
 - `src-tauri/src/audio_analysis.rs`
 - `src/config/appConfig.ts`
@@ -36,11 +40,30 @@ Tauri アプリ版では、`getBackendMediaSrc(filePath)` でローカルファ�
 
 ### PlayerVisualizerOverlay
 
-プレイヤーモードの overlay。基本の `visualizer-canvas` に波、スペクトラム、サークル、山脈、カラーフロー、VU メーターを Canvas 2D で描画する。オーロラは専用の `visualizer-aurora-canvas`、スターフィールドは専用の `visualizer-starfield-canvas`、DNA 螺旋は専用の `visualizer-helix-canvas`、ワープホールは専用の `visualizer-warp-hole-canvas` に Three.js/WebGL2 で描画し、WebGL 初期化に失敗した場合だけ基本 canvas の Canvas 2D 実装へ fallback する。ちびキャラオーケストラは通常ボタンに表示しない隠しモードとする。
+プレイヤーモードの overlay。描画アルゴリズム、配色解決、Canvas surface、操作 UI、WebGL lifecycle を分離した feature module を組み合わせ、再生状態・解析入力・歌詞・キューを配線する。`src/features/visualizer/registry.ts` の静的 mode registry が10モードの label、icon、renderer 種別、canvas surface、Chibi 対応を定義し、`rendererFactory.ts` が Canvas 2D callback と lazy WebGL adapter を同じ render 境界へ揃える。`VisualizerCanvasSurface` は base Canvas 2D と専用 WebGL canvas 4枚の計5枚を生成し、`VisualizerSettingsControls` は同じ registry からモード/配色ボタンを生成する。
+
+各モードの入口は `src/features/visualizer/modes/<mode>/definition.ts` とする。definition は metadata、`createRuntime`、Canvas renderer を自己完結させ、WebGL モードは lazy `load` と同じ runtime を使う 2D `createFallbackRenderer` を持つ。Spectrum の peak、Chibi/Orchestra の画像と motion、Aurora/DNA Helix の履歴、Color flow の Canvas context 単位 state は Overlay の ref から mode runtime へ移し、Overlay は共通 audio/RAF/UI と選択 definition の起動だけを担当する。Overlay lifetime の `runtimeCache` は mode+variant ごとに runtime を保持し、palette 切替では再生成せず、曲変更時に全 runtime を reset、unmount 時に全 runtime を一度だけ dispose する。モード間の直接 import は行わず、共有するのは純粋な analysis helper に限る。既存の `drawMountains` named export は `modes/mountains/definition.ts` から再 export して互換性を保つ。
+
+基本の `visualizer-canvas` には波、スペクトラム、サークル、山脈、カラーフロー、VU メーターの Canvas 2D callback を渡す。オーロラは `visualizer-aurora-canvas`、スターフィールドは `visualizer-starfield-canvas`、DNA 螺旋は `visualizer-helix-canvas`、ワープホールは `visualizer-warp-hole-canvas` の WebGL adapter を、選択時の dynamic import と Factory で生成する。import 中、constructor 失敗時、または WebGL が利用できない場合は base Canvas 2D callback を使う。モード変更や unmount の後に到着した stale load は adapter を直ちに dispose し、古い renderer が現行 surface を奪わない。ちびキャラオーケストラは通常ボタンに表示しない隠しモードとする。
 
 Player mode の画面 module は、アプリ起動直後の effect で非同期に事前ロードし、選曲や入口操作を待たず ready 状態へ反映する。現在曲の歌詞も選曲時に非同期取得しておき、Player mode を開く操作ではデータ取得を開始しない。取得済み module の component を直接描画し、`React.lazy` の初回解決による余分な Suspense fallback を挟まない。開閉 state は `PlayerExperience` 内へ隔離し、入口押下でlibrary controllerとライブラリ全体を同期再描画しない。押下時は `PlayerVisualizerLoadingOverlay` を同期描画し、2回の `requestAnimationFrame` 後に実体を mount して、Canvas初期化より先に少なくとも1フレームの操作応答を表示する。Canvas、音声解析、描画 loop などのビジュアライザ実体はこの mount 時に初めて生成する。画面 module の事前ロードが未完了の場合は同じ shell で `aria-busy` の進捗通知と閉じるボタン、Escape操作を提供する。Canvas 2D の基本実装は本体に含める一方、Three.js/WebGL の4実装は対象モード選択時にだけ dynamic import する。Chibi character、spectrum、orchestra、surf の画像URL群と画像デコードも該当表示が有効になるまで遅延する。
 
 Player mode入口は共通のリップルclassを付けず、active時も位置とscaleを変えない。transitionも無効化し、hoverの色、枠、focus-visibleによる静的フィードバックだけを残す。
+
+### ビジュアライザの拡張境界
+
+ビジュアライザは「palette strategy → mode registry → renderer factory → canvas surface」の順に責務を分ける。`src/features/visualizer/palette.ts` の4つの配色 strategy は、選択された色一覧から `colors`、Aurora/Warp の `profile`、旧来の Original の時間変化 HSL を示す `legacyOriginalHueCycle`、`visualizer.css` が読む CSS 設定を一つの解決結果として返す。
+
+- `original`: 旧来互換の寒色 palette と `legacyOriginalHueCycle: true` を使う
+- `theme`: `--primary`、`--accent`、`--foreground` を読み取り、Canvas/WebGL 用の色一覧を生成する
+- `artwork`: アートワークを縮小サンプリングして代表色を抽出し、読めない場合は Theme の色一覧へ fallback する
+- `rainbow`: 固定のライム、グリーン、アクア、スカイブルー、ブルー、バイオレット、マゼンタ、ローズの進行を使う
+
+解決結果は `--visualizer-color-0`〜`--visualizer-color-4`、モード/配色列数、必要なら `--visualizer-artwork` を overlay の style として適用する。Palette を変更したときは、同じ renderer instance に解決済み色と profile を渡し、fps 間引き待ちをせず次の描画へ反映する。既存の描画数式、解析 bucket、履歴長、shader の視覚文法はこの境界の追加によって変更しない。
+
+Mode registry の各エントリは `id`、locale key、icon、`canvas2d`/`webgl`、canvas kind、Chibi capability を持つ。WebGL エントリだけが lazy loader を持ち、ライブラリ固有の constructor/signature は `VisualizerWebglAdapter`（`render`、`dispose`、必要時 `reset`）へ隠す。さらに `webglPaletteRole` が adapter へ渡す mode palette/Aurora palette を宣言し、Factory は mode ID の個別分岐を持たない。Factory は選択 mode に対して、adapter があれば専用 canvas を使い、なければ同じ mode の Canvas 2D callback を使う。したがって追加モードは、(1) `VisualizerMode` と locale key/icon type、(2) mode registry entry、(3) Canvas 2D callback または専用 canvas kind、(4) WebGL なら lazy adapter loader と palette role、(5) 必要な CSS/icon、(6) registry/描画回帰 fixture と40組 matrix の期待値を追加する。既存 overlay の localStorage、解析 loop、surface の手書き分岐を変更して新モードを差し込まない。
+
+現在の surface 契約は base 1枚 + dedicated 4枚 = 5 canvas、mode 10件 × palette 4件 = 40組である。これを registry の件数、ボタン数、canvas kind、renderer 種別、各組の描画可否まで `tests/e2e/visualizer-factory.spec.ts` で検証する。通常モードの storage key は `musical.visualizerMode`（既定 `spectrum`）、配色は `musical.visualizerPalette`（既定 `theme`）、ちびキャラは `musical.visualizerChibiMode` とし、不正な保存値は既定値へ戻す。
 
 カラーフロー（内部モードID `ink`）は、周波数域を低域から高域まで連続する5ブロックへ分け、各ブロックを中央へ集まる1つの大きな半透明の雫として描く。各ブロックでは含まれる周波数値を合計してサンプル数と最大値で正規化し、attack 0.16秒、release 0.48秒の時定数を持つ指数平滑化を適用する。小さいenergyも非線形に持ち上げ、各雫の半径、縦横比、中心位置へ異なる位相で反映することで、音楽再生中は5つの雫が周波数帯ごとに明確に呼吸して揺れる。形状は18点へ小さな低周波の周期変形を加えた閉曲線とし、丸みを保ちながら滑らかに揺らぐ。外側は外縁のalphaをゼロまで落とした広いblurのhalo、内側は弱いblurと低輝度の細い外周で形を読める半透明面として描き分ける。隣接ブロックの雫が近接する箇所だけ、両者の中間色で短いレンズ状の半透明膜を描き、接触して共鳴する関係を示す。小さな光球、点状の接点光、点状の明滅、直線状の境界ハイライトは描かず、色面どうしの境界がにじみながら呼吸する様子を主役にする。
 
@@ -182,7 +205,7 @@ sequenceDiagram
 - キューに次曲がある場合、次曲の解析キャッシュも warmup される
 - プレイヤーモードを開くと `visualizer-canvas` が表示される
 - 再生中は canvas の描画内容が時間経過で変化する
-- 9 種類の通常モードをボタンで選択でき、モード変更後も再生状態を維持する
+- 10 種類の通常モードをボタンで選択でき、モード変更後も再生状態を維持する
 - Chibi mode ボタンのダブルクリック/ダブルタップでちびキャラオーケストラへ切り替わり、通常モードボタンを押すと解除される
 - オリジナル、テーマ、アートワーク、レインボーの配色を選択できる
 - モードと配色の選択がプレイヤーモードを閉じた後も復元される
@@ -257,6 +280,7 @@ sequenceDiagram
 - `cargo test`
 - `VITE_MOCK_DATA=true npx playwright test tests/e2e/library.spec.ts -g "player mode"`
 - `VITE_MOCK_DATA=true npx playwright test tests/e2e/visualizer-webgl.spec.ts`
+- `VITE_MOCK_DATA=true npx playwright test tests/e2e/visualizer-factory.spec.ts` で、10 mode × 4 palette の40組、registryのrenderer/canvas契約、5 canvas surface、palette変更の描画可否を確認する
 - Tauri dev 起動時に `local server listening on 0.0.0.0:1422` が出る
 - `GET http://127.0.0.1:1422/api/player_state` が JSON を返す
 - 対象曲で `GET /api/track_analysis?...` が `200 OK` を返す
@@ -274,6 +298,10 @@ sequenceDiagram
 - DNA 螺旋とワープホールの黒背景合成画像は輝度 p99 を0.78以下、輝度0.95超の画素を全体の0.10%以下に保つ。ワープホールは解析露出1.65と出力alpha 0.84を上限とし、解析ハローを輝度0.34未満へ付与せず、strength 0.31以下、radius 0.62以下相当とする
 - 固定 bucket、固定時刻、固定 palette で変更前後の WebGL canvas RGBA を比較し、スターフィールドは通常/低モーション、active/idle、横長/縦長、DPR 1/1.2 で画素が一致する。ワープホールはAuroraと同じRainbow 8 stopから6以上の色相分布を維持する。Original、Theme、Artworkでは選択時のpalette値を個別に検査し、同じ描画インスタンスへ異なるpaletteを描画間引き時間内に渡したときも、その主成分が直後の出力色へ反映される
 - オリジナル/アートワークは霧調の基準画像と比較し、高輝度 clip と near-white 面積が旧基準より減り、色付きの半透明カーテンが消失していないことを確認する
+- WebGL module の import/constructor 失敗時は Canvas 2D fallback が表示され、モード変更または unmount 後に解決した stale load が dispose されることを確認する
+- WebGL loader が pending の間も reject した後も、Aurora、Starfield、DNA Helix、Warp Hole の各 definition が実 Canvas 2D へ非透明 fallback を描くことを確認する
+- Aurora/DNA Helix の mode 往復で同一 runtime/history が維持され、曲変更では全 mode/variant runtime が reset され、通常 Spectrum と Orchestra の motion/assets が混ざらず、unmount の dispose が各 runtime 一度だけ行われることを確認する
+- 同じ renderer instance に対する Original/Theme/Artwork/Rainbow の palette/profile 変更が、描画間引き時間を待たず次のフレームへ反映されることを確認する
 - 解析エラーが起きてもアプリ全体の再生、キュー、プレイヤーモードを壊さない
 
 ## よくある失敗パターン

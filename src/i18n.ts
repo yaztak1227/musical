@@ -132,6 +132,7 @@ export const translationKeys = [
   "remoteAccess.error",
   "remoteAccess.openLink",
   "remoteAccess.qrAlt",
+  "remoteAccess.publicWarning",
   "library.albumListLabel",
   "library.controls",
   "library.selectedAlbumLabel",

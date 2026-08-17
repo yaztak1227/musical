@@ -31,6 +31,7 @@ type RemotePlayerCommandContext = {
   setPlaybackAlbumId: (albumId: EntityId | null) => void;
   setPlaybackPlaylistId: (playlistId: EntityId | null) => void;
   setPlaybackQueueTrackIds: (trackIds: EntityId[]) => void;
+  setIsShuffle: (isShuffle: boolean) => void;
   setRepeatMode: (repeatMode: RepeatMode) => void;
   setSelectedAlbumId: (albumId: EntityId | null) => void;
   setVolume: (nextVolume: number) => void;
@@ -153,6 +154,7 @@ function playRemoteAlbum(
   const nextQueue = commandQueue.length > 0 ? commandQueue : getAlbumQueueTracks(album, shouldShuffle);
   const firstTrack = nextQueue[0] ?? null;
 
+  context.setIsShuffle(shouldShuffle);
   context.setSelectedAlbumId(album.id);
   context.setPlaybackAlbumId(album.id);
   context.setPlaybackPlaylistId(null);
@@ -174,6 +176,7 @@ function playRemoteTrack(
   const shouldShuffle = getCommandBoolean(command, "isShuffle") ?? context.isShuffle;
   const nextQueue = commandQueue.length > 0 ? commandQueue : album ? getAlbumQueueTracks(album, shouldShuffle, track) : [track];
 
+  context.setIsShuffle(shouldShuffle);
   context.setPlaybackAlbumId(album?.id ?? albumId);
   context.setPlaybackPlaylistId(getCommandEntityId(command, "playlistId"));
   context.setPlaybackQueueTrackIds(nextQueue.map((track) => track.id));

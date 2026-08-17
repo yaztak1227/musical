@@ -78,6 +78,7 @@ import { getHeapUsageMb, logRenderDiagnostic } from "../../lib/renderDiagnostics
 import { makeTrackTagDraft } from "../../lib/trackTagDraftUtils";
 import { useRemoteAccess } from "../../lib/useRemoteAccess";
 import { getMcpSettings, setMcpEnabled } from "../../lib/mcpSettings";
+import { getAppPreferences, updateAppPreferences } from "../../lib/appPreferences";
 import { type LibrarySidebarSection, type LibrarySidebarSectionState } from "../../components/LibrarySidebar";
 import { type PlayerBarHandle } from "../../components/PlayerBar";
 import {
@@ -187,6 +188,7 @@ export function useAppController() {
   const remotePlaybackClockRef = useRef<RemotePlaybackClock | null>(null);
   const playbackResolutionRef = useRef<PlaybackResolutionState | null>(null);
   const renderCountRef = useRef(0);
+  const sidebarPreferencesHydratedRef = useRef(!isTauriRuntime);
   const [locale, setLocale] = useState<Locale>(() => getInitialLocale());
   const [themeName, setThemeName] = useState<ThemeName>(() => getStoredThemeName(isThemeName));
   const t = useMemo(() => {
@@ -222,7 +224,11 @@ export function useAppController() {
   const [playbackQueueTrackIds, setPlaybackQueueTrackIds] = useState<EntityId[]>(() => {
     if (hasRealBackend) return [];
     const initialAlbumId = getInitialAlbumId(mockAlbums, storedPlaybackPreferences.playbackAlbumId);
-    return mockAlbums.find((album) => album.id === initialAlbumId)?.tracks.map((track) => track.id) ?? [];
+    const initialAlbum = mockAlbums.find((album) => album.id === initialAlbumId);
+    const initialTrack = getInitialTrack(mockAlbums, initialAlbumId);
+    return initialAlbum
+      ? getAlbumQueueTracks(initialAlbum, storedPlaybackPreferences.isShuffle, initialTrack).map((track) => track.id)
+      : [];
   });
   const [isPlaying, setIsPlaying] = useState(false);
   const [audioSourceKey, setAudioSourceKey] = useState<string | null>(null);
@@ -234,7 +240,9 @@ export function useAppController() {
   const [albumSortMode, setAlbumSortMode] = useState<AlbumSortMode>("title");
   const [albumSortDirection, setAlbumSortDirection] = useState<AlbumSortDirection>("asc");
   const [lyricsOnly, setLyricsOnly] = useState(false);
-  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(() => getStoredSidebarCollapsed());
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(() =>
+    isTauriRuntime ? false : getStoredSidebarCollapsed(),
+  );
   const [isAlbumPanelCollapsed, setIsAlbumPanelCollapsed] = useState(false);
   const [isLibraryMenuOpen, setIsLibraryMenuOpen] = useState(() => getStoredLibraryMenuOpen());
   const [librarySidebarSectionState, setLibrarySidebarSectionState] = useState<LibrarySidebarSectionState>(() =>
@@ -283,8 +291,28 @@ export function useAppController() {
   }, [themeName]);
 
   useEffect(() => {
-    storeSidebarCollapsed(isSidebarCollapsed);
+    if (!isTauriRuntime) {
+      storeSidebarCollapsed(isSidebarCollapsed);
+      return;
+    }
+    if (!sidebarPreferencesHydratedRef.current) return;
+    void updateAppPreferences({ sidebarCollapsed: isSidebarCollapsed }).catch(() => {
+      // A preference write must not interrupt the player UI.
+    });
   }, [isSidebarCollapsed]);
+
+  useEffect(() => {
+    if (!isTauriRuntime) return;
+
+    void getAppPreferences()
+      .then((preferences) => {
+        sidebarPreferencesHydratedRef.current = true;
+        setIsSidebarCollapsed(preferences.sidebarCollapsed);
+      })
+      .catch(() => {
+        sidebarPreferencesHydratedRef.current = true;
+      });
+  }, []);
 
   useEffect(() => {
     storeLibraryMenuOpen(isLibraryMenuOpen);
@@ -423,8 +451,6 @@ export function useAppController() {
   }, [artworkCandidates.length, artworkSearchProgress !== null, isArtworkCandidateDialogOpen]);
 
   useEffect(() => {
-    if (!isTauriRuntime) return;
-
     void getMcpSettings()
       .then((settings) => {
         setIsMcpEnabled(settings?.enabled ?? false);
@@ -476,9 +502,10 @@ export function useAppController() {
     setPlaybackAlbumId(selectedAlbum.id);
     setPlaybackPlaylistId(null);
     const nextTrack = selectedAlbum.tracks[0] ?? null;
+    const nextQueue = getAlbumQueueTracks(selectedAlbum, isShuffle, nextTrack);
     setCurrentTrack(nextTrack);
-    setPlaybackQueueTrackIds(selectedAlbum.tracks.map((track) => track.id));
-  }, [albums, selectedAlbumId, playbackAlbumId, currentTrack]);
+    setPlaybackQueueTrackIds(nextQueue.map((track) => track.id));
+  }, [albums, currentTrack, isShuffle, playbackAlbumId, selectedAlbumId]);
 
   useEffect(() => {
     setPlaybackError(null);
@@ -686,9 +713,12 @@ export function useAppController() {
       setPlaybackAlbumId(restoredPlaybackAlbumId);
       setPlaybackPlaylistId(null);
       const restoredTrack = getInitialTrack(snapshot.albums, restoredPlaybackAlbumId);
+      const restoredAlbum = snapshot.albums.find((album) => album.id === restoredPlaybackAlbumId);
       setCurrentTrack(restoredTrack);
       setPlaybackQueueTrackIds(
-        snapshot.albums.find((album) => album.id === restoredPlaybackAlbumId)?.tracks.map((track) => track.id) ?? [],
+        restoredAlbum
+          ? getAlbumQueueTracks(restoredAlbum, isShuffle, restoredTrack).map((track) => track.id)
+          : [],
       );
     }
     setLibraryLoadedInfo(snapshot);
@@ -1003,7 +1033,7 @@ export function useAppController() {
   }, [albums, isShuffle, selectedAlbumId]);
 
   const playPlaylist = useCallback((playlist: Playlist) => {
-    const queueTracks = playlist.tracks;
+    const queueTracks = getToggledQueueTracks(playlist.tracks, isShuffle, null);
     const firstTrack = queueTracks[0] ?? null;
     if (!firstTrack) return;
     const firstAlbum = firstTrack ? findAlbumByTrackId(firstTrack.id) : null;
@@ -1012,7 +1042,7 @@ export function useAppController() {
       albumId: firstAlbum?.id ?? null,
       playlistId: playlist.id,
       trackId: firstTrack.id,
-      isShuffle: false,
+      isShuffle,
       queueTrackIds,
     })) return;
 
@@ -1022,7 +1052,7 @@ export function useAppController() {
     setCurrentTrack(firstTrack);
     playerBarRef.current?.resetPosition();
     setIsPlaying(Boolean(firstTrack));
-  }, [albums]);
+  }, [albums, isShuffle]);
 
   async function createEmptyPlaylist(name = t("playlists.defaultName")) {
     const playlistName = name.trim();
@@ -2232,6 +2262,7 @@ export function useAppController() {
       setPlaybackAlbumId,
       setPlaybackPlaylistId,
       setPlaybackQueueTrackIds,
+      setIsShuffle,
       setRepeatMode,
       setSelectedAlbumId,
       setVolume,

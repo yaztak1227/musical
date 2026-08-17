@@ -355,6 +355,7 @@ test("shows playlists as playable collections on the TV display", async ({ page 
 
 test("restores playback preferences", async ({ page }) => {
   await page.addInitScript(() => {
+    Math.random = () => 0;
     window.localStorage.setItem("musical.locale", "en");
     window.localStorage.setItem(
       "musical.playbackPreferences",
@@ -372,6 +373,138 @@ test("restores playback preferences", async ({ page }) => {
   await expect(page.getByLabel("Player")).toContainText("First Snow");
   await expect(page.getByRole("button", { name: "Shuffle" })).toHaveAttribute("aria-pressed", "true");
   await expect(page.getByRole("button", { name: "Repeat all" })).toBeVisible();
+
+  await page.getByLabel("Player").getByRole("button", { name: "Next" }).click();
+  await expect(page.getByLabel("Player")).toContainText("Quiet Street");
+  await page.getByLabel("Player").getByRole("button", { name: "Next" }).click();
+  await expect(page.getByLabel("Player")).toContainText("Glass Echo");
+});
+
+test("plays a playlist in shuffled queue order", async ({ page }) => {
+  await page.addInitScript(() => {
+    Math.random = () => 0;
+    window.localStorage.setItem("musical.locale", "en");
+    window.localStorage.setItem(
+      "musical.playbackPreferences",
+      JSON.stringify({
+        isShuffle: true,
+        playbackAlbumId: 1,
+        repeatMode: "off",
+        selectedAlbumId: 1,
+      }),
+    );
+  });
+  await page.goto("/");
+
+  await page.getByRole("tab", { name: "Playlists" }).click();
+  await page.getByLabel("Playlist name").fill("Shuffled Set");
+  await page.getByRole("button", { name: "New playlist" }).click();
+
+  await page.getByRole("tab", { name: "Large icons" }).click();
+  await page.getByRole("region", { name: "Album library" }).getByRole("button", { name: /Midnight Transit/ }).click();
+  await page.getByRole("button", { name: "Add tracks from Midnight Transit to playlist" }).click();
+  await page.getByRole("menuitem", { name: /Shuffled Set/ }).click();
+
+  await page.getByRole("tab", { name: "Playlists" }).click();
+  await page.locator(".playlist-card").first().click();
+  const selectedPlaylistRegion = page.getByRole("region", { name: "Selected playlist" });
+  await expect(selectedPlaylistRegion).toContainText("3 tracks");
+  await selectedPlaylistRegion.getByRole("button", { name: "Play", exact: true }).click();
+
+  const player = page.getByLabel("Player");
+  await expect(player).toContainText("Last Train Home");
+  await player.getByRole("button", { name: "Next" }).click();
+  await expect(player).toContainText("Blue Platform");
+  await player.getByRole("button", { name: "Next" }).click();
+  await expect(player).toContainText("Station Lights");
+});
+
+test("syncs shuffle state when applying remote play commands", async ({ page }) => {
+  await page.goto("/");
+
+  const result = await page.evaluate(async () => {
+    const { dispatchRemotePlayerCommand } = await import("/src/app/hooks/remotePlayerCommandDispatcher.ts");
+    const tracks = [
+      { id: 1, title: "Station Lights", artist: "Transit Ensemble" },
+      { id: 2, title: "Last Train Home", artist: "Transit Ensemble" },
+    ];
+    const album = {
+      id: 10,
+      title: "Midnight Transit",
+      artist: "Transit Ensemble",
+      year: 2026,
+      tracks,
+    };
+    const shuffleValues: boolean[] = [];
+    const queueValues: number[][] = [];
+    const context = {
+      albums: [album],
+      changeShuffle: () => undefined,
+      findAlbumByTrackId: (trackId: number | string | null) => (trackId === 1 || trackId === 2 ? album : null),
+      findTrackById: (trackId: number | string | null) => tracks.find((track) => track.id === trackId) ?? null,
+      findTracksByIds: (trackIds: Array<number | string>) => trackIds
+        .map((trackId) => tracks.find((track) => track.id === trackId))
+        .filter((track): track is (typeof tracks)[number] => Boolean(track)),
+      isShuffle: false,
+      pausePlayback: () => undefined,
+      playNextTrack: () => undefined,
+      playPlayback: () => undefined,
+      playPreviousTrack: () => undefined,
+      refreshLibrary: async () => undefined,
+      refreshPlaylist: async () => undefined,
+      repeatMode: "off" as const,
+      resetPlayerPosition: () => undefined,
+      seekTo: () => undefined,
+      selectAlbum: () => undefined,
+      selectTrack: () => undefined,
+      setCurrentTrack: () => undefined,
+      setIsPlaying: () => undefined,
+      setIsShuffle: (isShuffle: boolean) => shuffleValues.push(isShuffle),
+      setPlaybackAlbumId: () => undefined,
+      setPlaybackPlaylistId: () => undefined,
+      setPlaybackQueueTrackIds: (trackIds: Array<number | string>) => queueValues.push(trackIds.map(Number)),
+      setRepeatMode: () => undefined,
+      setSelectedAlbumId: () => undefined,
+      setVolume: () => undefined,
+      stepVolume: () => undefined,
+      toggleMute: () => undefined,
+      togglePlayback: () => undefined,
+    };
+
+    dispatchRemotePlayerCommand(
+      {
+        id: 1,
+        commandType: "play-track",
+        payload: {
+          albumId: 10,
+          isShuffle: true,
+          playlistId: "playlist-1",
+          queueTrackIds: [2, 1],
+          trackId: 2,
+        },
+      },
+      context,
+    );
+    dispatchRemotePlayerCommand(
+      {
+        id: 2,
+        commandType: "play-album",
+        payload: {
+          albumId: 10,
+          isShuffle: false,
+          queueTrackIds: [1, 2],
+        },
+      },
+      context,
+    );
+
+    return { queueValues, shuffleValues };
+  });
+
+  expect(result).toEqual({
+    queueValues: [[2, 1], [1, 2]],
+    shuffleValues: [true, false],
+  });
 });
 
 test("syncs system media session playback actions", async ({ page }) => {

@@ -391,11 +391,11 @@
 }
 
 .visualizer-mode-switch {
-  grid-template-columns: repeat(10, 34px);
+  grid-template-columns: var(--visualizer-mode-columns, repeat(10, 34px));
 }
 
 .visualizer-palette-switch {
-  grid-template-columns: repeat(4, 34px);
+  grid-template-columns: var(--visualizer-palette-columns, repeat(4, 34px));
 }
 
 .visualizer-settings-arrow {

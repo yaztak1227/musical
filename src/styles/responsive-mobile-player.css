@@ -62,6 +62,7 @@
   .playlist-detail-panel .track-row-menu > summary {
     width: 44px;
     height: 44px;
+    border-radius: 12px;
   }
 
   .playlist-detail-panel .track-row-menu-popover {

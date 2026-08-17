@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { isTauriRuntime } from "./backend";
+import { getAppPreferences, updateAppPreferences } from "./appPreferences";
 import {
   getLocalDevAccessInfo,
   getPublicDevTunnelInfo,
@@ -25,7 +25,6 @@ export function useRemoteAccess() {
   const remoteAccessMode: RemoteAccessMode = isPublicDevEnabled || isPublicDevStarting ? "open" : isLocalDevEnabled ? "lan" : "off";
 
   useEffect(() => {
-    if (!isTauriRuntime) return;
     void initializeRemoteAccessMode();
   }, []);
 
@@ -58,6 +57,9 @@ export function useRemoteAccess() {
   }, [localDevUrl]);
 
   async function initializeRemoteAccessMode() {
+    const preferredMode = await getAppPreferences()
+      .then((preferences) => preferences.remoteAccessMode)
+      .catch(() => null);
     let nextLocalInfo = null;
 
     try {
@@ -72,33 +74,31 @@ export function useRemoteAccess() {
       setLocalDevUrl(null);
     }
 
-    if (!import.meta.env.DEV) {
-      setIsPublicDevApiAvailable(false);
-      return;
-    }
-
-    try {
-      const tunnelInfo = await getPublicDevTunnelInfo();
-      if (!tunnelInfo) return;
-
-      setIsPublicDevApiAvailable(true);
-      if (tunnelInfo.enabled || tunnelInfo.isStarting || tunnelInfo.url) {
-        await setPublicDevTunnelEnabled(false);
-        return;
+    let nextPublicInfo = null;
+    if (import.meta.env.DEV) {
+      try {
+        nextPublicInfo = await getPublicDevTunnelInfo();
+        setIsPublicDevApiAvailable(Boolean(nextPublicInfo));
+        setIsPublicDevEnabled(nextPublicInfo?.enabled ?? false);
+        setIsPublicDevStarting(nextPublicInfo?.isStarting ?? false);
+        setPublicDevUrl(nextPublicInfo?.url ?? null);
+        setPublicDevError(null);
+      } catch {
+        setIsPublicDevApiAvailable(false);
+        setIsPublicDevEnabled(false);
+        setIsPublicDevStarting(false);
+        setPublicDevUrl(null);
       }
-
-      setIsPublicDevEnabled(false);
-      setIsPublicDevStarting(false);
-      setPublicDevUrl(null);
-      setPublicDevError(null);
-      if (!nextLocalInfo?.enabled) {
-        setIsLocalDevEnabled(false);
-        setLocalDevUrl(null);
-        setLocalDevError(null);
-      }
-    } catch {
+    } else {
       setIsPublicDevApiAvailable(false);
     }
+
+    const restoredMode = preferredMode
+      ?? (nextPublicInfo?.enabled || nextPublicInfo?.isStarting ? "open" : nextLocalInfo?.enabled ? "lan" : "off");
+    await applyRemoteAccessMode(restoredMode, {
+      canUseLocal: Boolean(nextLocalInfo),
+      canUsePublic: Boolean(nextPublicInfo),
+    });
   }
 
   async function setPublicDevTunnelEnabled(enabled: boolean) {
@@ -112,11 +112,13 @@ export function useRemoteAccess() {
       setIsPublicDevEnabled(tunnelInfo.enabled);
       setIsPublicDevStarting(tunnelInfo.isStarting);
       setPublicDevUrl(tunnelInfo.url);
+      return tunnelInfo.enabled === enabled;
     } catch (error) {
       setIsPublicDevEnabled(false);
       setIsPublicDevStarting(false);
       setPublicDevUrl(null);
       setPublicDevError(String(error instanceof Error ? error.message : error));
+      return false;
     }
   }
 
@@ -126,49 +128,104 @@ export function useRemoteAccess() {
 
     try {
       const accessInfo = await setLocalDevAccess(enabled);
+      setIsLocalDevApiAvailable(true);
       setIsLocalDevEnabled(accessInfo.enabled);
       setLocalDevUrl(accessInfo.url);
+      return accessInfo.enabled === enabled;
     } catch (error) {
       setIsLocalDevEnabled(false);
       setLocalDevUrl(null);
       setLocalDevError(String(error instanceof Error ? error.message : error));
+      return false;
     }
   }
 
   async function setRemoteAccessMode(nextMode: RemoteAccessMode) {
+    if (nextMode !== "off") {
+      try {
+        await updateAppPreferences({ remoteAccessMode: nextMode });
+      } catch (error) {
+        setRemoteAccessPreferenceError(nextMode, error);
+        return;
+      }
+    }
+
+    const applied = await applyRemoteAccessMode(nextMode, {
+      canUseLocal: isLocalDevApiAvailable,
+      canUsePublic: isPublicDevApiAvailable,
+    });
+    if (!applied) {
+      if (nextMode !== "off") {
+        await updateAppPreferences({ remoteAccessMode: "off" }).catch(() => {
+          // The runtime is already private; a rollback write failure must not reopen it.
+        });
+      }
+      return;
+    }
     if (nextMode === "off") {
+      try {
+        await updateAppPreferences({ remoteAccessMode: "off" });
+      } catch (error) {
+        setRemoteAccessPreferenceError(nextMode, error);
+      }
+    }
+  }
+
+  function setRemoteAccessPreferenceError(mode: RemoteAccessMode, error: unknown) {
+    const message = String(error instanceof Error ? error.message : error);
+    if (mode === "lan") {
+      setLocalDevError(message);
+    } else {
+      setPublicDevError(message);
+    }
+  }
+
+  async function applyRemoteAccessMode(
+    nextMode: RemoteAccessMode,
+    capabilities: { canUseLocal: boolean; canUsePublic: boolean },
+  ) {
+    if (nextMode === "off") {
+      let localDisabled = true;
+      let publicDisabled = true;
       setLocalDevError(null);
-      if (isLocalDevEnabled || localDevUrl) {
-        await setLocalDevAccessEnabled(false);
+      if (capabilities.canUseLocal) {
+        localDisabled = await setLocalDevAccessEnabled(false);
       } else {
         setIsLocalDevEnabled(false);
         setLocalDevUrl(null);
       }
-      if (isPublicDevEnabled || isPublicDevStarting || publicDevUrl) {
-        await setPublicDevTunnelEnabled(false);
+      if (capabilities.canUsePublic) {
+        publicDisabled = await setPublicDevTunnelEnabled(false);
       } else {
         setPublicDevError(null);
         setIsPublicDevEnabled(false);
         setIsPublicDevStarting(false);
         setPublicDevUrl(null);
       }
-      return;
+      return localDisabled && publicDisabled;
     }
 
     if (nextMode === "lan") {
-      if (isPublicDevEnabled || isPublicDevStarting || publicDevUrl) {
-        await setPublicDevTunnelEnabled(false);
+      if (!capabilities.canUseLocal) return false;
+      if (capabilities.canUsePublic) {
+        const publicDisabled = await setPublicDevTunnelEnabled(false);
+        if (!publicDisabled) return false;
       } else {
         setPublicDevError(null);
       }
-      await setLocalDevAccessEnabled(true);
-      return;
+      return setLocalDevAccessEnabled(true);
     }
 
+    if (!capabilities.canUsePublic) return false;
     setLocalDevError(null);
-    setIsLocalDevEnabled(false);
-    setLocalDevUrl(null);
-    await setPublicDevTunnelEnabled(true);
+    if (capabilities.canUseLocal) {
+      const localDisabled = await setLocalDevAccessEnabled(false);
+      if (!localDisabled) return false;
+    } else {
+      setIsLocalDevEnabled(false);
+      setLocalDevUrl(null);
+    }
+    return setPublicDevTunnelEnabled(true);
   }
 
   return {

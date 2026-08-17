@@ -46,6 +46,7 @@ flowchart LR
 | Audio analysis backend | `src-tauri/src/audio_analysis.rs` | FFT bucket 生成と cache |
 | Local server | `src-tauri/src/local_server.rs` | `/api/*`, `/tv`, WebSocket, media streaming, MCP sidecar lifecycle/proxy |
 | MCP sidecar | `src/mcp/**`, `dist/mcp/server.js` | MCP SDK server, AI SDK V7 compatible tool catalog, internal bridge client |
+| Agent Plugin package | `plugin.json`, `mcp.json` | Agent Plugins Specification 1.0.0 に準拠し、loopback の Musical MCP endpoint を指す portable Streamable HTTP 構成 |
 | Semantic search index | `src-tauri/src/search_index.rs`, `.musical/search_index.sqlite3` | ローカル multilingual embedding、歌詞 chunk、永続 vector cache、warm in-memory search |
 | Lyrics sentiment analyzer | `src-tauri/src/lyrics_sentiment.rs`, `.musical/search_index.sqlite3` | Lindera/IPADIC形態素解析、日本語極性辞書、block/曲集約、coverage付き派生cache |
 | Fire TV shell | `apps/firetv/app/src/main/java/app/musical/firetv/**` | Android native shell, discovery, Settings, key bridge |
@@ -62,7 +63,7 @@ flowchart LR
 - `LibrarySidebar`: ライブラリ、設定、テーマ、リモートアクセス導線。
 - `AlbumBrowser`: アルバム/曲/プレイリストの一覧、検索、ソート、再生入口。
 - `SelectedAlbumPanel`: 選択アルバムの曲、タグ編集導線、詳細表示導線。
-- `SelectedPlaylistPanel`: プレイリスト曲の表示、追加、削除、並べ替え。右パネルはコンパクトなアートワーク/概要ヘッダーと64px以上の曲行を使い、曲名を2行まで確保する。歌詞と再生時間だけを常時表示し、元アルバム表示、上下移動、削除は曲ごとの操作メニューへ格納する。プレイリスト切替時はパネルのスクロール位置を先頭へ戻す。曲削除と再読み込みは対象プレイリストだけをバックエンドから再取得して差し替え、全 `LibrarySnapshot` を適用しない。
+- `SelectedPlaylistPanel`: プレイリスト曲の表示、追加、削除、並べ替え。右パネルはコンパクトなアートワーク/概要ヘッダーと64px以上の曲行を使い、曲名を2行まで確保する。歌詞と再生時間だけを常時表示し、元アルバム表示、上下移動、削除は曲ごとの操作メニューへ格納する。操作メニューの入口は曲行の横方向のリズムに沿う横3点アイコンとテーマ色の角丸ボタンで表し、ホバー、キーボードフォーカス、展開中の状態を明示する。プレイリスト切替時はパネルのスクロール位置を先頭へ戻す。曲削除と再読み込みは対象プレイリストだけをバックエンドから再取得して差し替え、全 `LibrarySnapshot` を適用しない。
 - `PlayerBar`: 再生状態、キュー、シーク、音量、Player mode 導線。キューは可変幅オプションから分離し、Player mode入口はグリッド自動配置から外してPlayerBar右端へ固定する。通常幅、Tauriの1226×768前後、タブレット、モバイルで常時表示し、キュー領域には入口とフォーカス外枠分の右余白を確保する。入口は明示的なaccessible name、キーボード操作、可視の `focus-visible` 外枠を持つ。開発版では現在曲の変更時に Performance API の measure entries が50万件以上か確認し、上限到達時だけ消去する。
 - `PlayerVisualizerOverlay`: Player mode、ビジュアライザ、歌詞、キュー。
 - `TrackDetailDialog`: 曲情報、歌詞、アートワーク候補検索、アートワーク、タグ編集。
@@ -75,6 +76,7 @@ flowchart LR
 - `remote-player`: remote command、remote playback clock、analysis sync。
 - `tag-editing`: album/track tag、artwork、user state 更新。
 - `tv-display`: TV display message と `/tv` UI。
+- `visualizer`: palette strategy、10 mode registry、Canvas surface、操作 UI、Canvas 2D/WebGL renderer factory。各 mode/variant の runtime は Overlay lifetime cache で保持し、曲変更時に全 runtime を reset、unmount 時に一度だけ dispose する。WebGL の palette role と fallback は definition metadata から解決する。
 - `ui-interactions`: mobile/touch gesture。
 
 ### 3.2 Tauri/Rust Backend
@@ -130,6 +132,8 @@ Tauri setup 時に local server を開始し、desktop/browser/Fire TV の接続
 - `POST /api/player_command`
 - `GET /api/player_commands`
 - `POST /api/tv/player_event`
+- `GET /api/app-preferences` local-only。Tauri Config の sidebar collapsed state と、保存時・現在のグローバルIPv4が一致する場合だけ有効な remote access mode を返す
+- `POST /api/app-preferences` local-only。Tauri Config の指定された preference field だけを更新する
 - `GET /api/mcp-settings`
 - `POST /api/mcp-settings`
 - `POST /api/_mcp/tools/{toolName}` internal bridge, loopback + token only
@@ -142,7 +146,9 @@ Tauri setup 時に local server を開始し、desktop/browser/Fire TV の接続
 - local request は許可する。
 - LAN access が明示的に有効になるまで非ローカル request は拒否する。
 - `/mcp` と `/api/mcp-settings` は LAN access と独立して local-only のままにする。
+- Tauri は `settings.json` の `remoteAccessMode`、`remoteAccessGlobalIp`、`mcpEnabled`、`sidebarCollapsed` を Config として保持する。LAN/public を明示的に有効化すると、HTTPSのipify IPv4 endpointで現在のグローバルIPを取得してモードと一緒に保存する。local server は frontend 起動前に保存IPと現在IPを比較し、一致時だけLAN runtime stateを復元する。public dev tunnelも同じ比較を通過したモードだけをfrontend hydration後に復元する。IP未保存、取得失敗、不一致はOFFとして扱うが、保存済みモードとIPは消去せず、信頼済みネットワークへ戻った次回起動時に再評価する。Web runtime は同じ利用者設定を `musical.remoteAccessMode`、`musical.remoteAccessGlobalIp`、`musical.mcpEnabled`、`musical.sidebarCollapsed` の local storage へ保存し、同じfail-closed比較を行う。
 - MCP enabled 時、Tauri は `dist/mcp/server.js` を Node sidecar として起動し、`/mcp` request を sidecar の loopback port へ proxy する。
+- Tauri proxy は system HTTP proxy を迂回したloopback接続で、Streamable HTTP の `POST` と `DELETE` をmethodを保持して転送する。Musicalはserver-initiated event streamを使わないため、`GET /mcp` はSPAへfallbackさせず`405 Method Not Allowed`と`Allow: POST, DELETE`を返す。
 - MCP sidecar は `@modelcontextprotocol/sdk` の Streamable HTTP server を使い、AI SDK V7 `@ai-sdk/mcp` client から `mcpClient.tools()` / `callTool()` で検証する。
 - `dev:public` は Vite 起動前に MCP sidecar を build し、production build は Vite が `dist` を生成した後に `dist/mcp/server.js` を出力する。これにより Vite の出力 cleanup で sidecar が欠落しないようにする。
 - local server のrelease buildは `dist` を実行ファイルへ埋め込み、自己完結したWeb UIを配信する。debug buildだけは各frontend requestでworkspaceの現在の `dist` を優先し、`Cache-Control: no-store` を付ける。これにより長時間動作する `tauri dev` がCargo compile時点の古いvisualizer chunkをWeb/LAN側へ配信し続けることを防ぐ。disk buildがない場合は埋め込みbundleへfallbackし、`/api/*`、音声解析packet、remote player同期の経路は変更しない。
@@ -165,7 +171,20 @@ Tauri setup 時に local server を開始し、desktop/browser/Fire TV の接続
 - media は server が公開した file/API 経由でのみ取得できる。
 - アートワーク候補検索と候補画像 download は Tauri command 専用で、local server API には公開しない。
 
-### 3.4 Fire TV Android Shell
+### 3.4 Agent Plugins 1.0 準拠
+
+Musical のリポジトリルートは、[Agent Plugins Specification 1.0.0](https://github.com/agentplugins/agent-plugins-spec/blob/bd383552095128f6effe895b9257cfd580a6d179/spec/1.0.0.md) に準拠する **Agent Plugin パッケージ** として扱う。
+次の条件を基本設計の不変条件とする。
+
+- `plugin.json` と `mcp.json` をリポジトリルートの固定位置に置き、両方で Agent Plugins `1.0.0` の canonical schema を指定する。
+- `plugin.json.version` は Agent Plugins の仕様版ではなく、Musical の release version と一致させる。
+- `mcp.json` は認証情報を含めず、loopback の `http://127.0.0.1:1422/mcp` だけを `streamable-http` server として宣言する。
+- パッケージ内のファイルは symbolic link の解決後もリポジトリルート内に収める。
+- `npm run test:agent-plugin` で公式 schema、closed field、schema version、Musical version、port、URL semantics、package path containment を検証する。
+
+この準拠は package format と MCP 宣言に対するものであり、各クライアントが Streamable HTTP とローカル endpoint への接続に対応することは別の利用条件である。
+
+### 3.5 Fire TV Android Shell
 
 Fire TV app は Android/Kotlin native shell と WebView の組み合わせです。
 
@@ -305,7 +324,11 @@ sequenceDiagram
   UI->>Viz: render by playback time
 ```
 
-`PlayerVisualizerOverlay` は解析 bucket を共通入力として、波、スペクトラム、サークル、山脈、カラーフロー、VU メーターを Canvas 2D で描画する。カラーフローは周波数域を5ブロックへ分け、各ブロックを中央へ集まる1つの大きな半透明の雫として描く。ブロック内の周波数値の正規化合計をattack 0.16秒、release 0.48秒の時定数で平滑化し、低いenergyも非線形に持ち上げて、対応する雫の大きさ、縦横比、中心位置を音楽に追従させる。輪郭は複数の低周波な周期成分を合成した18点の閉曲線として滑らかに変形する。外側はalphaをゼロへ落とした広いhalo、内側は弱いblurと低輝度の細い外周で形を読める半透明面として描き分け、隣接するブロックの接触部だけに短いレンズ状の半透明膜を加える。中央へ集まる小光点、点状の接点光や直線状の境界ハイライトは描かない。内部モードID `ink` は保存済み設定との互換性のため維持する。オーロラ、スターフィールド、DNA 螺旋、ワープホールはそれぞれ専用の Three.js/WebGL2 canvas で GLSL シェーダーを実行し、WebGL 初期化に失敗した場合だけ Canvas 2D 描画へ fallback する。ちびキャラオーケストラは通常のモードボタンへ出さず、Chibi mode ボタンのダブルクリック/ダブルタップで一時的に切り替える。山脈は下端へ閉じる面の起伏として遠景から近景へ描き、最前景だけは加算 glow の後に `source-over` の面と稜線を最後に重ねる。
+`PlayerVisualizerOverlay` は解析 bucket を共通入力として、波、スペクトラム、サークル、山脈、カラーフロー、VU メーターを Canvas 2D で描画する。描画本体は `src/features/visualizer/**` の palette strategy、mode registry、surface、操作 UI、renderer factory と組み合わせる。各種類の入口は `src/features/visualizer/modes/<mode>/definition.ts` に分割し、metadata、`createRuntime`、Canvas renderer、必要時の lazy WebGL loader と Canvas fallback を mode 内へ閉じ込める。Overlay は共通 audio/RAF/UI と選択 definition の起動だけを担当し、Spectrum peaks、Aurora/DNA Helix 履歴、Ink の context state、Chibi/Orchestra の画像・motion は mode runtime が所有する。registry は10モードの label、icon、renderer種別、canvas kind、Chibi対応を一元管理し、`VisualizerSettingsControls` と `VisualizerCanvasSurface` はそこから生成する。カラーフローは周波数域を5ブロックへ分け、各ブロックを中央へ集まる1つの大きな半透明の雫として描く。ブロック内の周波数値の正規化合計をattack 0.16秒、release 0.48秒の時定数で平滑化し、低いenergyも非線形に持ち上げて、対応する雫の大きさ、縦横比、中心位置を音楽に追従させる。輪郭は複数の低周波な周期成分を合成した18点の閉曲線として滑らかに変形する。外側はalphaをゼロへ落とした広いhalo、内側は弱いblurと低輝度の細い外周で形を読める半透明面として描き分け、隣接するブロックの接触部だけに短いレンズ状の半透明膜を加える。中央へ集まる小光点、点状の接点光や直線状の境界ハイライトは描かない。内部モードID `ink` は保存済み設定との互換性のため維持する。オーロラ、スターフィールド、DNA 螺旋、ワープホールはそれぞれ専用の Three.js/WebGL2 canvas で GLSL シェーダーを実行し、WebGL 初期化に失敗した場合だけ Canvas 2D 描画へ fallback する。ちびキャラオーケストラは通常のモードボタンへ出さず、Chibi mode ボタンのダブルクリック/ダブルタップで一時的に切り替える。山脈は下端へ閉じる面の起伏として遠景から近景へ描き、最前景だけは加算 glow の後に `source-over` の面と稜線を最後に重ねる。
+
+ビジュアライザの合成境界は palette strategy → mode registry → renderer factory → canvas surface とする。4つの配色（Original、Theme、Artwork、Rainbow）は選択色から `colors`、Aurora/Warp の `profile`、旧来のOriginal色相サイクルを示す `legacyOriginalHueCycle`、`visualizer.css` 用 CSS variables を解決する。Theme は `--primary`/`--accent`/`--foreground`、Artwork は画像抽出色（失敗時はTheme）、Original と Rainbow は固定 palette を使う。解決結果は `--visualizer-color-0`〜`--visualizer-color-4`、列数、必要時の `--visualizer-artwork` を overlay style へ渡す。Palette変更は同一 renderer に直ちに反映し、既存の描画数式、解析履歴、shader は変更しない。
+
+Canvas surface は base 1枚と dedicated 4枚の計5枚を持つ。Canvas 2D は modeごとの callback、WebGL は `render`/`dispose`/必要時`reset`を持つ adapter として Factory が統一する。WebGL adapter は対象modeの選択時だけ dynamic import し、import/constructor 失敗、またはadapter未準備中は base Canvas 2D へ fallback する。モード変更・unmount後に到着した stale load は破棄し、古いadapterを描画に使わない。新しいmodeを追加する場合は、型/locale key/icon、registry entry、Canvas 2D callbackまたはsurface、WebGLならlazy adapter、必要なCSSと40組回帰fixtureを同じ変更セットへ追加する。storage keyはmode `musical.visualizerMode`（既定`spectrum`）、palette `musical.visualizerPalette`（既定`theme`）、Chibi `musical.visualizerChibiMode` とし、不正値は既定へ戻す。
 
 Player mode の画面 module はアプリ起動直後の effect で非同期に事前ロードし、選曲や入口操作を待たず ready 状態へ反映する。現在曲の歌詞も選曲時に非同期取得し、Player mode を開く操作からデータ取得を分離する。取得済み module の component を直接描画し、`React.lazy` の初回解決による余分な Suspense fallback を挟まない。Player mode の開閉 state は `PlayerExperience` 内へ隔離し、開閉時に library controller とライブラリ全体を同期再描画しない。押下時は軽量な全画面 shell を同期表示し、2回の `requestAnimationFrame` 後に実体を mount することで、重い描画初期化より先に少なくとも1フレームの操作応答を描画する。事前ロード未完了時の shell は閉じる操作と `aria-busy` を維持する。Canvas、音声解析、描画 loop などのビジュアライザ実体は Player mode を開いて component が mount された時に初めて生成する。Player mode 本体には Canvas 2D fallback だけを含め、Three.js/WebGL の4実装は対象モードの選択時に dynamic import する。Chibi、spectrum、orchestra、surf の画像URL群と画像デコードも対象表示が有効になった時まで遅延し、アプリ起動時や通常の Player mode 初回表示で全画像をロードしない。
 
@@ -402,9 +425,11 @@ sequenceDiagram
 変更内容に応じて次を選択して実行する。
 
 - `npm run build`
+- `npm run test:agent-plugin`
 - `cargo check`
 - `cargo test`
 - `VITE_MOCK_DATA=true npx playwright test tests/e2e/library.spec.ts -g "player mode"`
+- `VITE_MOCK_DATA=true npx playwright test tests/e2e/visualizer-factory.spec.ts`（10 mode × 4 palette = 40組、registry、5 canvas、fallback 契約）
 - Fire TV unit tests
 - Fire TV debug APK / emulator / device 確認
 - real Tauri/local backend での動作確認

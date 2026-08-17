@@ -89,6 +89,7 @@
   <message key="remoteAccess.error">Не удалось создать общедоступный URL-адрес: {message}.</message>
   <message key="remoteAccess.openLink">Открыть общедоступный URL-адрес</message>
   <message key="remoteAccess.qrAlt">QR-код для общедоступного URL-адреса разработки</message>
+  <message key="remoteAccess.publicWarning">Внимание! Не используйте эту функцию в общедоступных сетях. Любой, кто знает этот URL-адрес, сможет управлять Musical, поэтому делитесь им только с теми, кому доверяете. При следующем запуске URL-адрес будет опубликован снова, только если сохранённый глобальный IP-адрес совпадает.</message>
   <message key="library.albumListLabel">Медиатека альбомов</message>
   <message key="library.controls">Управление медиатекой</message>
   <message key="library.selectedAlbumLabel">Выбранный альбом</message>

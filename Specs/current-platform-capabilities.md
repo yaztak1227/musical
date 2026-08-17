@@ -92,7 +92,7 @@ Playback:
 
 - Play an album from card, table row, or selected album controls.
 - Play an individual track and build a queue from its album context.
-- Play a playlist in its stored order.
+- Play a playlist in its stored order when shuffle is off, or in a shuffled order when shuffle is on.
 - Play/pause, previous, next, seek, mute, volume, shuffle, and repeat.
 - Restart the current track when pressing previous after more than 3 seconds of
   playback.
@@ -339,6 +339,11 @@ Updates and local services:
 - Serve `/mcp` through an AI SDK V7 compatible TypeScript sidecar built on the
   official MCP SDK. The Tauri local server owns the enabled setting, sidecar
   lifecycle, and reverse proxy.
+- Package the repository root for Agent Plugins 1.0.0 with canonical
+  `plugin.json` and `mcp.json` schemas. The portable MCP entry uses loopback
+  Streamable HTTP; the proxy bypasses system HTTP proxies and forwards POST and
+  DELETE, while GET returns 405 because Musical does not expose a server-event
+  stream.
 - Protect the MCP sidecar and internal bridge with loopback binding plus a
   per-process `X-Musical-MCP-Token`.
 - Keep a dedicated stdin pipe from Tauri to the MCP sidecar. The sidecar exits

@@ -161,13 +161,9 @@
 }
 
 .remote-access-panel {
-  position: sticky;
-  bottom: 0;
-  z-index: 2;
   display: grid;
   justify-items: center;
   gap: 8px;
-  margin-top: auto;
   min-width: 0;
   padding: 12px;
   border: 1px solid color-mix(in oklch, var(--primary), transparent 74%);
@@ -207,6 +203,19 @@
     var(--muted);
   background-size: 220% 100%;
   animation: remote-qr-loading 1.2s ease-in-out infinite;
+}
+
+.remote-access-warning {
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid color-mix(in oklch, var(--destructive), transparent 74%);
+  border-radius: 7px;
+  color: var(--foreground);
+  background: color-mix(in oklch, var(--destructive), transparent 92%);
+  font-size: 0.76rem;
+  font-weight: 700;
+  line-height: 1.45;
+  text-align: left;
 }
 
 .remote-access-link {

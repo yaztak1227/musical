@@ -89,6 +89,7 @@
   <message key="remoteAccess.error">No se pudo crear la URL pública: {message}</message>
   <message key="remoteAccess.openLink">Abrir URL pública</message>
   <message key="remoteAccess.qrAlt">Código QR para la URL pública de desarrollo</message>
+  <message key="remoteAccess.publicWarning">Precaución: No utilice esta función en redes públicas. Cualquier persona que conozca esta URL puede controlar Musical, así que compártala solo con personas de confianza. En el próximo inicio, solo se volverá a publicar si coincide la IP global guardada.</message>
   <message key="library.albumListLabel">Biblioteca de álbumes</message>
   <message key="library.controls">Controles de biblioteca</message>
   <message key="library.selectedAlbumLabel">Álbum seleccionado</message>

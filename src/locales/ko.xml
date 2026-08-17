@@ -89,6 +89,7 @@
   <message key="remoteAccess.error">공개 URL을 생성할 수 없습니다: {message}</message>
   <message key="remoteAccess.openLink">공개 URL 열기</message>
   <message key="remoteAccess.qrAlt">공개 개발 URL용 QR 코드</message>
+  <message key="remoteAccess.publicWarning">주의: 공용 네트워크에서는 사용하지 마세요. 이 URL을 아는 사람은 누구나 Musical을 제어할 수 있으므로 신뢰할 수 있는 사람에게만 공유하세요. 다음 실행 시 저장된 글로벌 IP가 일치하는 경우에만 다시 공개됩니다.</message>
   <message key="library.albumListLabel">앨범 라이브러리</message>
   <message key="library.controls">라이브러리 컨트롤</message>
   <message key="library.selectedAlbumLabel">선택한 앨범</message>

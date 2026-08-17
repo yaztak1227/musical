@@ -24,6 +24,7 @@ Musical is designed first as a desktop app, with a wide library view for browsin
 - Edit album and track tags such as title, artist, year, and genre
 - View lyrics saved in tracks
 - Review and replace album artwork
+- Connect Agent Plugins 1.0 clients with Streamable HTTP MCP support to local playback and library tools
 - Switch between Japanese and English
 - Choose from multiple themes
 
@@ -91,6 +92,10 @@ Track details include info, lyrics, and artwork tabs. In the desktop app, you ca
 4. After scanning finishes, Musical shows your albums and tracks.
 
 Scan results are stored in a local SQLite database and loaded again the next time the app starts.
+
+## Agent Plugin
+
+The repository root is an Agent Plugins 1.0.0 package. Start Musical, enable the MCP server in the sidebar's Settings section, and load the repository root in a client that supports Streamable HTTP MCP plugins. See [Agent Plugins 1.0](docs/agent-plugin.md) for the package layout, runtime requirements, and validation command.
 
 ## Developer Information
 

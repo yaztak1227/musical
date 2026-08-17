@@ -20,6 +20,12 @@
   - キュー表示: `queueTracks`
   - キューPopover状態: hover表示、tap/click固定表示
 
+## Queue Construction on Startup and Playback Entry
+
+- 起動時またはライブラリスナップショットの再生復元では、復元時に選ばれる現在曲（復元アルバムの先頭曲）をキュー先頭に保持する。`isShuffle === true` の場合は残りの曲だけをシャッフルし、`isShuffle === false` の場合はアルバムの保存順を使う。
+- シャッフル有効中にプレイリストの再生を開始した場合は、プレイリスト全体をシャッフルし、シャッフル後の先頭曲から再生する。
+- シャッフル無効中のプレイリスト再生は、プレイリストに保存された順序をそのままキューへ使う。
+
 ## Expected End-of-Track Flow
 
 1. `audio.currentTime` が `audio.duration` へ到達、または超過する。

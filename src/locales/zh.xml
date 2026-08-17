@@ -89,6 +89,7 @@
   <message key="remoteAccess.error">无法创建公共 URL：{message}</message>
   <message key="remoteAccess.openLink">打开公共网址</message>
   <message key="remoteAccess.qrAlt">公共开发 URL 的 QR 码</message>
+  <message key="remoteAccess.publicWarning">注意：请勿在公共网络上使用。任何知道此 URL 的人都可以控制 Musical，因此请仅与可信任的人分享。下次启动时，只有保存的全局 IP 地址匹配才会再次公开。</message>
   <message key="library.albumListLabel">专辑音乐库</message>
   <message key="library.controls">音乐库控制</message>
   <message key="library.selectedAlbumLabel">已选择的专辑</message>

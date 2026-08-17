@@ -1,0 +1,55 @@
+{
+  "version": 1,
+  "viewport": {
+    "width": 1280,
+    "height": 800,
+    "deviceScaleFactor": 1,
+    "reducedMotion": "reduce"
+  },
+  "contract": {
+    "modeCount": 10,
+    "paletteCount": 4,
+    "canvasCount": 5,
+    "signature": "composited-color-histogram-v1",
+    "exactPixels": false,
+    "minimumForegroundPixels": 1,
+    "minimumColorBuckets": 1,
+    "isolatedTargetCanvas": true,
+    "transparentNegativeControl": true,
+    "runtime": {
+      "loadingFallback": true,
+      "rejectionFallback": true,
+      "staleDisposeExactlyOnce": true,
+      "currentDisposeExactlyOnce": true,
+      "paletteUpdateDoesNotReload": true
+    },
+    "storageKeys": {
+      "mode": "musical.visualizerMode",
+      "palette": "musical.visualizerPalette"
+    },
+    "cssHooks": {
+      "modeButton": ".visualizer-mode-button",
+      "paletteButton": ".visualizer-palette-button",
+      "baseCanvas": ".visualizer-canvas",
+      "dedicatedCanvasState": ".visualizer-canvas.<kind>.active"
+    }
+  },
+  "modes": [
+    { "id": "wave", "label": "Wave", "renderer": "canvas2d", "canvas": "base" },
+    { "id": "spectrum", "label": "Spectrum", "renderer": "canvas2d", "canvas": "base" },
+    { "id": "circle", "label": "Circle", "renderer": "canvas2d", "canvas": "base" },
+    { "id": "mountains", "label": "Peaks", "renderer": "canvas2d", "canvas": "base" },
+    { "id": "aurora", "label": "Aurora", "renderer": "webgl", "canvas": "aurora" },
+    { "id": "starfield", "label": "Starfield", "renderer": "webgl", "canvas": "starfield" },
+    { "id": "tunnel", "label": "DNA Helix", "renderer": "webgl", "canvas": "helix" },
+    { "id": "ink", "label": "Color flow", "renderer": "canvas2d", "canvas": "base" },
+    { "id": "vu", "label": "VU meters", "renderer": "canvas2d", "canvas": "base" },
+    { "id": "warp", "label": "Warp Hole", "renderer": "webgl", "canvas": "warp" }
+  ],
+  "palettes": [
+    { "id": "original", "label": "Original" },
+    { "id": "theme", "label": "Theme" },
+    { "id": "artwork", "label": "Artwork" },
+    { "id": "rainbow", "label": "Rainbow" }
+  ]
+}

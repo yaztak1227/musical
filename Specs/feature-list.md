@@ -73,12 +73,14 @@
 - PlayerBarのキューは可変幅オプションから分離し、Player mode入口はグリッド自動配置から外してPlayerBar右端へ固定する。入口とフォーカス外枠分の右余白をキュー領域へ確保し、通常幅、Tauriの1226×768前後、タブレット、モバイルで完全表示する。Player mode入口は明示的なaccessible name、マウス・キーボード操作、可視のフォーカス状態を持つ。入口にはリップル、押下移動、scale、transitionを適用せず、色・枠・フォーカスだけで静的に状態を示す。
 - アプリ起動直後に軽量な Player mode の画面 module を、選曲時に現在曲の歌詞を非同期で事前ロードする。Player mode の開閉 state はライブラリ全体から隔離し、押下時は軽量な全画面 shell を同期表示してから次の描画フレームでCanvas、音声解析、描画 loop などのビジュアライザ実体を生成する。画面 module の事前ロードが完了していない場合も、クリック時のモジュール準備より先に閉じる操作を持つ shell を表示し、元画面に無反応のまま残らない。
 - Three.js/WebGL 実装は Aurora、Starfield、DNA Helix、Warp Hole の選択時だけ、Chibi character、spectrum、orchestra、surf の画像群は該当表示を有効にした時だけロードする。
+- ビジュアライザは `src/features/visualizer/registry.ts` の静的10 mode registryから、操作ボタン、icon、renderer種別、canvas kind、Chibi capabilityを導出する。`palette.ts` の4 palette strategy（Original、Theme、Artwork、Rainbow）は colors、Aurora/Warp profile、Original互換のlegacy hue cycle、`visualizer.css` 用 CSS variables を解決し、`rendererFactory.ts` は definition の `webglPaletteRole` を読むだけで Canvas 2D callback と lazy WebGL adapterを同じrender境界へ揃える。Canvas surfaceはbase 1枚 + dedicated 4枚の5枚を持ち、WebGLのimport/constructor失敗、未準備、利用不可時はbase Canvas 2Dへfallbackし、モード/variant runtime は Overlay lifetime 中 cache して palette変更では再生成しない。曲変更時は全 runtime を reset し、unmount後のstale loadと各 runtimeを一度だけdisposeする。
 - 表示モードボタンは `Wave`, `Spectrum`, `Circle`, `Peaks`, `Aurora`, `Starfield`, `DNA Helix`, `Color flow`, `VU meters`, `Warp Hole` を持つ。`Color flow`（日本語名はカラーフロー、内部IDは `ink`）は、周波数域を5ブロックへ分割し、各ブロックを中央へ集まる1つの大きな半透明の雫として見せる。各雫は、そのブロックに含まれる周波数値の正規化合計を時定数付きで平滑化したenergyに合わせ、急変せず呼吸するように膨縮する。外側の広いhaloは外縁へ向けて透明にし、内側は弱いblurと低輝度の細い外周で有機的な形を残す。隣接ブロックの接触部だけに短いレンズ状の半透明膜を描くが、中央へ集まる小光点、点状の接点光、直線状の境界ハイライトは描かない。`Aurora` は専用の Three.js/WebGL2 シェーダーで低域から高域までの5帯域を連続した色・エネルギーマップへ補間し、発光する上端、半透明の面光、縦フィラメント、縦横のカラーグラデーション、薄い bloom へ周波数履歴を重ねる。`Starfield` は専用シェーダーで5層の星を消失点から放射し、長い光跡、星間ダスト、色付きハロー、中心フレア、衝撃波リングを合成してワープ航行の疾走感を表す。周波数 bucket は `1,33,65,2,34,66…` 型で32方向へ散らし、各方向のエネルギーと音の立ち上がりで光跡の出現数、長さ、太さ、輝度、bloom を変える。`DNA Helix` は専用の単一パス WebGL シェーダーで、横線ごとに1時点の低音から高音までの周波数分布を表し、新しい履歴を下側へ追加して古い履歴を上側へ送る。中央・左右の二重螺旋へ霧状のカーテン、音に反応する水平光条、250〜450個相当の微粒子、40〜80本相当の短い尾、同時に2〜4本読める外向き波面を重ねる。各螺旋の背骨は6本、横桟は3本の細い発光繊維束とし、低周波wanderとfine flutterを個別位相で合成する。8帯域のenergyと正のriseは対応する繊維の揺れと輝度へ反映し、Auroraと同じ8 stop paletteを横桟の低域から高域へ割り当てる。RGBは0.88、alphaは0.84を上限に色相を保ったhighlight圧縮を行い、低エネルギー時の視認性を残しつつ白飛びを防ぐ。`Warp Hole` は左寄りの小さな暗い消失孔へ対数遠近圧縮した8群の螺旋カーテンを収束させ、各群を可変密度cellへ分けた多数の連続procedural hairと、片側へ減衰する半透明のveil/mistを合成する。fragmentごとに最寄り3 cellだけを評価し、cell固有のwander、drift、flutterで細線を独立して揺らす。20周波数ブロック×32履歴を5つの飛び石集合へ分け、energyとriseでカーテンごとの輝度、長さ、蛇行を変える。4配色ともAuroraと同じpalette変換、8 stop補間、mist/standard/rainbow profileを使い、重なるfamilyは画面横方向の共有色相を参照して補色加算による白・灰化を避ける。Auroraと同じthreshold 0.34、Rainbow bloom strength 0.31、radius 0.62を高輝度の細線へだけ適用し、post bloomの色相保存型highlight compressionとalpha 0.84上限で白飛びを抑える。4モードとも WebGL を利用できない場合は Canvas 2D へ fallback する。
 - `Peaks` は遠景から近景の順で山体を描き、加算 glow の後に `source-over` の山体を重ねる。最も近い山体は最後に不透明度の高い面と稜線を描き、ほかの山脈レイヤーの背面へ回らない。
 - `Warp Hole` は20周波数ブロック×32履歴を5 RGBA texel×32行の固定長DataTextureへ保持する。20ブロックは `1,6,11,16` / `2,7,12,17` / `3,8,13,18` / `4,9,14,19` / `5,10,15,20` の5集合とし、4値のmeanとpeakを混合する。fragment shaderは現在行と過去行の各5 texelを一度ずつ読み、従来の重複sampleを避ける。各親カーテンの可変密度cell fieldからfragmentごとに最寄り3 cellだけを評価し、安定hashで周波数集合、低周波wander、中周波drift、fine flutter、濃淡、開始・終了深度を割り当てる。密度も長周期で変調し、hairは `fwidth` によるAA幅をcell座標0.015〜0.11へ制限する。消失孔近傍では重なりを段階的に減衰し、family間には低alphaのmistを残す。旧来の横断放出線、ring rail、粒子、spike、starは主形状と競合しないよう無効化する。
 - `Warp Hole` の音声役割は1〜4を低域、5〜9を中低域、10〜15を中高域、16〜20を高域へ集約し、energyと正のriseを個別に平滑化する。低域は消失孔・捻れ・奥行き、中低域はveil/mist、中高域はhairの揺れと集散、高域は既存hair上の色付きshimmerを担当する。履歴riseは外周から消失孔へ進む光波とし、全画面フラッシュや追加粒子へ置き換えない。
 - モードと配色は、ビジュアライザ描画領域の下に分離したアイコン専用UIで選択する。通常幅では10モードと4配色をそれぞれ横一列、狭い画面ではモードを3列、配色を2×2とし、右向き矢印を挟んで並べる。再生操作はその下段に置く。
-- 配色は従来の連続色相または寒色パレットを使うオリジナル、テーマ追従、アートワーク抽出、ライムからローズまでを連続させるレインボーから選択し、モードとともに `localStorage` へ保存する。
+- 配色は従来の連続色相または寒色パレットを使うオリジナル、テーマ追従、アートワーク抽出、ライムからローズまでを連続させるレインボーから選択し、解決した colors/profile/legacy original hue cycle と `--visualizer-color-0`〜`--visualizer-color-4` 等の CSS variables を同じ描画へ渡す。モードと配色は `musical.visualizerMode`（既定`spectrum`）と `musical.visualizerPalette`（既定`theme`）へ保存する。
+- ビジュアライザの追加は、型/locale key/icon、static registry entry、Canvas 2D callbackまたは専用canvas、WebGLならlazy adapter、必要なCSSと回帰fixtureを登録する。既存の描画数式、解析履歴、shader、localStorage契約を変更せず、`tests/e2e/visualizer-factory.spec.ts` の10 mode × 4 palette = 40組を通過させる。
 - Chibi mode を切り替え、`localStorage` の `musical.visualizerChibiMode` に保存する。
 - Chibi mode ボタンのダブルクリック/ダブルタップで、非表示の Chibi orchestra mode を切り替える。
 - Chibi character と chibi orchestra のビジュアルアセットを使う。
@@ -117,7 +119,7 @@
 
 - メイン UI は日本語/英語を切り替える。
 - テーマは crimson, ocean, violet, forest, amber, mono を選択する。
-- locale、theme、sidebar state、library menu state、playback preferences を local storage に保存する。
+- locale、theme、library menu state、playback preferences を local storage に保存する。左サイドパネルの開閉状態は Tauri では Config、Web では local storage に保存し、次回起動時に復元する。
 - UI 文言を通常実装で追加/変更する場合は `src/locales/en.xml` と `src/locales/ja.xml` のみを更新する。
 
 ## ローカルサービスとリモート操作
@@ -129,7 +131,10 @@
 - LAN/public control URL の QR code を表示する。
 - dev mode では public dev tunnel を任意で公開する。
 - ローカル MCP endpoint を切り替える。無効時の `/mcp` は 404 を返す。
+- LAN/public の公開モードと MCP enabled 状態は、Tauri では Config、Web では local storage に保存する。LAN/public を有効化した時点のグローバルIPv4も保存し、次回起動時は現在のグローバルIPv4と一致する場合だけ実際の公開状態へ復元する。IP未保存、取得失敗、不一致では安全側のOFFにし、保存済みの希望モードとIPは維持する。公開URLのQRコード直下には、公共LANでの利用禁止、URL共有による操作リスク、グローバルIP一致時だけ再公開されることを示す注意文を表示する。
 - MCP endpoint は AI SDK V7 compatible な TypeScript sidecar と MCP SDK server で提供し、Tauri local server は `/mcp` を sidecar へ proxy する。
+- リポジトリルートを Agent Plugins 1.0.0 package とし、`plugin.json` で正規 schema と Musical 自身の version を宣言し、`mcp.json` から loopback の `/mcp` を `streamable-http` server として公開する。
+- `/mcp` はsystem HTTP proxyを迂回したloopback接続で、Streamable HTTP の `POST` と session終了用 `DELETE` を sidecar へ転送する。server event streamは公開せず、`GET /mcp` にはHTML fallbackではなく`405 Method Not Allowed`と`Allow: POST, DELETE`を返す。
 - MCP sidecar は loopback だけに bind し、Tauri internal bridge は per-process token で保護する。
 - MCP tools は player/library read、album/track/artist discovery、semantic/hybrid search、気分推薦、`get_track_lyrics_analysis` による歌詞感情分析read、playback/queue command、favorites、playlist mutation、tag/artwork/user-state mutation を公開し、AI SDK `createMCPClient` で tool discovery、引数転送、`structuredContent` を検証する。
 - ブラウザバックエンドモードでは、ブラウザが再生を所有せず、デスクトップへ remote player command を送る。

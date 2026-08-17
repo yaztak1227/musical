@@ -26,7 +26,7 @@ use std::{
     collections::{HashMap, HashSet, VecDeque},
     fs::{self, File},
     io::{Read, Seek, SeekFrom, Write},
-    net::{Shutdown, TcpListener, TcpStream, UdpSocket},
+    net::{IpAddr, Shutdown, TcpListener, TcpStream, UdpSocket},
     path::{Path, PathBuf},
     process::{Child, Command, Stdio},
     sync::{Arc, Condvar, LockResult, Mutex, MutexGuard},
@@ -41,6 +41,8 @@ const MEDIA_EXTENSIONS: &[&str] = &[
     "aac", "aif", "aiff", "alac", "ape", "flac", "m4a", "m4b", "mka", "mp3", "mp4", "oga", "ogg",
     "opus", "wav", "wma", "jpg", "jpeg", "png", "gif", "bmp", "tif", "tiff", "webp",
 ];
+const GLOBAL_IP_API_URL: &str = "https://api.ipify.org?format=json";
+const GLOBAL_IP_LOOKUP_TIMEOUT: Duration = Duration::from_secs(3);
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -91,6 +93,13 @@ struct McpSettingsBody {
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct AppPreferencesBody {
+    remote_access_mode: Option<app_settings::RemoteAccessMode>,
+    sidebar_collapsed: Option<bool>,
+}
+
+#[derive(Debug, Deserialize)]
 struct McpToolRequestBody {
     arguments: Option<Value>,
 }
@@ -100,6 +109,18 @@ struct McpToolRequestBody {
 struct McpSettingsInfo {
     enabled: bool,
     url: String,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct AppPreferencesInfo {
+    remote_access_mode: app_settings::RemoteAccessMode,
+    sidebar_collapsed: bool,
+}
+
+#[derive(Debug, Deserialize)]
+struct GlobalIpResponse {
+    ip: String,
 }
 
 #[derive(Debug, Serialize)]
@@ -224,6 +245,7 @@ struct RemotePlayerCommandsResponse {
 
 #[derive(Default)]
 struct RemoteServerState {
+    current_global_ip: Option<String>,
     local_access_enabled: bool,
     mcp_enabled: bool,
     mcp_bridge_token: String,
@@ -338,6 +360,9 @@ fn apply_remote_command_to_player_state(
         }
         "play-album" => {
             state.playback_playlist_id = None;
+            if let Some(is_shuffle) = payload.get("isShuffle").and_then(Value::as_bool) {
+                state.is_shuffle = is_shuffle;
+            }
             if let Some(album_id) = payload.get("albumId").and_then(Value::as_str) {
                 state.playback_album_id = Some(album_id.to_owned());
                 state.selected_album_id = Some(album_id.to_owned());
@@ -354,6 +379,9 @@ fn apply_remote_command_to_player_state(
             state.current_time = 0.0;
         }
         "play-track" => {
+            if let Some(is_shuffle) = payload.get("isShuffle").and_then(Value::as_bool) {
+                state.is_shuffle = is_shuffle;
+            }
             state.playback_playlist_id = payload
                 .get("playlistId")
                 .and_then(Value::as_str)
@@ -433,10 +461,28 @@ struct Request {
 pub fn start(app: AppHandle) -> Result<String, String> {
     let listener = TcpListener::bind(LOCAL_SERVER_ADDR).map_err(|error| error.to_string())?;
     let url = format!("http://{LOCAL_SERVER_ADDR}");
+    let settings = app_settings::load(&app).unwrap_or_default();
+    let current_global_ip = if settings.remote_access_mode == app_settings::RemoteAccessMode::Off {
+        None
+    } else {
+        match fetch_global_ipv4() {
+            Ok(global_ip) => Some(global_ip),
+            Err(error) => {
+                warn!("global IP lookup failed; remote access remains private: {error}");
+                None
+            }
+        }
+    };
+    let restored_remote_access_mode = gated_remote_access_mode(
+        settings.remote_access_mode,
+        settings.remote_access_global_ip.as_deref(),
+        current_global_ip.as_deref(),
+    );
     let mut initial_state = RemoteServerState::default();
-    initial_state.mcp_enabled = app_settings::load(&app)
-        .map(|settings| settings.mcp_enabled)
-        .unwrap_or(false);
+    initial_state.current_global_ip = current_global_ip;
+    initial_state.local_access_enabled =
+        restored_remote_access_mode == app_settings::RemoteAccessMode::Lan;
+    initial_state.mcp_enabled = settings.mcp_enabled;
     initial_state.mcp_bridge_token = generate_mcp_bridge_token();
     let should_start_mcp = initial_state.mcp_enabled;
     let remote_state = Arc::new(RemoteServerStateStore::new(initial_state));
@@ -589,8 +635,48 @@ fn route_request(
         return text_response(403, "remote access is private");
     }
 
+    if let Some(response) = route_mcp_request(&request, &remote_state, |request| {
+        proxy_mcp_request(request, &app, &remote_state)
+    }) {
+        return response;
+    }
+
     match (request.method.as_str(), request.path.as_str()) {
         ("GET", "/api/local-dev-access") => result_response(local_access_info(&remote_state)),
+        ("GET", "/api/app-preferences") => {
+            if !request.is_local {
+                return text_response(403, "app preferences are only available locally");
+            }
+
+            result_response(app_preferences_info(&app, &remote_state))
+        }
+        ("POST", "/api/app-preferences") => {
+            if !request.is_local {
+                return text_response(403, "app preferences are only available locally");
+            }
+
+            let request_body = parse_json::<AppPreferencesBody>(&request.body);
+            let result = request_body.and_then(|body| {
+                let remote_access_global_ip = match body.remote_access_mode {
+                    Some(app_settings::RemoteAccessMode::Off) => Some(None),
+                    Some(_) => Some(Some(refresh_current_global_ip(&remote_state)?)),
+                    None => None,
+                };
+                let settings = app_settings::update(&app, |settings| {
+                    if let Some(remote_access_mode) = body.remote_access_mode {
+                        settings.remote_access_mode = remote_access_mode;
+                    }
+                    if let Some(remote_access_global_ip) = remote_access_global_ip {
+                        settings.remote_access_global_ip = remote_access_global_ip;
+                    }
+                    if let Some(sidebar_collapsed) = body.sidebar_collapsed {
+                        settings.sidebar_collapsed = sidebar_collapsed;
+                    }
+                })?;
+                app_preferences_info_from_settings(&settings, &remote_state)
+            });
+            result_response(result)
+        }
         ("GET", "/api/mcp-settings") => {
             if !request.is_local {
                 return text_response(403, "MCP settings are only available locally");
@@ -898,19 +984,33 @@ fn route_request(
                 text_response(400, "missing media path")
             }
         }
-        ("POST", "/mcp") => {
-            if !request.is_local {
-                return text_response(403, "MCP is only available locally");
-            }
-            if !is_mcp_enabled(&remote_state) {
-                return text_response(404, "MCP server is disabled");
-            }
-
-            proxy_mcp_request(&request, &app, &remote_state)
-        }
         ("GET", path) if !path.starts_with("/api/") => frontend_response(path),
         _ => text_response(404, "not found"),
     }
+}
+
+fn route_mcp_request<F>(
+    request: &Request,
+    remote_state: &SharedRemoteServerState,
+    proxy: F,
+) -> Option<Vec<u8>>
+where
+    F: FnOnce(&Request) -> Vec<u8>,
+{
+    if request.path != "/mcp" {
+        return None;
+    }
+    if !request.is_local {
+        return Some(text_response(403, "MCP is only available locally"));
+    }
+    if !is_mcp_enabled(remote_state) {
+        return Some(text_response(404, "MCP server is disabled"));
+    }
+
+    Some(match request.method.as_str() {
+        "POST" | "DELETE" => proxy(request),
+        _ => mcp_method_not_allowed_response(),
+    })
 }
 
 fn track_lyrics_analysis_response<F>(request: &Request, analyze: F) -> Vec<u8>
@@ -1035,6 +1135,80 @@ fn mcp_settings_info(remote_state: &SharedRemoteServerState) -> Result<McpSettin
         enabled: is_mcp_enabled(remote_state),
         url: format!("http://127.0.0.1:{LOCAL_SERVER_PORT}/mcp"),
     })
+}
+
+fn app_preferences_info(
+    app: &AppHandle,
+    remote_state: &SharedRemoteServerState,
+) -> Result<AppPreferencesInfo, String> {
+    let settings = app_settings::load(app)?;
+    app_preferences_info_from_settings(&settings, remote_state)
+}
+
+fn app_preferences_info_from_settings(
+    settings: &app_settings::AppSettings,
+    remote_state: &SharedRemoteServerState,
+) -> Result<AppPreferencesInfo, String> {
+    let current_global_ip = remote_state
+        .lock()
+        .map_err(|error| error.to_string())?
+        .current_global_ip
+        .clone();
+    Ok(AppPreferencesInfo {
+        remote_access_mode: gated_remote_access_mode(
+            settings.remote_access_mode,
+            settings.remote_access_global_ip.as_deref(),
+            current_global_ip.as_deref(),
+        ),
+        sidebar_collapsed: settings.sidebar_collapsed,
+    })
+}
+
+fn gated_remote_access_mode(
+    saved_mode: app_settings::RemoteAccessMode,
+    saved_global_ip: Option<&str>,
+    current_global_ip: Option<&str>,
+) -> app_settings::RemoteAccessMode {
+    if saved_mode == app_settings::RemoteAccessMode::Off {
+        return app_settings::RemoteAccessMode::Off;
+    }
+    if saved_global_ip.is_some() && saved_global_ip == current_global_ip {
+        saved_mode
+    } else {
+        app_settings::RemoteAccessMode::Off
+    }
+}
+
+fn refresh_current_global_ip(remote_state: &SharedRemoteServerState) -> Result<String, String> {
+    let global_ip = fetch_global_ipv4()?;
+    remote_state
+        .lock()
+        .map_err(|error| error.to_string())?
+        .current_global_ip = Some(global_ip.clone());
+    Ok(global_ip)
+}
+
+fn fetch_global_ipv4() -> Result<String, String> {
+    let client = reqwest::blocking::Client::builder()
+        .connect_timeout(GLOBAL_IP_LOOKUP_TIMEOUT)
+        .timeout(GLOBAL_IP_LOOKUP_TIMEOUT)
+        .build()
+        .map_err(|error| error.to_string())?;
+    let response = client
+        .get(GLOBAL_IP_API_URL)
+        .send()
+        .and_then(reqwest::blocking::Response::error_for_status)
+        .map_err(|error| error.to_string())?
+        .json::<GlobalIpResponse>()
+        .map_err(|error| error.to_string())?;
+    let global_ip = response
+        .ip
+        .parse::<IpAddr>()
+        .map_err(|error| error.to_string())?;
+    match global_ip {
+        IpAddr::V4(_) => Ok(global_ip.to_string()),
+        IpAddr::V6(_) => Err("global IP lookup returned IPv6".to_owned()),
+    }
 }
 
 fn set_mcp_enabled(
@@ -1171,14 +1345,27 @@ fn proxy_mcp_request(
         Err(error) => return text_response(503, &error),
     };
     let url = format!("http://127.0.0.1:{port}/mcp");
+    proxy_mcp_request_to_url(request, &url)
+}
+
+fn proxy_mcp_request_to_url(request: &Request, url: &str) -> Vec<u8> {
     let client = match reqwest::blocking::Client::builder()
+        .no_proxy()
         .timeout(Duration::from_secs(60 * 30))
         .build()
     {
         Ok(client) => client,
         Err(error) => return text_response(500, &error.to_string()),
     };
-    let mut builder = client.post(url).body(request.body.clone());
+    let proxy_method = match request.method.as_str() {
+        "POST" => reqwest::Method::POST,
+        "DELETE" => reqwest::Method::DELETE,
+        _ => return mcp_method_not_allowed_response(),
+    };
+    let mut builder = client.request(proxy_method, url);
+    if !request.body.is_empty() {
+        builder = builder.body(request.body.clone());
+    }
     if let Some(content_type) = request.headers.get("content-type") {
         builder = builder.header("content-type", content_type);
     }
@@ -1215,6 +1402,15 @@ fn proxy_mcp_request(
         Ok(bytes) => response_with_headers(status, &content_type, bytes.as_ref(), &extra_headers),
         Err(error) => text_response(503, &error.to_string()),
     }
+}
+
+fn mcp_method_not_allowed_response() -> Vec<u8> {
+    response_with_headers(
+        405,
+        "text/plain; charset=utf-8",
+        b"MCP SSE stream is not available",
+        &[("Allow".to_owned(), "POST, DELETE".to_owned())],
+    )
 }
 
 fn local_access_info(remote_state: &SharedRemoteServerState) -> Result<LocalDevAccessInfo, String> {
@@ -3011,13 +3207,16 @@ fn response_with_declared_content_length(
 ) -> Vec<u8> {
     let reason = match status {
         200 => "OK",
+        202 => "Accepted",
         204 => "No Content",
         206 => "Partial Content",
         400 => "Bad Request",
         403 => "Forbidden",
         404 => "Not Found",
+        405 => "Method Not Allowed",
         416 => "Range Not Satisfiable",
         500 => "Internal Server Error",
+        503 => "Service Unavailable",
         _ => "OK",
     };
     let mut headers = format!(
@@ -3025,7 +3224,7 @@ fn response_with_declared_content_length(
          Content-Length: {content_length}\r\n\
          Content-Type: {content_type}\r\n\
          Access-Control-Allow-Origin: *\r\n\
-         Access-Control-Allow-Methods: GET, HEAD, POST, OPTIONS\r\n\
+         Access-Control-Allow-Methods: GET, HEAD, POST, DELETE, OPTIONS\r\n\
          Access-Control-Allow-Headers: Content-Type, Range, Mcp-Session-Id, Mcp-Protocol-Version, Last-Event-Id, X-Musical-State-Captured-At-Ms\r\n\
          Access-Control-Expose-Headers: Accept-Ranges, Content-Range, Mcp-Session-Id, Mcp-Protocol-Version, X-Musical-Response-Sent-At-Ms, X-Musical-State-Captured-At-Ms, X-Musical-Track-Id, X-Musical-Start-Time-Ms, X-Musical-Frame-Interval-Ms, X-Musical-Bucket-Count, X-Musical-Frame-Count, X-Musical-Is-Complete\r\n",
     );
@@ -3118,11 +3317,13 @@ fn content_type(path: &Path) -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::{
-        empty_remote_player_state, filesystem_frontend_response, has_command_gap,
-        is_allowed_request_origin, lyrics_mood_reference, resolve_media_path,
-        track_lyrics_analysis_response, LyricsMoodReference, RemoteServerState,
-        RemoteServerStateStore, Request,
+        apply_remote_command_to_player_state, empty_remote_player_state,
+        filesystem_frontend_response, gated_remote_access_mode, has_command_gap,
+        is_allowed_request_origin, lyrics_mood_reference, proxy_mcp_request_to_url,
+        resolve_media_path, route_mcp_request, track_lyrics_analysis_response, LyricsMoodReference,
+        RemotePlayerCommand, RemoteServerState, RemoteServerStateStore, Request,
     };
+    use crate::app_settings::RemoteAccessMode;
     use crate::lyrics_sentiment::{
         LyricsSentimentBlock, LyricsSentimentSummary, SentimentLabel, TrackLyricsAnalysis,
         ANALYZER_ID,
@@ -3134,9 +3335,14 @@ mod tests {
     use std::{
         collections::HashMap,
         fs,
-        sync::atomic::{AtomicUsize, Ordering},
-        sync::Arc,
-        time::{SystemTime, UNIX_EPOCH},
+        io::{Read, Write},
+        net::TcpListener,
+        sync::{
+            atomic::{AtomicUsize, Ordering},
+            Arc,
+        },
+        thread,
+        time::{Duration, Instant, SystemTime, UNIX_EPOCH},
     };
 
     struct ParsedHttpResponse {
@@ -3183,6 +3389,135 @@ mod tests {
             content_length,
             body,
         }
+    }
+
+    #[test]
+    fn remote_access_restores_only_for_the_recorded_global_ip() {
+        assert_eq!(
+            gated_remote_access_mode(
+                RemoteAccessMode::Lan,
+                Some("203.0.113.8"),
+                Some("203.0.113.8"),
+            ),
+            RemoteAccessMode::Lan
+        );
+        assert_eq!(
+            gated_remote_access_mode(
+                RemoteAccessMode::Open,
+                Some("203.0.113.8"),
+                Some("198.51.100.4"),
+            ),
+            RemoteAccessMode::Off
+        );
+        assert_eq!(
+            gated_remote_access_mode(RemoteAccessMode::Lan, None, Some("203.0.113.8")),
+            RemoteAccessMode::Off
+        );
+        assert_eq!(
+            gated_remote_access_mode(RemoteAccessMode::Lan, Some("203.0.113.8"), None),
+            RemoteAccessMode::Off
+        );
+    }
+
+    #[test]
+    fn mcp_route_claims_get_before_the_spa_fallback() {
+        let remote_state = Arc::new(RemoteServerStateStore::new(RemoteServerState {
+            mcp_enabled: true,
+            ..RemoteServerState::default()
+        }));
+        let request = Request {
+            method: "GET".to_owned(),
+            path: "/mcp".to_owned(),
+            query: String::new(),
+            headers: HashMap::new(),
+            body: Vec::new(),
+            is_local: true,
+        };
+        let response = route_mcp_request(&request, &remote_state, |_| {
+            panic!("GET must not be proxied to the MCP sidecar")
+        })
+        .expect("the MCP route must claim GET /mcp");
+        let response_text = String::from_utf8_lossy(&response);
+
+        assert!(response_text.starts_with("HTTP/1.1 405 Method Not Allowed\r\n"));
+        assert!(response_text.contains("Allow: POST, DELETE\r\n"));
+        assert!(response_text
+            .contains("Access-Control-Allow-Methods: GET, HEAD, POST, DELETE, OPTIONS\r\n"));
+        assert!(response_text.contains("Content-Type: text/plain; charset=utf-8\r\n"));
+        assert!(!response_text.contains("Content-Type: text/html"));
+
+        let spa_request = Request {
+            path: "/player".to_owned(),
+            ..request
+        };
+        assert!(route_mcp_request(&spa_request, &remote_state, |_| {
+            panic!("a non-MCP route must not be proxied")
+        })
+        .is_none());
+    }
+
+    #[test]
+    fn mcp_proxy_preserves_delete_for_session_termination() {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind mock MCP sidecar");
+        let address = listener.local_addr().expect("mock MCP address");
+        listener
+            .set_nonblocking(true)
+            .expect("make mock MCP sidecar nonblocking");
+        let server = thread::spawn(move || {
+            let deadline = Instant::now() + Duration::from_secs(5);
+            let (mut stream, _) = loop {
+                match listener.accept() {
+                    Ok(connection) => break connection,
+                    Err(error)
+                        if error.kind() == std::io::ErrorKind::WouldBlock
+                            && Instant::now() < deadline =>
+                    {
+                        thread::sleep(Duration::from_millis(10));
+                    }
+                    Err(error) => panic!("accept proxied MCP request: {error}"),
+                }
+            };
+            stream
+                .set_nonblocking(false)
+                .expect("make accepted MCP socket blocking");
+            stream
+                .set_read_timeout(Some(Duration::from_secs(5)))
+                .expect("set mock MCP read timeout");
+            let mut bytes = Vec::new();
+            let mut buffer = [0_u8; 1024];
+            loop {
+                let count = stream.read(&mut buffer).expect("read proxied MCP request");
+                assert!(count > 0, "proxied request ended before its headers");
+                bytes.extend_from_slice(&buffer[..count]);
+                if bytes.windows(4).any(|window| window == b"\r\n\r\n") {
+                    break;
+                }
+            }
+
+            stream
+                .write_all(
+                    b"HTTP/1.1 202 Accepted\r\nContent-Length: 0\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n",
+                )
+                .expect("write mock MCP response");
+            String::from_utf8(bytes).expect("UTF-8 proxied MCP request")
+        });
+        let request = Request {
+            method: "DELETE".to_owned(),
+            path: "/mcp".to_owned(),
+            query: String::new(),
+            headers: HashMap::from([("mcp-session-id".to_owned(), "fixture-session".to_owned())]),
+            body: Vec::new(),
+            is_local: true,
+        };
+
+        let response = proxy_mcp_request_to_url(&request, &format!("http://{address}/mcp"));
+        let proxied_request = server.join().expect("mock MCP sidecar thread");
+
+        assert_eq!(parse_http_response(&response).status, 202);
+        assert!(proxied_request.starts_with("DELETE /mcp HTTP/1.1\r\n"));
+        assert!(proxied_request
+            .to_ascii_lowercase()
+            .contains("mcp-session-id: fixture-session\r\n"));
     }
 
     fn lyrics_analysis_request(method: &str, query: &str, body: &[u8]) -> Request {
@@ -3491,6 +3826,45 @@ mod tests {
         assert!(!has_command_gap(49, Some(50)));
         assert!(has_command_gap(10, Some(50)));
         assert!(!has_command_gap(10, None));
+    }
+
+    #[test]
+    fn play_commands_apply_shuffle_to_optimistic_player_state() {
+        let mut player_state = Some(empty_remote_player_state());
+        apply_remote_command_to_player_state(
+            &mut player_state,
+            &RemotePlayerCommand {
+                command_type: "play-album".to_owned(),
+                payload: Some(serde_json::json!({
+                    "albumId": "album-1",
+                    "isShuffle": true,
+                    "queueTrackIds": ["track-2", "track-1"]
+                })),
+            },
+        );
+
+        let state = player_state.as_ref().expect("player state");
+        assert!(state.is_shuffle);
+        assert_eq!(state.queue_track_ids, vec!["track-2", "track-1"]);
+        assert_eq!(state.current_track_id.as_deref(), Some("track-2"));
+
+        apply_remote_command_to_player_state(
+            &mut player_state,
+            &RemotePlayerCommand {
+                command_type: "play-track".to_owned(),
+                payload: Some(serde_json::json!({
+                    "albumId": "album-1",
+                    "isShuffle": false,
+                    "trackId": "track-1",
+                    "queueTrackIds": ["track-1", "track-2"]
+                })),
+            },
+        );
+
+        let state = player_state.as_ref().expect("player state");
+        assert!(!state.is_shuffle);
+        assert_eq!(state.queue_track_ids, vec!["track-1", "track-2"]);
+        assert_eq!(state.current_track_id.as_deref(), Some("track-1"));
     }
 
     #[test]

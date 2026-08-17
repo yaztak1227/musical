@@ -9,7 +9,7 @@ import {
   type SyntheticEvent,
   type TouchEvent,
 } from "react";
-import { ArrowDown, ArrowUp, EllipsisVertical, ExternalLink, ImagePlus, ListMusic, Pencil, Play, Plus, RefreshCw, Save, ScrollText, Trash2, X } from "lucide-react";
+import { ArrowDown, ArrowUp, Ellipsis, ExternalLink, ImagePlus, ListMusic, Pencil, Play, Plus, RefreshCw, Save, ScrollText, Trash2, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Separator } from "@/components/ui/separator";
@@ -355,7 +355,7 @@ export function SelectedPlaylistPanel({
                       role="button"
                       title={t("playlists.trackActions", { track: localizeLibraryText(track.title, t) })}
                     >
-                      <EllipsisVertical aria-hidden="true" />
+                      <Ellipsis aria-hidden="true" />
                     </summary>
                     <div className="track-row-menu-popover">
                       {album ? (

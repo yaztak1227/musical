@@ -24,6 +24,7 @@ Musical は、Windows / macOS / Linux で使えるデスクトップ音楽プレ
 - アルバム名、アーティスト、年、ジャンルなどのタグ編集
 - 曲ごとの歌詞表示
 - アルバムアートワークの確認と差し替え
+- Streamable HTTP MCP 対応の Agent Plugins 1.0 クライアントからローカル再生とライブラリを操作
 - 日本語 / 英語の表示切り替え
 - 複数テーマの切り替え
 
@@ -91,6 +92,10 @@ Musical には Fire TV 向けの companion app があり、テレビに合わせ
 4. スキャン完了後、アルバム一覧と曲一覧が表示されます。
 
 スキャン結果はローカルの SQLite データベースに保存され、次回起動時に読み込まれます。
+
+## Agent Plugin
+
+このリポジトリのルートは Agent Plugins 1.0.0 パッケージです。Musical を起動してサイドバーの設定セクションから MCP server を有効にし、Streamable HTTP MCP plugin 対応クライアントでリポジトリのルートを読み込んでください。構成、実行条件、検証コマンドは [Agent Plugins 1.0](docs/agent-plugin.ja.md) にまとめています。
 
 ## 開発者向け情報
 

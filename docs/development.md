@@ -86,6 +86,12 @@ Build the frontend:
 npm run build
 ```
 
+Validate the Agent Plugins 1.0 package without building the app:
+
+```bash
+npm run test:agent-plugin
+```
+
 Build the desktop app:
 
 ```bash

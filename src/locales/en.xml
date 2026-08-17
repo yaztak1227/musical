@@ -125,6 +125,7 @@
   <message key="remoteAccess.error">Could not create public URL: {message}</message>
   <message key="remoteAccess.openLink">Open public URL</message>
   <message key="remoteAccess.qrAlt">QR code for the public dev URL</message>
+  <message key="remoteAccess.publicWarning">Caution: Do not use this on public networks. Anyone with this URL can control Musical, so share it only with people you trust. On the next launch, it is published again only when the saved global IP matches.</message>
   <message key="library.albumListLabel">Album library</message>
   <message key="library.controls">Library controls</message>
   <message key="library.selectedAlbumLabel">Selected album</message>

@@ -2,6 +2,7 @@ import type { Locale } from "@/i18n";
 import type { ThemeName } from "@/types/app";
 import type { PlaybackPreferences } from "@/features/playback/domain/playbackPreferences";
 import { isRepeatMode } from "@/features/playback/domain/playbackPreferences";
+import type { RemoteAccessMode } from "@/lib/remoteAccess";
 
 export type LibrarySidebarSectionStateValue = {
   appearance: boolean;
@@ -14,6 +15,9 @@ const storageKeys = {
   librarySidebarSections: "musical.librarySidebarSections",
   locale: "musical.locale",
   playbackPreferences: "musical.playbackPreferences",
+  mcpEnabled: "musical.mcpEnabled",
+  remoteAccessGlobalIp: "musical.remoteAccessGlobalIp",
+  remoteAccessMode: "musical.remoteAccessMode",
   sidebarCollapsed: "musical.sidebarCollapsed",
   theme: "musical.theme",
 } as const;
@@ -43,6 +47,35 @@ export function getStoredSidebarCollapsed() {
 
 export function storeSidebarCollapsed(isCollapsed: boolean) {
   window.localStorage.setItem(storageKeys.sidebarCollapsed, String(isCollapsed));
+}
+
+export function getStoredMcpEnabled() {
+  return window.localStorage.getItem(storageKeys.mcpEnabled) === "true";
+}
+
+export function storeMcpEnabled(enabled: boolean) {
+  window.localStorage.setItem(storageKeys.mcpEnabled, String(enabled));
+}
+
+export function getStoredRemoteAccessMode(): RemoteAccessMode {
+  const mode = window.localStorage.getItem(storageKeys.remoteAccessMode);
+  return mode === "lan" || mode === "open" ? mode : "off";
+}
+
+export function getStoredRemoteAccessGlobalIp() {
+  return window.localStorage.getItem(storageKeys.remoteAccessGlobalIp);
+}
+
+export function storeRemoteAccessMode(mode: RemoteAccessMode) {
+  window.localStorage.setItem(storageKeys.remoteAccessMode, mode);
+}
+
+export function storeRemoteAccessGlobalIp(globalIp: string | null) {
+  if (globalIp) {
+    window.localStorage.setItem(storageKeys.remoteAccessGlobalIp, globalIp);
+  } else {
+    window.localStorage.removeItem(storageKeys.remoteAccessGlobalIp);
+  }
 }
 
 export function getStoredLibraryMenuOpen() {

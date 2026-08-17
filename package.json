@@ -1,7 +1,7 @@
 {
   "name": "musical",
   "private": true,
-  "version": "0.6.0",
+  "version": "0.6.1",
   "license": "MIT",
   "author": "yaztak1227@gmail.com",
   "type": "module",
@@ -13,9 +13,11 @@
     "build:mcp": "tsc -p tsconfig.mcp.json",
     "dev": "vite",
     "dev:public": "npm run build:mcp && node scripts/public-dev.mjs",
+    "prebuild": "npm run test:agent-plugin",
     "build": "tsc && vite build && npm run build:mcp",
     "mcp:dev": "npm run build:mcp && node dist/mcp/server.js",
     "mcp:smoke": "npm run build:mcp && node scripts/mcp-ai-sdk-smoke.mjs",
+    "test:agent-plugin": "node --test tests/agent-plugin.test.mjs",
     "preview": "vite preview",
     "test:mcp": "npm run build:mcp && node --test tests/mcp/*.test.mjs",
     "test:e2e": "playwright test",
@@ -62,6 +64,7 @@
     "@types/react-dom": "^19.2.3",
     "@types/three": "^0.185.1",
     "@vitejs/plugin-react": "^6.0.1",
+    "ajv": "^8.20.0",
     "cloudflared": "^0.7.1",
     "typescript": "^6.0.3",
     "vite": "^8.0.11"

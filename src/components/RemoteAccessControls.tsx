@@ -106,6 +106,9 @@ export function RemoteAccessControls({
               ) : (
                 <div className="remote-access-qr remote-access-qr-loading" aria-hidden="true" />
               )}
+              <p className="remote-access-warning" role="note">
+                {t("remoteAccess.publicWarning")}
+              </p>
               <a className="remote-access-link" href={publicDevUrl} target="_blank" rel="noreferrer">
                 {t("remoteAccess.openLink")}
               </a>

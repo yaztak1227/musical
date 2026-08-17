@@ -86,6 +86,12 @@ http://127.0.0.1:1423/
 npm run build
 ```
 
+アプリをビルドせず Agent Plugins 1.0 package を検証:
+
+```bash
+npm run test:agent-plugin
+```
+
 デスクトップアプリをビルド:
 
 ```bash

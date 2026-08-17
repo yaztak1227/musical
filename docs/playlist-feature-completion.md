@@ -20,7 +20,7 @@ the library snapshot so they can be displayed and played without blocking normal
 - Existing playlist files are replaced with the platform-native replace operation, including `MoveFileExW` on Windows.
 - Playlist deletion reports filesystem failures, and artwork metadata is committed before obsolete artwork is removed.
 - Playlist mutations are serialized across Tauri, local HTTP, and MCP entry points to prevent concurrent read-modify-write operations from losing changes.
-- Shuffle toggling keeps playlist playback context, reshuffles only playlist tracks, and restores stored playlist order when shuffle is disabled.
+- On startup or library snapshot reset, the current track selected during restoration (the restored album's first track) stays first and only the remaining album tracks are shuffled when shuffle is enabled; playlist playback shuffles the entire playlist when shuffle is enabled and preserves stored order when shuffle is disabled. Shuffle toggling keeps playlist playback context, reshuffles only playlist tracks, and restores stored playlist order when shuffle is disabled.
 - Broken `.mplaylist` files are skipped during snapshot loading instead of failing the entire library load.
 - Rooted M3U/PLS entries such as `/Music/track.mp3` are normalized without a Windows drive prefix.
 - Fire TV `/tv` display includes non-empty playlists as playable collections before albums.
@@ -28,4 +28,4 @@ the library snapshot so they can be displayed and played without blocking normal
 ## Tests
 
 - Rust unit tests cover corrupt `.mplaylist` tolerance and M3U/PLS path parsing.
-- Rust covers targeted playlist reload after removal. Playwright covers playlist create, duplicate add state, playlist source playback display, rename, batch add, reorder, remove without resetting playback, WebKit-style null-target blur, album jump, and delete.
+- Rust covers targeted playlist reload after removal. Playwright covers playlist create, duplicate add state, playlist source playback display, shuffled playlist queue order, rename, batch add, reorder, remove without resetting playback, WebKit-style null-target blur, album jump, and delete.

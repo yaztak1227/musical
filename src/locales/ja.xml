@@ -125,6 +125,7 @@
   <message key="remoteAccess.error">公開URLを作成できませんでした: {message}</message>
   <message key="remoteAccess.openLink">公開URLを開く</message>
   <message key="remoteAccess.qrAlt">公開開発URLのQRコード</message>
+  <message key="remoteAccess.publicWarning">注意: 公共LANでは使用しないでください。このURLを知っている人はMusicalを操作できます。信頼できる相手にだけ共有してください。次回起動時は、保存したグローバルIPと一致する場合のみ再公開されます。</message>
   <message key="library.albumListLabel">アルバムライブラリ</message>
   <message key="library.controls">ライブラリ操作</message>
   <message key="library.selectedAlbumLabel">選択中のアルバム</message>

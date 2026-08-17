@@ -74,7 +74,7 @@
 
 - カード、表の行、選択アルバム操作からアルバムを再生する。
 - 個別曲を再生し、その曲のアルバム文脈からキューを作る。
-- プレイリストを保存順に再生する。
+- シャッフルがオフならプレイリストを保存順に、オンならシャッフルした順に再生する。
 - 再生/一時停止、前へ、次へ、シーク、ミュート、音量、シャッフル、リピートを操作する。
 - 再生位置が 3 秒を超えている状態で前へを押すと、現在曲の先頭へ戻る。
 - 曲終了後はリピート/シャッフル規則に従って続行する。
@@ -274,6 +274,7 @@
 - LAN/public control URL の QR code を表示する。
 - ローカル MCP endpoint を切り替える。`/mcp` endpoint は local-only で、無効時は 404 を返す。
 - `/mcp` は公式 MCP SDK 上の TypeScript sidecar で提供し、AI SDK V7 compatible な tool catalog として検証する。Tauri local server は enabled 設定、sidecar lifecycle、reverse proxy を担当する。
+- リポジトリルートをcanonicalな`plugin.json`と`mcp.json`を持つAgent Plugins 1.0.0 packageとして提供する。portable MCP entryはloopbackのStreamable HTTPを使い、proxyはsystem HTTP proxyを迂回してPOSTとDELETEを転送する。server event streamは公開しないためGETは405を返す。
 - MCP sidecar と internal bridge は loopback bind と per-process `X-Musical-MCP-Token` で保護する。
 - Tauri から MCP sidecar へ専用 stdin pipe を保持し、sidecar は EOF で終了する。これにより Tauri の異常終了時にも orphan Node process を残さない。
 - `@ai-sdk/mcp` による tool discovery と `structuredContent` 検証を provider API key なしで実行できる。
