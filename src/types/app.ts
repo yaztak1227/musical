@@ -12,6 +12,7 @@ export type AlbumViewMode = "large" | "small" | "list" | "playlist";
 export type AlbumListMode = "album" | "track";
 export type AlbumSortMode = "title" | "artist" | "year";
 export type AlbumSortDirection = "asc" | "desc";
+export type PlaylistSortMode = "name" | "trackCount";
 export type ThemeName = "crimson" | "ocean" | "violet" | "forest" | "amber" | "mono";
 
 export const themeOptions = [

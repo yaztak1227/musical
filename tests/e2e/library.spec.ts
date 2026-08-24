@@ -16,6 +16,12 @@ async function playTrackFromTrackTable(page: Page, trackTitle: string) {
   await page.locator(".album-list-table.tracks .album-table-row").filter({ hasText: trackTitle }).getByRole("button", { name: "Play" }).click();
 }
 
+async function visibleCollectionCardTitles(page: Page, selector: string) {
+  return page.locator(selector).evaluateAll((elements) =>
+    elements.map((element) => element.textContent?.trim() ?? ""),
+  );
+}
+
 async function visualizerCanvasSignature(page: Page) {
   const activeWebglCanvas = page.locator(".visualizer-aurora-canvas.active, .visualizer-starfield-canvas.active, .visualizer-helix-canvas.active, .visualizer-warp-hole-canvas.active");
   if (await activeWebglCanvas.count()) {
@@ -128,6 +134,65 @@ test("filters albums, selects a track, and opens track details", async ({ page }
   await expect(page.getByRole("tab", { name: "Info" })).toBeVisible();
   await page.getByRole("tab", { name: "Lyrics" }).click();
   await expect(page.getByText("No lyrics are saved in this track.")).toBeVisible();
+});
+
+test("keeps album sorting and filtering bound to the album view", async ({ page }) => {
+  await page.addInitScript(() => window.localStorage.setItem("musical.locale", "en"));
+  await page.goto("/");
+
+  const albumTitleSelector = ".album-grid.large .album-card .album-card-title";
+  const ascendingTitles = await visibleCollectionCardTitles(page, albumTitleSelector);
+  expect(ascendingTitles.length).toBeGreaterThan(1);
+  await expect(page.getByRole("combobox", { name: "Sort albums" })).toBeVisible();
+
+  await page.getByRole("button", { name: "Sort direction: Ascending" }).click();
+  await expect.poll(() => visibleCollectionCardTitles(page, albumTitleSelector)).toEqual([...ascendingTitles].reverse());
+
+  await page.getByLabel("Search albums").fill("north");
+  await expect(page.locator(albumTitleSelector)).toHaveCount(1);
+  await expect(page.locator(albumTitleSelector).first()).toHaveText("North Window");
+});
+
+test("sorts and filters playlists with playlist-specific controls", async ({ page }) => {
+  await page.addInitScript(() => window.localStorage.setItem("musical.locale", "en"));
+  await page.goto("/");
+
+  await page.getByRole("tab", { name: "Playlists" }).click();
+  for (const name of ["Zulu Set", "Alpha Set"]) {
+    await page.getByLabel("Playlist name").fill(name);
+    await page.getByRole("button", { name: "New playlist" }).click();
+  }
+
+  const playlistTitleSelector = ".playlist-grid .playlist-card .album-card-title";
+  await expect(page.getByRole("combobox", { name: "Sort playlists" })).toHaveText("Playlist name");
+  await expect.poll(() => visibleCollectionCardTitles(page, playlistTitleSelector)).toEqual(["Alpha Set", "Zulu Set"]);
+
+  await page.getByRole("button", { name: "Sort direction: Ascending" }).click();
+  await expect.poll(() => visibleCollectionCardTitles(page, playlistTitleSelector)).toEqual(["Zulu Set", "Alpha Set"]);
+
+  await page.getByLabel("Search playlists").fill("alpha");
+  await expect(page.locator(playlistTitleSelector)).toHaveText(["Alpha Set"]);
+  await page.getByLabel("Search playlists").clear();
+
+  await page.getByRole("tab", { name: "Large icons" }).click();
+  await page.getByRole("region", { name: "Album library" }).getByRole("button", { name: /Midnight Transit/ }).click();
+  await page.getByRole("button", { name: "Add Station Lights to playlist" }).click();
+  await page.getByRole("menuitem", { name: /Alpha Set/ }).click();
+  await page.getByRole("tab", { name: "Playlists" }).click();
+
+  await page.getByLabel("Search playlists").fill("Station Lights");
+  await expect(page.locator(playlistTitleSelector)).toHaveText(["Alpha Set"]);
+  await page.getByLabel("Search playlists").clear();
+
+  await page.getByRole("button", { name: "Show playlists containing lyrics" }).click();
+  await expect(page.locator(playlistTitleSelector)).toHaveText(["Alpha Set"]);
+  await page.getByRole("button", { name: "Show playlists containing lyrics" }).click();
+
+  await page.getByRole("combobox", { name: "Sort playlists" }).click();
+  await page.getByRole("option", { name: "Track count" }).click();
+  await expect.poll(() => visibleCollectionCardTitles(page, playlistTitleSelector)).toEqual(["Alpha Set", "Zulu Set"]);
+  await page.getByRole("button", { name: "Sort direction: Descending" }).click();
+  await expect.poll(() => visibleCollectionCardTitles(page, playlistTitleSelector)).toEqual(["Zulu Set", "Alpha Set"]);
 });
 
 test("reflows large album cards when the library panel opens and closes", async ({ page }) => {
@@ -307,6 +372,72 @@ test("creates an empty playlist", async ({ page }) => {
   await page.locator(".playlist-card").first().click();
   await page.getByRole("button", { name: "Delete Night Drive" }).click();
   await expect(page.getByText("No playlists yet.")).toBeVisible();
+});
+
+test("uses the selected album as the queue and player source for right-panel track playback", async ({ page }) => {
+  await page.addInitScript(() => window.localStorage.setItem("musical.locale", "en"));
+  await page.goto("/");
+
+  const player = page.getByRole("region", { name: "Player" });
+  const selectedAlbum = page.getByRole("region", { name: "Selected album" });
+  const albumTrackRow = selectedAlbum.getByRole("listitem").filter({ hasText: "Last Train Home" });
+  await albumTrackRow.hover();
+  await albumTrackRow.getByRole("button", { name: "Play Last Train Home" }).click();
+
+  await expect(player).toHaveAttribute("data-playback-source", "album");
+  await expect(player).toContainText("Last Train Home");
+  await page.getByRole("region", { name: "Album library" }).getByRole("button", { name: /Room Tone/ }).click();
+  await player.getByRole("button", { name: "Show Midnight Transit" }).click();
+  await expect(selectedAlbum).toContainText("Midnight Transit");
+
+  await player.getByRole("button", { name: "Next" }).click();
+  await expect(player).toContainText("Blue Platform");
+});
+
+test("uses the selected playlist as the queue and player source for right-panel track playback", async ({ page }) => {
+  await page.addInitScript(() => window.localStorage.setItem("musical.locale", "en"));
+  await page.goto("/");
+
+  await page.getByRole("tab", { name: "Playlists" }).click();
+  await page.getByLabel("Playlist name").fill("Panel Queue");
+  await page.getByRole("button", { name: "New playlist" }).click();
+
+  await page.getByRole("tab", { name: "Large icons" }).click();
+  await page.getByRole("region", { name: "Album library" }).getByRole("button", { name: /Midnight Transit/ }).click();
+  await page.getByRole("button", { name: "Add Station Lights to playlist" }).click();
+  await page.getByRole("menuitem", { name: /Panel Queue/ }).click();
+  await page.getByRole("region", { name: "Album library" }).getByRole("button", { name: /Room Tone/ }).click();
+  await page.getByRole("button", { name: "Add Soft Machines to playlist" }).click();
+  await page.getByRole("menuitem", { name: /Panel Queue/ }).click();
+
+  await page.getByRole("tab", { name: "Playlists" }).click();
+  await page.locator(".playlist-card").first().click();
+  const selectedPlaylist = page.getByRole("region", { name: "Selected playlist" });
+  const playlistTrackRow = selectedPlaylist.getByRole("listitem").filter({ hasText: "Station Lights" });
+  await playlistTrackRow.hover();
+  await playlistTrackRow.getByRole("button", { name: "Play Station Lights" }).click();
+
+  const player = page.getByRole("region", { name: "Player" });
+  const playlistSourceButton = player.getByRole("button", { name: "Show playlist Panel Queue" });
+  await expect(player).toHaveAttribute("data-playback-source", "playlist");
+  await expect(player).toContainText("From Panel Queue");
+  await expect(playlistSourceButton.locator("svg")).toBeVisible();
+
+  await page.getByRole("tab", { name: "Large icons" }).click();
+  await page.getByRole("region", { name: "Album library" }).getByRole("button", { name: /Room Tone/ }).click();
+  await playlistSourceButton.click();
+  await expect(selectedPlaylist).toContainText("Panel Queue");
+
+  await player.getByRole("button", { name: "Next" }).click();
+  await expect(player).toContainText("Soft Machines");
+  await expect(player).not.toContainText("Last Train Home");
+
+  await player.getByRole("button", { name: "Open visualizer" }).click();
+  const visualizer = page.getByRole("dialog", { name: "Player visualizer" });
+  const stationLightsQueueRow = visualizer.locator(".visualizer-queue-row").filter({ hasText: "Station Lights" });
+  await stationLightsQueueRow.getByRole("button", { name: "Play" }).click();
+  await expect(player).toHaveAttribute("data-playback-source", "playlist");
+  await expect(player).toContainText("From Panel Queue");
 });
 
 test("keeps shuffle changes inside the active playlist queue", async ({ page }) => {

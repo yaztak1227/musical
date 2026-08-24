@@ -245,13 +245,16 @@ export function AppShell({ controller }: AppShellProps) {
     playNextTrack,
     playPreviousTrack,
     playPlaylist,
+    playPlaylistTrack,
     playQueuedTrack,
     playTrack,
     previewSelectedArtworkCandidate,
     playbackAlbum,
     playbackError,
-    playbackPlaylist,
+    playbackSource,
     playerBarRef,
+    playlistSortDirection,
+    playlistSortMode,
     playlists,
     query,
     queue,
@@ -292,6 +295,8 @@ export function AppShell({ controller }: AppShellProps) {
     setLyricsOnly,
     setArtworkSearchQuery,
     setPlaybackError,
+    setPlaylistSortDirection,
+    setPlaylistSortMode,
     setQuery,
     setThemeName,
     setTrackTagDraft,
@@ -351,6 +356,8 @@ export function AppShell({ controller }: AppShellProps) {
       onPausePlayback: pausePlayback,
       onPlayAlbum: playAlbum,
       onPlayPlaylist: playPlaylist,
+      onPlaylistSortDirectionChange: setPlaylistSortDirection,
+      onPlaylistSortModeChange: setPlaylistSortMode,
       onListModeChange: setAlbumListMode,
       onLyricsOnlyChange: setLyricsOnly,
       onOpenTrackLyrics: openTrackLyrics,
@@ -362,6 +369,8 @@ export function AppShell({ controller }: AppShellProps) {
       onSortModeChange: setAlbumSortMode,
       onViewModeChange: setAlbumViewMode,
       panelRef: albumsPanelRef,
+      playlistSortDirection,
+      playlistSortMode,
       playlists,
       query,
       selectedAlbumId: selectedAlbum?.id ?? null,
@@ -414,7 +423,6 @@ export function AppShell({ controller }: AppShellProps) {
   const playback = usePlaybackController({
     playerBarProps: {
       audioRef,
-      currentAlbum: playbackAlbum,
       currentTrack,
       isPlaying,
       isRemoteSynced: isBrowserBackendRuntime,
@@ -427,14 +435,18 @@ export function AppShell({ controller }: AppShellProps) {
       onPlayingChange: changePlaying,
       onPreviousTrack: playPreviousTrack,
       onSeek: seekTo,
-      onSelectCurrentAlbum: () => {
-        if (playbackAlbum) selectAlbum(playbackAlbum);
+      onSelectCurrentSource: () => {
+        if (playbackSource?.type === "playlist") {
+          selectPlaylist(playbackSource.playlist);
+        } else if (playbackSource?.type === "album") {
+          selectAlbum(playbackSource.album);
+        }
       },
       onShuffleChange: changeShuffle,
       onTogglePlayback: togglePlayback,
       onVolumeChange: setVolume,
       playbackError,
-      playbackPlaylist,
+      playbackSource,
       queueLength: queue.length,
       queueTracks: queue,
       ref: playerBarRef,
@@ -531,7 +543,7 @@ export function AppShell({ controller }: AppShellProps) {
             onOpenTrackDetail={openTrackDetail}
             onOpenTrackLyrics={openTrackLyrics}
             onChooseArtwork={choosePlaylistArtwork}
-            onPlayTrack={playTrack}
+            onPlayPlaylistTrack={playPlaylistTrack}
             onPlayPlaylist={playPlaylist}
             onReloadPlaylist={() => void reloadSelectedPlaylist()}
             onRemoveTrack={(playlist, trackIndex) => void removeTrackFromSelectedPlaylist(playlist, trackIndex)}

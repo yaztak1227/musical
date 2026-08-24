@@ -43,6 +43,9 @@
   <message key="search.label">Cerca album</message>
   <message key="search.placeholder">Album, artista, anno</message>
   <message key="search.lyricsFilter">Mostra album con testi</message>
+  <message key="search.playlistLabel">Cerca playlist</message>
+  <message key="search.playlistPlaceholder">Playlist, brano, artista</message>
+  <message key="search.playlistLyricsFilter">Mostra le playlist contenenti brani con testo</message>
   <message key="filters.toggle">Filtri</message>
   <message key="view.label">Vista album</message>
   <message key="view.largeIcons">Icone grandi</message>
@@ -54,6 +57,9 @@
   <message key="listMode.trackTable">Tabella brani</message>
   <message key="listMode.trackCount">Brani</message>
   <message key="sort.label">Ordina album</message>
+  <message key="sort.playlistLabel">Ordina playlist</message>
+  <message key="sort.playlistName">Nome playlist</message>
+  <message key="sort.playlistTrackCount">Numero di brani</message>
   <message key="sort.title">Titolo</message>
   <message key="sort.artist">Artista</message>
   <message key="sort.year">Anno</message>
@@ -159,6 +165,7 @@
   <message key="player.nothingSelected">Nessuna selezione</message>
   <message key="player.pickPrompt">Scegli un album o scansiona una cartella.</message>
   <message key="player.showCurrentAlbum">Mostra {album}</message>
+  <message key="player.showCurrentPlaylist">Mostra la playlist {playlist}</message>
   <message key="player.previous">Precedente</message>
   <message key="player.play">Riproduci</message>
   <message key="player.pause">Pausa</message>
@@ -259,6 +266,7 @@
   <message key="playlists.defaultName">Nuova playlist</message>
   <message key="playlists.namePrompt">Nome della playlist</message>
   <message key="playlists.empty">Nessuna playlist ancora.</message>
+  <message key="playlists.emptySearch">Nessuna playlist corrispondente.</message>
   <message key="playlists.emptyTracks">Nessuna traccia ancora in questa playlist.</message>
   <message key="playlists.artworkAlt">Grafica {playlist}</message>
   <message key="playlists.chooseArtwork">Scegli la grafica per {playlist}</message>

@@ -43,7 +43,7 @@ type SelectedPlaylistPanelProps = {
   onOpenTrackDetail: (track: Track) => void;
   onOpenTrackLyrics: (track: Track) => void;
   onChooseArtwork: (playlist: Playlist) => void;
-  onPlayTrack: (track: Track, albumId: EntityId) => void;
+  onPlayPlaylistTrack: (track: Track, playlist: Playlist) => void;
   onPlayPlaylist: (playlist: Playlist) => void;
   onReloadPlaylist: () => void;
   onRemoveTrack: (playlist: Playlist, trackIndex: number) => void;
@@ -76,7 +76,7 @@ export function SelectedPlaylistPanel({
   onOpenTrackDetail,
   onOpenTrackLyrics,
   onChooseArtwork,
-  onPlayTrack,
+  onPlayPlaylistTrack,
   onPlayPlaylist,
   onReloadPlaylist,
   onRemoveTrack,
@@ -301,7 +301,7 @@ export function SelectedPlaylistPanel({
                       className="track-play-button musical-ripple-button"
                       disabled={!album}
                       onClick={() => {
-                        if (album) onPlayTrack(track, album.id);
+                        if (album) onPlayPlaylistTrack(track, playlist);
                       }}
                       title={`${t("player.play")} ${localizeLibraryText(track.title, t)}`}
                       type="button"

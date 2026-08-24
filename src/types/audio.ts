@@ -40,6 +40,10 @@ export type Playlist = {
   tracks: Track[];
 };
 
+export type PlaybackSource =
+  | { type: "album"; album: Album }
+  | { type: "playlist"; playlist: Playlist };
+
 export type LibrarySnapshot = {
   albums: Album[];
   playlists: Playlist[];

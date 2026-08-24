@@ -43,6 +43,9 @@
   <message key="search.label">搜索专辑</message>
   <message key="search.placeholder">专辑、艺术家、年份</message>
   <message key="search.lyricsFilter">显示带歌词的专辑</message>
+  <message key="search.playlistLabel">搜索播放列表</message>
+  <message key="search.playlistPlaceholder">播放列表、歌曲、艺人</message>
+  <message key="search.playlistLyricsFilter">仅显示包含歌词歌曲的播放列表</message>
   <message key="filters.toggle">过滤器</message>
   <message key="view.label">专辑视图</message>
   <message key="view.largeIcons">大图标</message>
@@ -54,6 +57,9 @@
   <message key="listMode.trackTable">曲目表</message>
   <message key="listMode.trackCount">曲目数</message>
   <message key="sort.label">专辑排序</message>
+  <message key="sort.playlistLabel">播放列表排序</message>
+  <message key="sort.playlistName">播放列表名称</message>
+  <message key="sort.playlistTrackCount">歌曲数量</message>
   <message key="sort.title">标题</message>
   <message key="sort.artist">艺术家</message>
   <message key="sort.year">年份</message>
@@ -159,6 +165,7 @@
   <message key="player.nothingSelected">未选择</message>
   <message key="player.pickPrompt">选择专辑或扫描文件夹。</message>
   <message key="player.showCurrentAlbum">显示{album}</message>
+  <message key="player.showCurrentPlaylist">显示播放列表“{playlist}”</message>
   <message key="player.previous">上一首</message>
   <message key="player.play">播放</message>
   <message key="player.pause">暂停</message>
@@ -259,6 +266,7 @@
   <message key="playlists.defaultName">新播放列表</message>
   <message key="playlists.namePrompt">播放列表名称</message>
   <message key="playlists.empty">还没有播放列表。</message>
+  <message key="playlists.emptySearch">没有匹配的播放列表。</message>
   <message key="playlists.emptyTracks">此播放列表中还没有曲目。</message>
   <message key="playlists.artworkAlt">{playlist} 艺术品</message>
   <message key="playlists.chooseArtwork">为 {playlist} 选择艺术品</message>

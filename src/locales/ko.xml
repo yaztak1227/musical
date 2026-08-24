@@ -43,6 +43,9 @@
   <message key="search.label">앨범 검색</message>
   <message key="search.placeholder">앨범, 아티스트, 연도</message>
   <message key="search.lyricsFilter">가사가 있는 앨범 표시</message>
+  <message key="search.playlistLabel">플레이리스트 검색</message>
+  <message key="search.playlistPlaceholder">플레이리스트, 곡, 아티스트</message>
+  <message key="search.playlistLyricsFilter">가사가 있는 곡을 포함한 플레이리스트만 표시</message>
   <message key="filters.toggle">필터</message>
   <message key="view.label">앨범 보기</message>
   <message key="view.largeIcons">큰 아이콘</message>
@@ -54,6 +57,9 @@
   <message key="listMode.trackTable">곡 표</message>
   <message key="listMode.trackCount">곡 수</message>
   <message key="sort.label">앨범 정렬</message>
+  <message key="sort.playlistLabel">플레이리스트 정렬</message>
+  <message key="sort.playlistName">플레이리스트 이름</message>
+  <message key="sort.playlistTrackCount">곡 수</message>
   <message key="sort.title">제목</message>
   <message key="sort.artist">아티스트</message>
   <message key="sort.year">연도</message>
@@ -159,6 +165,7 @@
   <message key="player.nothingSelected">선택 없음</message>
   <message key="player.pickPrompt">앨범을 선택하거나 폴더를 스캔하세요.</message>
   <message key="player.showCurrentAlbum">{album} 표시</message>
+  <message key="player.showCurrentPlaylist">플레이리스트 {playlist} 표시</message>
   <message key="player.previous">이전</message>
   <message key="player.play">재생</message>
   <message key="player.pause">일시정지</message>
@@ -259,6 +266,7 @@
   <message key="playlists.defaultName">새 재생목록</message>
   <message key="playlists.namePrompt">재생목록 이름</message>
   <message key="playlists.empty">아직 재생목록이 없습니다.</message>
+  <message key="playlists.emptySearch">조건에 맞는 플레이리스트가 없습니다.</message>
   <message key="playlists.emptyTracks">이 재생목록에는 아직 트랙이 없습니다.</message>
   <message key="playlists.artworkAlt">{playlist} 작품</message>
   <message key="playlists.chooseArtwork">{playlist}의 작품을 선택하세요</message>

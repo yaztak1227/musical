@@ -105,6 +105,11 @@
   object-fit: cover;
 }
 
+.player-artwork-button > svg {
+  width: 28px;
+  height: 28px;
+}
+
 .player-artwork-button span {
   color: var(--app-on-player);
   font-size: 1.35rem;

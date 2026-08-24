@@ -43,6 +43,9 @@
   <message key="search.label">Buscar álbuns</message>
   <message key="search.placeholder">Álbum, artista, ano</message>
   <message key="search.lyricsFilter">Mostrar álbuns com letras</message>
+  <message key="search.playlistLabel">Pesquisar playlists</message>
+  <message key="search.playlistPlaceholder">Playlist, faixa, artista</message>
+  <message key="search.playlistLyricsFilter">Mostrar playlists com faixas que tenham letras</message>
   <message key="filters.toggle">Filtros</message>
   <message key="view.label">Visualização de álbuns</message>
   <message key="view.largeIcons">Ícones grandes</message>
@@ -54,6 +57,9 @@
   <message key="listMode.trackTable">Tabela de faixas</message>
   <message key="listMode.trackCount">Faixas</message>
   <message key="sort.label">Ordenar álbuns</message>
+  <message key="sort.playlistLabel">Ordenar playlists</message>
+  <message key="sort.playlistName">Nome da playlist</message>
+  <message key="sort.playlistTrackCount">Número de faixas</message>
   <message key="sort.title">Título</message>
   <message key="sort.artist">Artista</message>
   <message key="sort.year">Ano</message>
@@ -159,6 +165,7 @@
   <message key="player.nothingSelected">Nada selecionado</message>
   <message key="player.pickPrompt">Escolha um álbum ou escaneie uma pasta.</message>
   <message key="player.showCurrentAlbum">Mostrar {album}</message>
+  <message key="player.showCurrentPlaylist">Mostrar playlist {playlist}</message>
   <message key="player.previous">Anterior</message>
   <message key="player.play">Reproduzir</message>
   <message key="player.pause">Pausar</message>
@@ -259,6 +266,7 @@
   <message key="playlists.defaultName">Nova lista de reprodução</message>
   <message key="playlists.namePrompt">Nome da lista de reprodução</message>
   <message key="playlists.empty">Ainda não há listas de reprodução.</message>
+  <message key="playlists.emptySearch">Nenhuma playlist correspondente.</message>
   <message key="playlists.emptyTracks">Ainda não há faixas nesta playlist.</message>
   <message key="playlists.artworkAlt">Arte {playlist}</message>
   <message key="playlists.chooseArtwork">Escolha a arte para {playlist}</message>

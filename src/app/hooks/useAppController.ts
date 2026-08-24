@@ -12,13 +12,14 @@ import {
   useState,
 } from "react";
 import { getInitialLocale, translate, type Locale, type TranslationKey } from "../../i18n";
-import type { Album, EntityId, Track, LibrarySnapshot, Playlist } from "../../types/audio";
+import type { Album, EntityId, Track, LibrarySnapshot, PlaybackSource, Playlist } from "../../types/audio";
 import {
   type AlbumListMode,
   type AlbumSortDirection,
   type AlbumSortMode,
   type AlbumViewMode,
   type I18nMessage,
+  type PlaylistSortMode,
   type RepeatMode,
   type ThemeName,
   isThemeName,
@@ -239,6 +240,8 @@ export function useAppController() {
   const [albumListMode, setAlbumListMode] = useState<AlbumListMode>("album");
   const [albumSortMode, setAlbumSortMode] = useState<AlbumSortMode>("title");
   const [albumSortDirection, setAlbumSortDirection] = useState<AlbumSortDirection>("asc");
+  const [playlistSortMode, setPlaylistSortMode] = useState<PlaylistSortMode>("name");
+  const [playlistSortDirection, setPlaylistSortDirection] = useState<AlbumSortDirection>("asc");
   const [lyricsOnly, setLyricsOnly] = useState(false);
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(() =>
     isTauriRuntime ? false : getStoredSidebarCollapsed(),
@@ -583,6 +586,11 @@ export function useAppController() {
     albums.find((album) => album.id === playbackAlbumId) ??
     albums.find((album) => album.tracks.some((track) => track.id === currentTrack?.id)) ??
     selectedAlbum;
+  const playbackSource: PlaybackSource | null = playbackPlaylist
+    ? { type: "playlist", playlist: playbackPlaylist }
+    : playbackAlbum
+      ? { type: "album", album: playbackAlbum }
+      : null;
   const playbackQueueTracks = playbackQueueTrackIds
     .map((trackId) => albums.flatMap((album) => album.tracks).find((track) => track.id === trackId))
     .filter((track): track is Track => Boolean(track));
@@ -1032,6 +1040,26 @@ export function useAppController() {
     setIsPlaying(true);
   }, [albums, isShuffle, selectedAlbumId]);
 
+  const playPlaylistTrack = useCallback((track: Track, playlist: Playlist) => {
+    const album = findAlbumByTrackId(track.id);
+    const nextQueue = getToggledQueueTracks(playlist.tracks, isShuffle, track);
+    const queueTrackIds = nextQueue.map((queueTrack) => queueTrack.id);
+    if (sendRemoteCommand("play-track", {
+      albumId: album?.id ?? null,
+      playlistId: playlist.id,
+      trackId: track.id,
+      isShuffle,
+      queueTrackIds,
+    })) return;
+
+    setPlaybackAlbumId(album?.id ?? null);
+    setPlaybackPlaylistId(playlist.id);
+    setPlaybackQueueTrackIds(queueTrackIds);
+    setCurrentTrack(track);
+    playerBarRef.current?.resetPosition();
+    setIsPlaying(true);
+  }, [albums, isShuffle]);
+
   const playPlaylist = useCallback((playlist: Playlist) => {
     const queueTracks = getToggledQueueTracks(playlist.tracks, isShuffle, null);
     const firstTrack = queueTracks[0] ?? null;
@@ -1282,17 +1310,18 @@ export function useAppController() {
 
   const playQueuedTrack = useCallback((track: Track) => {
     const queueTrackIds = queue.map((track) => track.id);
-    const album = playbackAlbum ?? findAlbumByTrackId(track.id);
+    const album = findAlbumByTrackId(track.id) ?? playbackAlbum;
     const albumId = album?.id ?? selectedAlbumId;
-    if (sendRemoteCommand("play-track", { albumId, trackId: track.id, isShuffle, queueTrackIds })) return;
+    const playlistId = playbackPlaylist?.id ?? null;
+    if (sendRemoteCommand("play-track", { albumId, playlistId, trackId: track.id, isShuffle, queueTrackIds })) return;
 
     setPlaybackAlbumId(albumId);
-    setPlaybackPlaylistId(null);
+    setPlaybackPlaylistId(playlistId);
     setPlaybackQueueTrackIds(queueTrackIds);
     setCurrentTrack(track);
     playerBarRef.current?.resetPosition();
     setIsPlaying(true);
-  }, [isShuffle, playbackAlbum, queue, selectedAlbumId]);
+  }, [isShuffle, playbackAlbum, playbackPlaylist, queue, selectedAlbumId]);
 
   function selectTrack(track: Track) {
     if (suppressedTrackClickRef.current?.trackId === track.id) {
@@ -2550,14 +2579,17 @@ export function useAppController() {
     playNextTrack,
     playPlayback,
     playPlaylist,
+    playPlaylistTrack,
     playPreviousTrack,
     playQueuedTrack,
     playTrack,
     previewSelectedArtworkCandidate,
     playbackAlbum,
     playbackError,
-    playbackPlaylist,
+    playbackSource,
     playerBarRef,
+    playlistSortDirection,
+    playlistSortMode,
     playlists,
     query,
     queue,
@@ -2598,6 +2630,8 @@ export function useAppController() {
     setLocale,
     setLyricsOnly,
     setPlaybackError,
+    setPlaylistSortDirection,
+    setPlaylistSortMode,
     setQuery,
     setThemeName,
     setTrackTagDraft,

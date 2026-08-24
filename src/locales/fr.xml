@@ -43,6 +43,9 @@
   <message key="search.label">Rechercher des albums</message>
   <message key="search.placeholder">Album, artiste, année</message>
   <message key="search.lyricsFilter">Afficher les albums avec paroles</message>
+  <message key="search.playlistLabel">Rechercher dans les playlists</message>
+  <message key="search.playlistPlaceholder">Playlist, morceau, artiste</message>
+  <message key="search.playlistLyricsFilter">Afficher les playlists contenant des morceaux avec paroles</message>
   <message key="filters.toggle">Filtres</message>
   <message key="view.label">Vue des albums</message>
   <message key="view.largeIcons">Grandes icônes</message>
@@ -54,6 +57,9 @@
   <message key="listMode.trackTable">Tableau des morceaux</message>
   <message key="listMode.trackCount">Morceaux</message>
   <message key="sort.label">Trier les albums</message>
+  <message key="sort.playlistLabel">Trier les playlists</message>
+  <message key="sort.playlistName">Nom de la playlist</message>
+  <message key="sort.playlistTrackCount">Nombre de morceaux</message>
   <message key="sort.title">Titre</message>
   <message key="sort.artist">Artiste</message>
   <message key="sort.year">Année</message>
@@ -159,6 +165,7 @@
   <message key="player.nothingSelected">Aucune sélection</message>
   <message key="player.pickPrompt">Choisissez un album ou analysez un dossier.</message>
   <message key="player.showCurrentAlbum">Afficher {album}</message>
+  <message key="player.showCurrentPlaylist">Afficher la playlist {playlist}</message>
   <message key="player.previous">Précédent</message>
   <message key="player.play">Lire</message>
   <message key="player.pause">Mettre en pause</message>
@@ -259,6 +266,7 @@
   <message key="playlists.defaultName">Nouvelle liste de lecture</message>
   <message key="playlists.namePrompt">Nom de la liste de lecture</message>
   <message key="playlists.empty">Aucune liste de lecture pour l'instant.</message>
+  <message key="playlists.emptySearch">Aucune playlist correspondante.</message>
   <message key="playlists.emptyTracks">Aucune piste dans cette playlist pour l'instant.</message>
   <message key="playlists.artworkAlt">Oeuvre {playlist}</message>
   <message key="playlists.chooseArtwork">Choisissez une illustration pour {playlist}</message>

@@ -1,13 +1,13 @@
 import { type CSSProperties, forwardRef, type KeyboardEvent, type RefObject, useEffect, useEffectEvent, useId, useImperativeHandle, useRef, useState } from "react";
-import { ChevronLeft, ChevronRight, Maximize2, Pause, Play, Repeat, Repeat1, Shuffle, Volume2, VolumeX } from "lucide-react";
+import { ChevronLeft, ChevronRight, ListMusic, Maximize2, Pause, Play, Repeat, Repeat1, Shuffle, Volume2, VolumeX } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Slider } from "@/components/ui/slider";
 import { Toggle } from "@/components/ui/toggle";
 import type { TranslationKey } from "@/i18n";
-import type { Album, Playlist, Track } from "@/types/audio";
+import type { PlaybackSource, Track } from "@/types/audio";
 import type { RepeatMode } from "@/types/app";
 import { formatSeconds, formatTrackDuration, getTrackDurationSeconds } from "@/lib/formatUtils";
-import { getAudioErrorMessage, getArtworkSrc, localizeLibraryText } from "@/lib/libraryUtils";
+import { getAudioErrorMessage, getArtworkSrc, getPlaylistArtworkSrc, localizeLibraryText } from "@/lib/libraryUtils";
 
 type TFunction = (key: TranslationKey, values?: Record<string, string | number>) => string;
 
@@ -25,14 +25,13 @@ const developmentPerformanceMeasureLimit = 500_000;
 
 type PlayerBarProps = {
   audioRef: RefObject<HTMLAudioElement | null>;
-  currentAlbum: Album | null;
   currentTrack: Track | null;
   isPlaying: boolean;
   isRemoteSynced: boolean;
   isShuffle: boolean;
   isTauriRuntime: boolean;
   playbackError: string | null;
-  playbackPlaylist: Playlist | null;
+  playbackSource: PlaybackSource | null;
   queueLength: number;
   queueTracks: Track[];
   repeatMode: RepeatMode;
@@ -44,7 +43,7 @@ type PlayerBarProps = {
   onPlayingChange: (isPlaying: boolean) => void;
   onPreviousTrack: () => void;
   onSeek: (nextTime: number) => void;
-  onSelectCurrentAlbum: () => void;
+  onSelectCurrentSource: () => void;
   onShuffleChange: (isShuffle: boolean) => void;
   onTogglePlayback: () => void;
   onOpenVisualizer: () => void;
@@ -54,14 +53,13 @@ type PlayerBarProps = {
 export const PlayerBar = forwardRef<PlayerBarHandle, PlayerBarProps>(function PlayerBar(
   {
     audioRef,
-    currentAlbum,
     currentTrack,
     isPlaying,
     isRemoteSynced,
     isShuffle,
     isTauriRuntime,
     playbackError,
-    playbackPlaylist,
+    playbackSource,
     queueLength,
     queueTracks,
     repeatMode,
@@ -73,7 +71,7 @@ export const PlayerBar = forwardRef<PlayerBarHandle, PlayerBarProps>(function Pl
     onPlayingChange,
     onPreviousTrack,
     onSeek,
-    onSelectCurrentAlbum,
+    onSelectCurrentSource,
     onShuffleChange,
     onTogglePlayback,
     onOpenVisualizer,
@@ -95,8 +93,21 @@ export const PlayerBar = forwardRef<PlayerBarHandle, PlayerBarProps>(function Pl
   const [volume, setVolume] = useState(0.85);
   const effectiveDuration = duration || getTrackDurationSeconds(currentTrack);
   const seekProgress = effectiveDuration > 0 ? Math.min(100, Math.max(0, (currentTime / effectiveDuration) * 100)) : 0;
-  const currentAlbumTitle = currentAlbum ? localizeLibraryText(currentAlbum.title, t) : "";
-  const currentArtworkSrc = currentAlbum ? getArtworkSrc(currentAlbum) : "";
+  const currentSourceTitle = playbackSource?.type === "playlist"
+    ? playbackSource.playlist.name
+    : playbackSource?.type === "album"
+      ? localizeLibraryText(playbackSource.album.title, t)
+      : "";
+  const currentArtworkSrc = playbackSource?.type === "playlist"
+    ? getPlaylistArtworkSrc(playbackSource.playlist)
+    : playbackSource?.type === "album"
+      ? getArtworkSrc(playbackSource.album)
+      : "";
+  const currentSourceButtonLabel = playbackSource?.type === "playlist"
+    ? t("player.showCurrentPlaylist", { playlist: playbackSource.playlist.name })
+    : playbackSource?.type === "album"
+      ? t("player.showCurrentAlbum", { album: currentSourceTitle })
+      : t("player.nothingSelected");
   const isQueueOpen = isQueueHovered || isQueuePinnedOpen;
   const playerStyle = currentArtworkSrc
     ? ({ "--player-artwork-bg": `url("${currentArtworkSrc.replace(/"/g, '\\"')}")` } as CSSProperties)
@@ -331,6 +342,7 @@ export const PlayerBar = forwardRef<PlayerBarHandle, PlayerBarProps>(function Pl
         .filter(Boolean)
         .join(" ")}
       aria-label={t("player.label")}
+      data-playback-source={playbackSource?.type ?? "none"}
       style={playerStyle}
     >
       <button
@@ -350,17 +362,24 @@ export const PlayerBar = forwardRef<PlayerBarHandle, PlayerBarProps>(function Pl
       </button>
       <div className="player-track">
         <button
-          aria-label={currentAlbum ? t("player.showCurrentAlbum", { album: currentAlbumTitle }) : t("player.nothingSelected")}
+          aria-label={currentSourceButtonLabel}
           className="player-artwork-button"
-          disabled={!currentAlbum}
-          onClick={onSelectCurrentAlbum}
-          title={currentAlbum ? t("player.showCurrentAlbum", { album: currentAlbumTitle }) : undefined}
+          disabled={!playbackSource}
+          onClick={onSelectCurrentSource}
+          title={playbackSource ? currentSourceButtonLabel : undefined}
           type="button"
         >
           {currentArtworkSrc ? (
-            <img alt={t("album.artworkAlt", { album: currentAlbumTitle })} src={currentArtworkSrc} />
+            <img
+              alt={playbackSource?.type === "playlist"
+                ? t("playlists.artworkAlt", { playlist: playbackSource.playlist.name })
+                : t("album.artworkAlt", { album: currentSourceTitle })}
+              src={currentArtworkSrc}
+            />
+          ) : playbackSource?.type === "playlist" ? (
+            <ListMusic aria-hidden="true" />
           ) : (
-            <span aria-hidden="true">{currentAlbumTitle.charAt(0).toUpperCase()}</span>
+            <span aria-hidden="true">{currentSourceTitle.charAt(0).toUpperCase()}</span>
           )}
         </button>
         <div className="player-track-copy" key={currentTrack?.id ?? "empty"}>
@@ -368,8 +387,8 @@ export const PlayerBar = forwardRef<PlayerBarHandle, PlayerBarProps>(function Pl
           <strong>{currentTrack ? localizeLibraryText(currentTrack.title, t) : t("player.nothingSelected")}</strong>
           <span>
             {currentTrack
-              ? playbackPlaylist
-                ? t("player.playlistSource", { playlist: playbackPlaylist.name })
+              ? playbackSource?.type === "playlist"
+                ? t("player.playlistSource", { playlist: playbackSource.playlist.name })
                 : localizeLibraryText(currentTrack.artist, t)
               : t("player.pickPrompt")}
           </span>

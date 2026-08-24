@@ -43,6 +43,9 @@
   <message key="search.label">Поиск альбомов</message>
   <message key="search.placeholder">Альбом, исполнитель, год</message>
   <message key="search.lyricsFilter">Показывать альбомы с текстами</message>
+  <message key="search.playlistLabel">Поиск плейлистов</message>
+  <message key="search.playlistPlaceholder">Плейлист, трек, исполнитель</message>
+  <message key="search.playlistLyricsFilter">Показывать плейлисты с треками, содержащими текст</message>
   <message key="filters.toggle">Фильтры</message>
   <message key="view.label">Вид альбомов</message>
   <message key="view.largeIcons">Крупные значки</message>
@@ -54,6 +57,9 @@
   <message key="listMode.trackTable">Таблица треков</message>
   <message key="listMode.trackCount">Треки</message>
   <message key="sort.label">Сортировать альбомы</message>
+  <message key="sort.playlistLabel">Сортировать плейлисты</message>
+  <message key="sort.playlistName">Название плейлиста</message>
+  <message key="sort.playlistTrackCount">Количество треков</message>
   <message key="sort.title">Название</message>
   <message key="sort.artist">Исполнитель</message>
   <message key="sort.year">Год</message>
@@ -159,6 +165,7 @@
   <message key="player.nothingSelected">Ничего не выбрано</message>
   <message key="player.pickPrompt">Выберите альбом или просканируйте папку.</message>
   <message key="player.showCurrentAlbum">Показать {album}</message>
+  <message key="player.showCurrentPlaylist">Показать плейлист «{playlist}»</message>
   <message key="player.previous">Назад</message>
   <message key="player.play">Воспроизвести</message>
   <message key="player.pause">Пауза</message>
@@ -259,6 +266,7 @@
   <message key="playlists.defaultName">Новый плейлист</message>
   <message key="playlists.namePrompt">Название плейлиста</message>
   <message key="playlists.empty">Плейлистов пока нет.</message>
+  <message key="playlists.emptySearch">Подходящие плейлисты не найдены.</message>
   <message key="playlists.emptyTracks">В этом плейлисте пока нет треков.</message>
   <message key="playlists.artworkAlt">{playlist} произведение искусства</message>
   <message key="playlists.chooseArtwork">Выбрать обложку для {playlist}</message>

@@ -43,6 +43,9 @@
   <message key="search.label">アルバム検索</message>
   <message key="search.placeholder">アルバム、アーティスト、年</message>
   <message key="search.lyricsFilter">歌詞があるアルバムだけ表示</message>
+  <message key="search.playlistLabel">プレイリスト検索</message>
+  <message key="search.playlistPlaceholder">プレイリスト、曲、アーティスト</message>
+  <message key="search.playlistLyricsFilter">歌詞がある曲を含むプレイリストだけ表示</message>
   <message key="filters.toggle">フィルター</message>
   <message key="view.label">アルバム表示</message>
   <message key="view.largeIcons">大アイコン</message>
@@ -55,6 +58,9 @@
   <message key="listMode.trackTable">曲表</message>
   <message key="listMode.trackCount">曲数</message>
   <message key="sort.label">アルバムの並び替え</message>
+  <message key="sort.playlistLabel">プレイリストの並び替え</message>
+  <message key="sort.playlistName">プレイリスト名順</message>
+  <message key="sort.playlistTrackCount">曲数順</message>
   <message key="sort.title">タイトル順</message>
   <message key="sort.artist">アーティスト順</message>
   <message key="sort.year">年順</message>
@@ -73,6 +79,7 @@
   <message key="playlists.defaultName">新しいプレイリスト</message>
   <message key="playlists.namePrompt">プレイリスト名</message>
   <message key="playlists.empty">プレイリストはまだありません。</message>
+  <message key="playlists.emptySearch">条件に一致するプレイリストはありません。</message>
   <message key="playlists.emptyTracks">このプレイリストにはまだ曲がありません。</message>
   <message key="playlists.artworkAlt">{playlist} のアートワーク</message>
   <message key="playlists.chooseArtwork">{playlist} のアートワークを選択</message>
@@ -239,6 +246,7 @@
   <message key="player.nothingSelected">未選択</message>
   <message key="player.pickPrompt">アルバムを選ぶか、フォルダをスキャンしてください。</message>
   <message key="player.showCurrentAlbum">{album} を表示</message>
+  <message key="player.showCurrentPlaylist">プレイリスト「{playlist}」を表示</message>
   <message key="player.previous">前へ</message>
   <message key="player.play">再生</message>
   <message key="player.pause">一時停止</message>

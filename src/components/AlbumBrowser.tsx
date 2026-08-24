@@ -17,12 +17,13 @@ import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Toggle } from "@/components/ui/toggle";
 import type { TranslationKey } from "@/i18n";
 import type { Album, EntityId, Playlist, Track } from "@/types/audio";
-import type { AlbumListMode, AlbumSortDirection, AlbumSortMode, AlbumViewMode } from "@/types/app";
+import type { AlbumListMode, AlbumSortDirection, AlbumSortMode, AlbumViewMode, PlaylistSortMode } from "@/types/app";
 import { AlbumCard, AlbumCardFactory } from "@/components/AlbumCard";
 import { formatTrackDuration } from "@/lib/formatUtils";
 import { getPlaylistArtworkSrc, localizeLibraryText } from "@/lib/libraryUtils";
 import { prepareMarquee } from "@/lib/marqueeUtils";
 import { logRenderDiagnostic } from "@/lib/renderDiagnostics";
+import { filterAndSortPlaylists } from "@/lib/playlistFilters";
 
 type TFunction = (key: TranslationKey, values?: Record<string, string | number>) => string;
 
@@ -39,6 +40,8 @@ type AlbumBrowserProps = {
   lyricsOnly: boolean;
   playbackAlbumId: EntityId | null;
   playlists: Playlist[];
+  playlistSortDirection: AlbumSortDirection;
+  playlistSortMode: PlaylistSortMode;
   query: string;
   selectedAlbumId: EntityId | null;
   selectedPlaylistId: EntityId | null;
@@ -56,6 +59,8 @@ type AlbumBrowserProps = {
   onPlayTrack: (track: Track, albumId: EntityId) => void;
   onSortDirectionChange: (sortDirection: AlbumSortDirection) => void;
   onSortModeChange: (sortMode: AlbumSortMode) => void;
+  onPlaylistSortDirectionChange: (sortDirection: AlbumSortDirection) => void;
+  onPlaylistSortModeChange: (sortMode: PlaylistSortMode) => void;
   onViewModeChange: (viewMode: AlbumViewMode) => void;
 };
 
@@ -87,6 +92,8 @@ function AlbumBrowserComponent({
   lyricsOnly,
   playbackAlbumId,
   playlists,
+  playlistSortDirection,
+  playlistSortMode,
   query,
   selectedAlbumId,
   selectedPlaylistId,
@@ -104,6 +111,8 @@ function AlbumBrowserComponent({
   onPlayTrack,
   onSortDirectionChange,
   onSortModeChange,
+  onPlaylistSortDirectionChange,
+  onPlaylistSortModeChange,
   onViewModeChange,
 }: AlbumBrowserProps) {
   const renderCountRef = useRef(0);
@@ -127,22 +136,18 @@ function AlbumBrowserComponent({
       ),
     [albums, lyricsOnly],
   );
-  const filteredPlaylists = useMemo(() => {
-    const normalizedQuery = query.trim().toLocaleLowerCase();
-    if (!normalizedQuery) return playlists;
-    return playlists.filter((playlist) => {
-      const playlistText = [
-        playlist.name,
-        ...playlist.tracks.flatMap((track) => [track.title, track.artist, track.filePath ?? ""]),
-      ]
-        .join(" ")
-        .toLocaleLowerCase();
-      return playlistText.includes(normalizedQuery);
-    });
-  }, [playlists, query]);
-  const nextSortDirection = albumSortDirection === "asc" ? "desc" : "asc";
+  const filteredPlaylists = useMemo(
+    () => filterAndSortPlaylists(playlists, query, playlistSortMode, playlistSortDirection, lyricsOnly),
+    [lyricsOnly, playlistSortDirection, playlistSortMode, playlists, query],
+  );
+  const isPlaylistView = albumViewMode === "playlist";
+  const activeSortDirection = isPlaylistView ? playlistSortDirection : albumSortDirection;
+  const nextSortDirection = activeSortDirection === "asc" ? "desc" : "asc";
   const sortDirectionLabel =
-    albumSortDirection === "asc" ? t("sort.ascending") : t("sort.descending");
+    activeSortDirection === "asc" ? t("sort.ascending") : t("sort.descending");
+  const searchLabel = isPlaylistView ? t("search.playlistLabel") : t("search.label");
+  const searchPlaceholder = isPlaylistView ? t("search.playlistPlaceholder") : t("search.placeholder");
+  const lyricsFilterLabel = isPlaylistView ? t("search.playlistLyricsFilter") : t("search.lyricsFilter");
 
   function getAlbumScrollIndexLabel(album: Album) {
     if (albumSortMode === "artist") return getScrollIndexLabel(localizeLibraryText(album.artist, t));
@@ -157,6 +162,7 @@ function AlbumBrowserComponent({
   }
 
   function getPlaylistScrollIndexLabel(playlist: Playlist) {
+    if (playlistSortMode === "trackCount") return getScrollIndexLabel(String(playlist.trackCount), { collapseNumbers: false });
     return getScrollIndexLabel(playlist.name);
   }
 
@@ -336,7 +342,7 @@ function AlbumBrowserComponent({
   });
 
   return (
-    <section className="albums-panel" aria-label={t("library.albumListLabel")} data-scroll-index-mode={albumSortMode} ref={panelRef}>
+    <section className="albums-panel" aria-label={t("library.albumListLabel")} data-scroll-index-mode={isPlaylistView ? playlistSortMode : albumSortMode} ref={panelRef}>
       <div className="albums-panel-header">
         <div className="albums-title">
           <Badge variant="secondary">
@@ -382,48 +388,60 @@ function AlbumBrowserComponent({
           </Button>
         </div>
         <div className="album-toolbar" data-open={isFilterPanelOpen}>
-          <div className="album-sort-field" aria-label={t("sort.label")}>
+          <div className="album-sort-field" aria-label={isPlaylistView ? t("sort.playlistLabel") : t("sort.label")}>
             <div className="album-sort-control">
               <Button
                 aria-label={t("sort.toggleDirection", { direction: sortDirectionLabel })}
                 className="sort-direction-button"
-                onClick={() => onSortDirectionChange(nextSortDirection)}
+                onClick={() => isPlaylistView ? onPlaylistSortDirectionChange(nextSortDirection) : onSortDirectionChange(nextSortDirection)}
                 title={t("sort.toggleDirection", { direction: sortDirectionLabel })}
                 type="button"
                 variant="outline"
               >
-                {albumSortDirection === "asc" ? <ArrowUpAZ aria-hidden="true" /> : <ArrowDownAZ aria-hidden="true" />}
+                {activeSortDirection === "asc" ? <ArrowUpAZ aria-hidden="true" /> : <ArrowDownAZ aria-hidden="true" />}
               </Button>
-              <Select value={albumSortMode} onValueChange={(value) => onSortModeChange(value as AlbumSortMode)}>
-                <SelectTrigger aria-label={t("sort.label")} className="album-sort-trigger" title={t("sort.label")}>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent align="end">
-                  <SelectItem value="title">{t("sort.title")}</SelectItem>
-                  <SelectItem value="artist">{t("sort.artist")}</SelectItem>
-                  <SelectItem value="year">{t("sort.year")}</SelectItem>
-                </SelectContent>
-              </Select>
+              {isPlaylistView ? (
+                <Select value={playlistSortMode} onValueChange={(value) => onPlaylistSortModeChange(value as PlaylistSortMode)}>
+                  <SelectTrigger aria-label={t("sort.playlistLabel")} className="album-sort-trigger" title={t("sort.playlistLabel")}>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent align="end">
+                    <SelectItem value="name">{t("sort.playlistName")}</SelectItem>
+                    <SelectItem value="trackCount">{t("sort.playlistTrackCount")}</SelectItem>
+                  </SelectContent>
+                </Select>
+              ) : (
+                <Select value={albumSortMode} onValueChange={(value) => onSortModeChange(value as AlbumSortMode)}>
+                  <SelectTrigger aria-label={t("sort.label")} className="album-sort-trigger" title={t("sort.label")}>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent align="end">
+                    <SelectItem value="title">{t("sort.title")}</SelectItem>
+                    <SelectItem value="artist">{t("sort.artist")}</SelectItem>
+                    <SelectItem value="year">{t("sort.year")}</SelectItem>
+                  </SelectContent>
+                </Select>
+              )}
             </div>
           </div>
           <label className="album-search-field">
-            <span className="sr-only">{t("search.label")}</span>
+            <span className="sr-only">{searchLabel}</span>
             <div className="search-input-wrap">
               <Search aria-hidden="true" />
               <Input
                 value={query}
                 onChange={(event) => onQueryChange(event.currentTarget.value)}
-                placeholder={t("search.placeholder")}
+                placeholder={searchPlaceholder}
                 type="search"
               />
             </div>
           </label>
           <Toggle
-            aria-label={t("search.lyricsFilter")}
+            aria-label={lyricsFilterLabel}
             className="lyrics-filter-toggle"
             onPressedChange={onLyricsOnlyChange}
             pressed={lyricsOnly}
-            title={t("search.lyricsFilter")}
+            title={lyricsFilterLabel}
           >
             <ScrollText />
           </Toggle>
@@ -469,7 +487,7 @@ function AlbumBrowserComponent({
         {albumViewMode === "playlist" ? (
           <div className="album-grid large playlist-grid">
             {filteredPlaylists.length === 0 ? (
-              <div className="empty-state">{t("playlists.empty")}</div>
+              <div className="empty-state">{query.trim() || lyricsOnly ? t("playlists.emptySearch") : t("playlists.empty")}</div>
             ) : (
               filteredPlaylists.map((playlist) => {
                 const playlistArtworkSrc = getPlaylistArtworkSrc(playlist);
@@ -710,7 +728,7 @@ function AlbumBrowserComponent({
         <div
           aria-label={t("albums.scrollIndexLabel")}
           className="album-scroll-index"
-          data-index-mode={albumSortMode}
+          data-index-mode={isPlaylistView ? playlistSortMode : albumSortMode}
           onPointerDown={(event) => {
             event.currentTarget.setPointerCapture(event.pointerId);
             scrollToPointerIndex(event);

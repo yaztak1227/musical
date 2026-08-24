@@ -43,6 +43,9 @@
   <message key="search.label">Buscar álbumes</message>
   <message key="search.placeholder">Álbum, artista, año</message>
   <message key="search.lyricsFilter">Mostrar álbumes con letras</message>
+  <message key="search.playlistLabel">Buscar listas de reproducción</message>
+  <message key="search.playlistPlaceholder">Lista de reproducción, canción, artista</message>
+  <message key="search.playlistLyricsFilter">Mostrar listas de reproducción con canciones que tengan letra</message>
   <message key="filters.toggle">Filtros</message>
   <message key="view.label">Vista de álbumes</message>
   <message key="view.largeIcons">Iconos grandes</message>
@@ -54,6 +57,9 @@
   <message key="listMode.trackTable">Tabla de canciones</message>
   <message key="listMode.trackCount">Canciones</message>
   <message key="sort.label">Ordenar álbumes</message>
+  <message key="sort.playlistLabel">Ordenar listas de reproducción</message>
+  <message key="sort.playlistName">Nombre de la lista</message>
+  <message key="sort.playlistTrackCount">Número de canciones</message>
   <message key="sort.title">Título</message>
   <message key="sort.artist">Artista</message>
   <message key="sort.year">Año</message>
@@ -159,6 +165,7 @@
   <message key="player.nothingSelected">Nada seleccionado</message>
   <message key="player.pickPrompt">Elige un álbum o escanea una carpeta.</message>
   <message key="player.showCurrentAlbum">Mostrar {album}</message>
+  <message key="player.showCurrentPlaylist">Mostrar la lista de reproducción {playlist}</message>
   <message key="player.previous">Anterior</message>
   <message key="player.play">Reproducir</message>
   <message key="player.pause">Pausar</message>
@@ -259,6 +266,7 @@
   <message key="playlists.defaultName">Nueva lista de reproducción</message>
   <message key="playlists.namePrompt">Nombre de la lista de reproducción</message>
   <message key="playlists.empty">Aún no hay listas de reproducción.</message>
+  <message key="playlists.emptySearch">No hay listas de reproducción coincidentes.</message>
   <message key="playlists.emptyTracks">Aún no hay pistas en esta lista de reproducción.</message>
   <message key="playlists.artworkAlt">Obra de arte {playlist}</message>
   <message key="playlists.chooseArtwork">Elija ilustraciones para {playlist}</message>

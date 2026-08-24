@@ -43,6 +43,9 @@
   <message key="search.label">Search albums</message>
   <message key="search.placeholder">Album, artist, year</message>
   <message key="search.lyricsFilter">Show albums with lyrics</message>
+  <message key="search.playlistLabel">Search playlists</message>
+  <message key="search.playlistPlaceholder">Playlist, track, artist</message>
+  <message key="search.playlistLyricsFilter">Show playlists containing lyrics</message>
   <message key="filters.toggle">Filters</message>
   <message key="view.label">Album view</message>
   <message key="view.largeIcons">Large icons</message>
@@ -55,6 +58,9 @@
   <message key="listMode.trackTable">Track table</message>
   <message key="listMode.trackCount">Tracks</message>
   <message key="sort.label">Sort albums</message>
+  <message key="sort.playlistLabel">Sort playlists</message>
+  <message key="sort.playlistName">Playlist name</message>
+  <message key="sort.playlistTrackCount">Track count</message>
   <message key="sort.title">Title</message>
   <message key="sort.artist">Artist</message>
   <message key="sort.year">Year</message>
@@ -73,6 +79,7 @@
   <message key="playlists.defaultName">New Playlist</message>
   <message key="playlists.namePrompt">Playlist name</message>
   <message key="playlists.empty">No playlists yet.</message>
+  <message key="playlists.emptySearch">No matching playlists.</message>
   <message key="playlists.emptyTracks">No tracks in this playlist yet.</message>
   <message key="playlists.artworkAlt">{playlist} artwork</message>
   <message key="playlists.chooseArtwork">Choose artwork for {playlist}</message>
@@ -239,6 +246,7 @@
   <message key="player.nothingSelected">Nothing selected</message>
   <message key="player.pickPrompt">Pick an album or scan a folder.</message>
   <message key="player.showCurrentAlbum">Show {album}</message>
+  <message key="player.showCurrentPlaylist">Show playlist {playlist}</message>
   <message key="player.previous">Previous</message>
   <message key="player.play">Play</message>
   <message key="player.pause">Pause</message>

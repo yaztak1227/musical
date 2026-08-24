@@ -24,8 +24,9 @@ the library snapshot so they can be displayed and played without blocking normal
 - Broken `.mplaylist` files are skipped during snapshot loading instead of failing the entire library load.
 - Rooted M3U/PLS entries such as `/Music/track.mp3` are normalized without a Windows drive prefix.
 - Fire TV `/tv` display includes non-empty playlists as playable collections before albums.
+- The library toolbar follows the active collection: playlist view searches playlist and track metadata, filters playlists containing lyrical tracks, and sorts independently by playlist name or track count in either direction without changing album sort state.
 
 ## Tests
 
 - Rust unit tests cover corrupt `.mplaylist` tolerance and M3U/PLS path parsing.
-- Rust covers targeted playlist reload after removal. Playwright covers playlist create, duplicate add state, playlist source playback display, shuffled playlist queue order, rename, batch add, reorder, remove without resetting playback, WebKit-style null-target blur, album jump, and delete.
+- Rust covers targeted playlist reload after removal. Playwright covers playlist create, duplicate add state, view-aware album/playlist filtering and sorting, source-aware album/playlist right-panel track playback and PlayerBar display/navigation, shuffled playlist queue order, rename, batch add, reorder, remove without resetting playback, WebKit-style null-target blur, album jump, and delete.
