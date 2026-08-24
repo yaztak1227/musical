@@ -51,7 +51,7 @@ search index schema v2は`track_lyrics_sentiment`と`lyrics_sentiment_blocks`を
 
 ## Model
 
-既定modelは `intfloat/multilingual-e5-small` のcommit `614241f622f53c4eeff9890bdc4f31cfecc418b3` に固定する。model IDはこのcommit、5 artifact manifestのSHA-256 `a1c9fc0930d0049c947ecd9e0207a1d20772977ac50b17dc3bd72a06d963bf37`、およびembedding生成pipeline IDを含む。pipeline IDはexact pinしたFastEmbed 5.17.4とtokenizers 0.22.2、mean pooling、max length 512、E5の`query: ` / `passage: ` prefix、FastEmbedがpool後に行うL2正規化（epsilon `1e-12`）を識別する。FastEmbedへ渡す直前にNFKC、lowercase、whitespace collapse等の追加正規化は行わない。
+既定modelは `intfloat/multilingual-e5-small` のcommit `614241f622f53c4eeff9890bdc4f31cfecc418b3` に固定する。model IDはこのcommit、5 artifact manifestのSHA-256 `a1c9fc0930d0049c947ecd9e0207a1d20772977ac50b17dc3bd72a06d963bf37`、およびembedding生成pipeline IDを含む。pipeline IDはexact pinしたFastEmbed 5.17.4とtokenizers 0.22.2、mean pooling、max length 512、E5の`query: ` / `passage: ` prefix、FastEmbedがpool後に行うL2正規化（epsilon `1e-12`）を識別する。tokenizersはFastEmbedと同じく既定featureを無効化して`onig`だけを有効にし、実行時に使わない`esaxx_fast`のC++学習器をbuild対象へ含めない。これによりWindowsでは`esaxx-rs`の静的MSVC CRTとdownload済みONNX Runtimeの動的MSVC CRTを同一binaryへリンクしない。FastEmbedへ渡す直前にNFKC、lowercase、whitespace collapse等の追加正規化は行わない。
 
 - document inputには `passage: ` prefixを付ける。
 - query inputには `query: ` prefixを付ける。

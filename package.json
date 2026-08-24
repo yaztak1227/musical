@@ -1,7 +1,7 @@
 {
   "name": "musical",
   "private": true,
-  "version": "0.6.2",
+  "version": "0.6.3",
   "license": "MIT",
   "author": "yaztak1227@gmail.com",
   "type": "module",

@@ -1,6 +1,6 @@
 [package]
 name = "musical"
-version = "0.6.2"
+version = "0.6.3"
 description = "Lightweight cross-platform music player and album manager"
 authors = ["circularmoonray"]
 edition = "2021"
@@ -46,7 +46,9 @@ symphonia = { version = "0.5.5", features = ["aac", "alac", "flac", "isomp4", "m
 tauri-plugin-dialog = "2"
 tauri-plugin-log = "2"
 tauri-plugin-updater = "2.10.1"
-tokenizers = "=0.22.2"
+# Keep FastEmbed's tokenizer backend while excluding the unused esaxx C++
+# trainer, whose static MSVC CRT conflicts with the downloaded ORT binaries.
+tokenizers = { version = "=0.22.2", default-features = false, features = ["onig"] }
 unicode-normalization = "=0.1.25"
 
 [target.'cfg(windows)'.dependencies]
