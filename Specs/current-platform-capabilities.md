@@ -326,7 +326,9 @@ Localization and preferences:
 
 Updates and local services:
 
-- Show the current app version in the desktop window title.
+- Show the current app version in the desktop window title. The native title is
+  generated at startup from Tauri package metadata, so the version is not
+  duplicated in the static window configuration.
 - Check for and install only strictly newer app versions through the Tauri updater when supported.
 - Keep a separate recheck action available after an update candidate is found.
 - Toggle LAN access to the local HTTP server.
@@ -339,6 +341,11 @@ Updates and local services:
 - Serve `/mcp` through an AI SDK V7 compatible TypeScript sidecar built on the
   official MCP SDK. The Tauri local server owns the enabled setting, sidecar
   lifecycle, and reverse proxy.
+- Release packages include the dependency-bundled single `server.mjs` at the
+  Tauri resource path `mcp/server.mjs` and a Node `24.15.0` runtime in
+  `externalBin`; they do not require system Node or build-machine absolute
+  paths. Debug builds resolve the workspace-generated sidecar and development
+  Node `24.15.0`, while release builds resolve from the app resource directory.
 - Package the repository root for Agent Plugins 1.0.0 with canonical
   `plugin.json` and `mcp.json` schemas. The portable MCP entry uses loopback
   Streamable HTTP; the proxy bypasses system HTTP proxies and forwards POST and

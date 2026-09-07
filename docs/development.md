@@ -17,7 +17,7 @@ Musical uses React / TypeScript for the frontend and Rust for local file scannin
 
 | Tool | Version |
 | --- | --- |
-| Node.js | 24.x |
+| Node.js | 24.15.0 |
 | npm | 11.x |
 | Rust | stable |
 
@@ -51,6 +51,13 @@ npm run tauri dev
 This runs the real Tauri desktop app. Use it for local folder scanning, audio playback, tag editing, and artwork saving.
 
 In debug builds, the Web app opened from `http://127.0.0.1:1422/` or its LAN URL reads the current workspace `dist` with no-cache headers. Run `npm run build` after frontend changes to update that Web view. Audio-analysis APIs and remote-player transport remain unchanged. Release builds serve the `dist` embedded in the executable.
+
+MCP packaging and runtime:
+
+- Development uses Node `24.15.0` and resolves the generated sidecar from the workspace.
+- Release packaging produces one dependency-bundled `server.mjs`, places it at the Tauri resource path `mcp/server.mjs`, and includes the Node `24.15.0` runtime in `externalBin`.
+- Release sidecar paths are resolved from the app `resource_dir`; no system Node or build-machine absolute path is required. The MCP URL, settings, and 51-tool catalog are unchanged.
+- CI checks the MCP tests and the real bundle assets, including the sidecar, Node runtime, frontend assets, and NOTICE files.
 
 The dev browser route does not open automatically by default. To open it at startup:
 

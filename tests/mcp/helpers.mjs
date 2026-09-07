@@ -2,6 +2,7 @@ import { spawn } from "node:child_process";
 import { createServer } from "node:http";
 import { once } from "node:events";
 import assert from "node:assert/strict";
+import path from "node:path";
 
 export async function listen(server) {
   server.listen(0, "127.0.0.1");
@@ -84,10 +85,20 @@ export async function createFakeBridge({ token, handlers }) {
   };
 }
 
-export async function startMcpSidecar({ bridgePort, mcpPort, parentWatchdog = false, token }) {
-  const child = spawn(process.execPath, ["dist/mcp/server.js"], {
+export async function startMcpSidecar({
+  bridgePort,
+  mcpPort,
+  parentWatchdog = false,
+  token,
+  nodePath = process.execPath,
+  scriptPath = path.resolve("dist/mcp/server.js"),
+  cwd = process.cwd(),
+}) {
+  const child = spawn(nodePath, [scriptPath], {
+    cwd,
     env: {
       ...process.env,
+      NODE_PATH: undefined,
       MUSICAL_MCP_BRIDGE_URL: `http://127.0.0.1:${bridgePort}`,
       MUSICAL_MCP_PORT: String(mcpPort),
       MUSICAL_MCP_TOKEN: token,

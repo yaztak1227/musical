@@ -265,7 +265,7 @@
 
 アップデートとローカルサービス:
 
-- デスクトップのウィンドウタイトルに現在のアプリバージョンを表示する。
+- デスクトップのウィンドウタイトルに現在のアプリバージョンを表示する。native title は起動時に Tauri package metadata から生成し、静的な window 設定には version を重複記載しない。
 - サポートされる場合、Tauri updater 経由で現行より新しいバージョンだけを確認/インストールする。
 - 更新候補の検出後も、アップデート開始とは別に再確認操作を表示する。
 - ローカル HTTP サーバーの LAN access を切り替える。
@@ -274,6 +274,7 @@
 - LAN/public control URL の QR code を表示する。
 - ローカル MCP endpoint を切り替える。`/mcp` endpoint は local-only で、無効時は 404 を返す。
 - `/mcp` は公式 MCP SDK 上の TypeScript sidecar で提供し、AI SDK V7 compatible な tool catalog として検証する。Tauri local server は enabled 設定、sidecar lifecycle、reverse proxy を担当する。
+- release 配布物には依存込み単一 `server.mjs` を Tauri resource `mcp/server.mjs` として含め、Node `24.15.0` runtime も `externalBin` に同梱するため、配布版は system Node やビルド環境の絶対パスを必要としない。debug build は workspace 生成物と開発用 Node `24.15.0` を使い、release は app の resource directory 基準、debug は workspace 基準で実行時パスを解決する。
 - リポジトリルートをcanonicalな`plugin.json`と`mcp.json`を持つAgent Plugins 1.0.0 packageとして提供する。portable MCP entryはloopbackのStreamable HTTPを使い、proxyはsystem HTTP proxyを迂回してPOSTとDELETEを転送する。server event streamは公開しないためGETは405を返す。
 - MCP sidecar と internal bridge は loopback bind と per-process `X-Musical-MCP-Token` で保護する。
 - Tauri から MCP sidecar へ専用 stdin pipe を保持し、sidecar は EOF で終了する。これにより Tauri の異常終了時にも orphan Node process を残さない。

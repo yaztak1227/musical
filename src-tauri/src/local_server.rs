@@ -22,18 +22,21 @@ use log::{error, info, warn};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use sha1::{Digest, Sha1};
+use std::sync::mpsc::{self, Receiver, RecvTimeoutError};
 use std::{
     collections::{HashMap, HashSet, VecDeque},
     fs::{self, File},
-    io::{Read, Seek, SeekFrom, Write},
-    net::{IpAddr, Shutdown, TcpListener, TcpStream, UdpSocket},
+    io::{BufRead, BufReader, Read, Seek, SeekFrom, Write},
+    net::{IpAddr, Shutdown, SocketAddr, TcpListener, TcpStream, UdpSocket},
     path::{Path, PathBuf},
-    process::{Child, Command, Stdio},
+    process::{Child, ChildStdout, Command, Stdio},
     sync::{Arc, Condvar, LockResult, Mutex, MutexGuard},
     thread,
-    time::{Duration, SystemTime, UNIX_EPOCH},
+    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 use tauri::AppHandle;
+#[cfg(not(debug_assertions))]
+use tauri::Manager;
 
 static FRONTEND_DIST: Dir<'_> = include_dir!("$CARGO_MANIFEST_DIR/../dist");
 
@@ -43,6 +46,8 @@ const MEDIA_EXTENSIONS: &[&str] = &[
 ];
 const GLOBAL_IP_API_URL: &str = "https://api.ipify.org?format=json";
 const GLOBAL_IP_LOOKUP_TIMEOUT: Duration = Duration::from_secs(3);
+const MCP_SIDECAR_READY_TIMEOUT: Duration = Duration::from_secs(3);
+const MCP_SIDECAR_READY_POLL_INTERVAL: Duration = Duration::from_millis(10);
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -1233,65 +1238,239 @@ fn ensure_mcp_sidecar(
     app: &AppHandle,
     remote_state: &SharedRemoteServerState,
 ) -> Result<u16, String> {
-    {
-        let mut state = remote_state.lock().map_err(|error| error.to_string())?;
-        if let Some(sidecar) = state.mcp_sidecar.as_mut() {
-            match sidecar.child.try_wait() {
-                Ok(Some(status)) => {
-                    warn!("MCP sidecar exited with status {status}");
-                    state.mcp_sidecar = None;
-                }
-                Ok(None) => return Ok(sidecar.port),
-                Err(error) => {
-                    warn!("failed to inspect MCP sidecar: {error}");
-                    state.mcp_sidecar = None;
-                }
+    let (resource_dir, script_path) = mcp_runtime_paths(app)?;
+    let node_path = bundled_node_path()?;
+    let mut missing = Vec::new();
+    if !script_path.is_file() {
+        missing.push(format!(
+            "MCP sidecar bundle is missing at {}. Run npm run build:mcp.",
+            script_path.display()
+        ));
+    }
+    if !node_path.is_file() {
+        missing.push(format!(
+            "bundled Node runtime is missing at {}. Rebuild the Tauri app so the musical-node externalBin is staged.",
+            node_path.display()
+        ));
+    }
+    if !missing.is_empty() {
+        return Err(missing.join("\n"));
+    }
+
+    // Keep this lock for the complete check/spawn/readiness/register sequence.
+    // Requests arrive on separate threads, so releasing it before registration
+    // would allow multiple sidecars to be spawned and one to become orphaned
+    // when another request overwrites the stored child.
+    let mut state = remote_state.lock().map_err(|error| error.to_string())?;
+    if let Some(mut sidecar) = state.mcp_sidecar.take() {
+        match sidecar.child.try_wait() {
+            Ok(Some(status)) => {
+                warn!("MCP sidecar exited with status {status}");
+            }
+            Ok(None) => {
+                let port = sidecar.port;
+                state.mcp_sidecar = Some(sidecar);
+                return Ok(port);
+            }
+            Err(error) => {
+                warn!("failed to inspect MCP sidecar: {error}");
+                terminate_mcp_sidecar(&mut sidecar.child);
             }
         }
     }
 
-    let port = reserve_loopback_port()?;
-    let script_path = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("..")
-        .join("dist")
-        .join("mcp")
-        .join("server.js");
-    if !script_path.is_file() {
-        return Err(format!(
-            "MCP sidecar build is missing at {}. Run npm run build:mcp.",
-            script_path.display()
-        ));
+    let token = state.mcp_bridge_token.clone();
+    let startup_deadline = Instant::now() + MCP_SIDECAR_READY_TIMEOUT;
+    loop {
+        let port = reserve_loopback_port()?;
+        let mut child = Command::new(&node_path)
+            .arg(&script_path)
+            .current_dir(&resource_dir)
+            .env(
+                "MUSICAL_MCP_BRIDGE_URL",
+                format!("http://127.0.0.1:{LOCAL_SERVER_PORT}"),
+            )
+            .env("MUSICAL_MCP_PORT", port.to_string())
+            .env("MUSICAL_MCP_TOKEN", &token)
+            .env("MUSICAL_MCP_VERSION", env!("CARGO_PKG_VERSION"))
+            .env("MUSICAL_MCP_PARENT_WATCHDOG", "stdin")
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null())
+            .spawn()
+            .map_err(|error| {
+                format!(
+                    "failed to start bundled Node MCP sidecar at {}: {error}",
+                    node_path.display()
+                )
+            })?;
+
+        match wait_for_mcp_sidecar_ready_until(&mut child, port, startup_deadline) {
+            Ok(()) => {
+                state.mcp_sidecar = Some(McpSidecar { child, port });
+                info!("MCP sidecar started on 127.0.0.1:{port}");
+                return Ok(port);
+            }
+            Err(error) => {
+                terminate_mcp_sidecar(&mut child);
+                if Instant::now() >= startup_deadline {
+                    return Err(error);
+                }
+                warn!("MCP sidecar was not ready on 127.0.0.1:{port}; retrying: {error}");
+                let retry_delay = startup_deadline
+                    .saturating_duration_since(Instant::now())
+                    .min(MCP_SIDECAR_READY_POLL_INTERVAL);
+                if !retry_delay.is_zero() {
+                    thread::sleep(retry_delay);
+                }
+            }
+        }
     }
+}
 
-    let token = remote_state
-        .lock()
-        .map(|state| state.mcp_bridge_token.clone())
-        .map_err(|error| error.to_string())?;
-    let child = Command::new("node")
-        .arg(&script_path)
-        .current_dir(Path::new(env!("CARGO_MANIFEST_DIR")).join(".."))
-        .env(
-            "MUSICAL_MCP_BRIDGE_URL",
-            format!("http://127.0.0.1:{LOCAL_SERVER_PORT}"),
+#[cfg(test)]
+fn wait_for_mcp_sidecar_ready(child: &mut Child, port: u16) -> Result<(), String> {
+    wait_for_mcp_sidecar_ready_until(child, port, Instant::now() + MCP_SIDECAR_READY_TIMEOUT)
+}
+
+fn wait_for_mcp_sidecar_ready_until(
+    child: &mut Child,
+    port: u16,
+    deadline: Instant,
+) -> Result<(), String> {
+    let stdout = child.stdout.take().ok_or_else(|| {
+        "MCP sidecar stdout is not piped; refusing to treat it as ready".to_owned()
+    })?;
+    let marker = format!("musical mcp sidecar listening on 127.0.0.1:{port}");
+    let marker_receiver = spawn_mcp_stdout_reader(stdout, marker);
+    let address = SocketAddr::from(([127, 0, 0, 1], port));
+    let mut marker_seen = false;
+    loop {
+        match child.try_wait() {
+            Ok(Some(status)) => {
+                return Err(format!(
+                    "MCP sidecar exited before listening (code={}, signal={})",
+                    status
+                        .code()
+                        .map_or_else(|| "none".to_owned(), |code| code.to_string()),
+                    if status.success() { "none" } else { "unknown" },
+                ));
+            }
+            Ok(None) => {}
+            Err(error) => return Err(format!("failed to inspect MCP sidecar: {error}")),
+        }
+
+        let remaining = deadline.saturating_duration_since(Instant::now());
+        if remaining.is_zero() {
+            return Err("MCP sidecar did not listen before the startup deadline".to_owned());
+        }
+
+        if marker_seen {
+            let connect_timeout = remaining.min(MCP_SIDECAR_READY_POLL_INTERVAL);
+            if TcpStream::connect_timeout(&address, connect_timeout).is_ok() {
+                // A port can be claimed between reserve_loopback_port and spawn.
+                // The exact marker owns the port, and this second child check
+                // prevents an EADDRINUSE exit from being mistaken for readiness.
+                match child.try_wait() {
+                    Ok(Some(status)) => {
+                        return Err(format!(
+                            "MCP sidecar exited before listening (code={}, signal={})",
+                            status
+                                .code()
+                                .map_or_else(|| "none".to_owned(), |code| code.to_string()),
+                            if status.success() { "none" } else { "unknown" },
+                        ));
+                    }
+                    Ok(None) => return Ok(()),
+                    Err(error) => return Err(format!("failed to inspect MCP sidecar: {error}")),
+                }
+            }
+        }
+
+        let wait_duration = deadline
+            .saturating_duration_since(Instant::now())
+            .min(MCP_SIDECAR_READY_POLL_INTERVAL);
+        if wait_duration.is_zero() {
+            continue;
+        }
+        match marker_receiver.recv_timeout(wait_duration) {
+            Ok(()) => marker_seen = true,
+            Err(RecvTimeoutError::Timeout) => {}
+            Err(RecvTimeoutError::Disconnected) => {
+                return Err(
+                    "MCP sidecar stdout closed before its exact listening marker was received"
+                        .to_owned(),
+                )
+            }
+        }
+    }
+}
+
+fn spawn_mcp_stdout_reader(stdout: ChildStdout, marker: String) -> Receiver<()> {
+    let (sender, receiver) = mpsc::channel();
+    thread::spawn(move || {
+        let mut reader = BufReader::new(stdout);
+        let mut line = String::new();
+        let mut marker_sent = false;
+        loop {
+            line.clear();
+            match reader.read_line(&mut line) {
+                Ok(0) | Err(_) => break,
+                Ok(_) => {
+                    if !marker_sent && line.trim_end_matches(&['\r', '\n'][..]) == marker {
+                        marker_sent = true;
+                        let _ = sender.send(());
+                    }
+                }
+            }
+        }
+    });
+    receiver
+}
+
+fn terminate_mcp_sidecar(child: &mut Child) {
+    match child.try_wait() {
+        Ok(Some(_)) => return,
+        Ok(None) | Err(_) => {}
+    }
+    let _ = child.kill();
+    let _ = child.wait();
+}
+
+#[cfg(debug_assertions)]
+fn mcp_runtime_paths(_app: &AppHandle) -> Result<(PathBuf, PathBuf), String> {
+    let resource_dir = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("..")
+        .join("dist-mcp");
+    let script_path = resource_dir.join("server.mjs");
+    Ok((resource_dir, script_path))
+}
+
+#[cfg(not(debug_assertions))]
+fn mcp_runtime_paths(app: &AppHandle) -> Result<(PathBuf, PathBuf), String> {
+    let resource_dir = app
+        .path()
+        .resource_dir()
+        .map_err(|error| format!("failed to resolve the app resource directory: {error}"))?;
+    let script_path = resource_dir.join("mcp").join("server.mjs");
+    Ok((resource_dir, script_path))
+}
+
+fn bundled_node_path() -> Result<PathBuf, String> {
+    let executable_name = if cfg!(windows) {
+        "musical-node.exe"
+    } else {
+        "musical-node"
+    };
+    let current_executable = std::env::current_exe()
+        .map_err(|error| format!("failed to resolve the Musical executable path: {error}"))?;
+    let executable_dir = current_executable.parent().ok_or_else(|| {
+        format!(
+            "Musical executable has no parent directory: {}",
+            current_executable.display()
         )
-        .env("MUSICAL_MCP_PORT", port.to_string())
-        .env("MUSICAL_MCP_TOKEN", token)
-        .env("MUSICAL_MCP_VERSION", env!("CARGO_PKG_VERSION"))
-        .env("MUSICAL_MCP_PARENT_WATCHDOG", "stdin")
-        .stdin(Stdio::piped())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .spawn()
-        .map_err(|error| format!("failed to start node MCP sidecar: {error}"))?;
-
-    let mut state = remote_state.lock().map_err(|error| error.to_string())?;
-    state.mcp_sidecar = Some(McpSidecar { child, port });
-    drop(state);
-    thread::sleep(Duration::from_millis(150));
-    info!("MCP sidecar started on 127.0.0.1:{port}");
-
-    let _ = app;
-    Ok(port)
+    })?;
+    Ok(executable_dir.join(executable_name))
 }
 
 fn stop_mcp_sidecar(remote_state: &SharedRemoteServerState) {
@@ -1300,10 +1479,7 @@ fn stop_mcp_sidecar(remote_state: &SharedRemoteServerState) {
         .ok()
         .and_then(|mut state| state.mcp_sidecar.take());
     if let Some(mut sidecar) = sidecar {
-        if let Err(error) = sidecar.child.kill() {
-            warn!("failed to stop MCP sidecar: {error}");
-        }
-        let _ = sidecar.child.wait();
+        terminate_mcp_sidecar(&mut sidecar.child);
     }
 }
 
@@ -3320,8 +3496,10 @@ mod tests {
         apply_remote_command_to_player_state, empty_remote_player_state,
         filesystem_frontend_response, gated_remote_access_mode, has_command_gap,
         is_allowed_request_origin, lyrics_mood_reference, proxy_mcp_request_to_url,
-        resolve_media_path, route_mcp_request, track_lyrics_analysis_response, LyricsMoodReference,
-        RemotePlayerCommand, RemoteServerState, RemoteServerStateStore, Request,
+        resolve_media_path, route_mcp_request, terminate_mcp_sidecar,
+        track_lyrics_analysis_response, wait_for_mcp_sidecar_ready,
+        wait_for_mcp_sidecar_ready_until, LyricsMoodReference, RemotePlayerCommand,
+        RemoteServerState, RemoteServerStateStore, Request,
     };
     use crate::app_settings::RemoteAccessMode;
     use crate::lyrics_sentiment::{
@@ -3337,6 +3515,7 @@ mod tests {
         fs,
         io::{Read, Write},
         net::TcpListener,
+        process::{Command, Stdio},
         sync::{
             atomic::{AtomicUsize, Ordering},
             Arc,
@@ -3454,6 +3633,92 @@ mod tests {
             panic!("a non-MCP route must not be proxied")
         })
         .is_none());
+    }
+
+    #[test]
+    fn mcp_sidecar_readiness_waits_for_a_cold_start() {
+        let node_available = Command::new("node")
+            .arg("--version")
+            .output()
+            .map(|output| output.status.success())
+            .unwrap_or(false);
+        if !node_available {
+            return;
+        }
+
+        let listener = TcpListener::bind("127.0.0.1:0").expect("reserve MCP readiness port");
+        let port = listener.local_addr().expect("MCP readiness address").port();
+        drop(listener);
+        let delayed_server = r#"
+            import { createServer } from "node:http";
+            const server = createServer();
+            setTimeout(() => server.listen(Number(process.env.MUSICAL_TEST_PORT), "127.0.0.1", () => {
+                process.stdout.write("musical mcp sidecar listening on 127.0.0.1:" + process.env.MUSICAL_TEST_PORT + "\n");
+            }), 250);
+            process.stdin.resume();
+        "#;
+        let mut child = Command::new("node")
+            .args(["--input-type=module", "-e", delayed_server])
+            .env("MUSICAL_TEST_PORT", port.to_string())
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null())
+            .spawn()
+            .expect("spawn delayed MCP readiness fixture");
+
+        let started_at = Instant::now();
+        let readiness = wait_for_mcp_sidecar_ready(&mut child, port);
+        let elapsed = started_at.elapsed();
+        terminate_mcp_sidecar(&mut child);
+
+        readiness.expect("MCP sidecar readiness should wait for a cold start");
+        assert!(
+            elapsed >= Duration::from_millis(200),
+            "readiness returned before the intentional cold-start delay: {elapsed:?}"
+        );
+    }
+
+    #[test]
+    fn mcp_sidecar_readiness_does_not_accept_a_markerless_listener() {
+        let node_available = Command::new("node")
+            .arg("--version")
+            .output()
+            .map(|output| output.status.success())
+            .unwrap_or(false);
+        if !node_available {
+            return;
+        }
+
+        let listener = TcpListener::bind("127.0.0.1:0").expect("reserve MCP readiness port");
+        let port = listener.local_addr().expect("MCP readiness address").port();
+        drop(listener);
+        let markerless_server = r#"
+            import { createServer } from "node:http";
+            const server = createServer();
+            server.listen(Number(process.env.MUSICAL_TEST_PORT), "127.0.0.1");
+            process.stdin.resume();
+        "#;
+        let mut child = Command::new("node")
+            .args(["--input-type=module", "-e", markerless_server])
+            .env("MUSICAL_TEST_PORT", port.to_string())
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null())
+            .spawn()
+            .expect("spawn markerless MCP readiness fixture");
+
+        let readiness = wait_for_mcp_sidecar_ready_until(
+            &mut child,
+            port,
+            Instant::now() + Duration::from_millis(300),
+        );
+        terminate_mcp_sidecar(&mut child);
+
+        let error = readiness.expect_err("markerless listener must not satisfy readiness");
+        assert!(
+            error.contains("did not listen before the startup deadline"),
+            "unexpected readiness error: {error}"
+        );
     }
 
     #[test]

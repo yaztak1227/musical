@@ -19,6 +19,11 @@ use library::{
     TrackTagUpdateResult, TrackUserStateUpdateRequest, TrackUserStateUpdateResult,
 };
 use log::{error, info, LevelFilter};
+use tauri::Manager;
+
+fn desktop_window_title(version: impl std::fmt::Display) -> String {
+    format!("Musical v{version}")
+}
 
 #[tauri::command]
 fn app_status() -> &'static str {
@@ -238,6 +243,14 @@ pub fn run() {
 
     builder
         .setup(|app| {
+            let title = desktop_window_title(&app.package_info().version);
+            let main_window = app.get_webview_window("main").ok_or_else(|| {
+                std::io::Error::new(
+                    std::io::ErrorKind::NotFound,
+                    "main webview window not found",
+                )
+            })?;
+            main_window.set_title(&title)?;
             info!("starting Musical desktop app");
             if is_ai_test_mode() {
                 info!("AI test mode enabled; skipping local server and MCP sidecar startup");
@@ -310,4 +323,17 @@ fn should_open_dev_browser() -> bool {
         .map(|value| matches!(value.as_str(), "1" | "true" | "TRUE" | "yes" | "YES"))
         .unwrap_or(false);
     env_enabled || std::env::args().any(|arg| arg == "--open-dev-browser")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::desktop_window_title;
+
+    #[test]
+    fn desktop_window_title_uses_the_supplied_package_version() {
+        assert_eq!(
+            desktop_window_title("1.2.3-beta.4"),
+            "Musical v1.2.3-beta.4"
+        );
+    }
 }

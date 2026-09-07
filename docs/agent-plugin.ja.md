@@ -18,6 +18,11 @@
 
 Musical tools の利用中はアプリを起動したままにしてください。アプリが停止しているか MCP が無効な場合もプラグイン自体は有効ですが、MCP へは接続できません。
 
+release desktop package には依存込み MCP `server.mjs` を app resource path
+`mcp/server.mjs` として含め、Node `24.15.0` を `externalBin` に同梱します。
+そのためインストール済みアプリは system Node を必要としません。この
+directory plugin の loopback URL と 51 tools は従来どおりです。
+
 ## 変更を検証する
 
 リポジトリ固有の適合チェックを実行します。

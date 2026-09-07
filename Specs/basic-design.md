@@ -45,7 +45,7 @@ flowchart LR
 | Library backend | `src-tauri/src/library.rs`, `src-tauri/src/library/**` | scan, snapshot, playlist, tag, artwork, storage |
 | Audio analysis backend | `src-tauri/src/audio_analysis.rs` | FFT bucket 生成と cache |
 | Local server | `src-tauri/src/local_server.rs` | `/api/*`, `/tv`, WebSocket, media streaming, MCP sidecar lifecycle/proxy |
-| MCP sidecar | `src/mcp/**`, `dist/mcp/server.js` | MCP SDK server, AI SDK V7 compatible tool catalog, internal bridge client |
+| MCP sidecar | `src/mcp/**`, generated `server.mjs` | MCP SDK server, AI SDK V7 compatible tool catalog, internal bridge client。release は依存込み単一ファイルを Tauri resource `mcp/server.mjs` として同梱する |
 | Agent Plugin package | `plugin.json`, `mcp.json` | Agent Plugins Specification 1.0.0 に準拠し、loopback の Musical MCP endpoint を指す portable Streamable HTTP 構成 |
 | Semantic search index | `src-tauri/src/search_index.rs`, `.musical/search_index.sqlite3` | ローカル multilingual embedding、歌詞 chunk、永続 vector cache、warm in-memory search |
 | Lyrics sentiment analyzer | `src-tauri/src/lyrics_sentiment.rs`, `.musical/search_index.sqlite3` | Lindera/IPADIC形態素解析、日本語極性辞書、block/曲集約、coverage付き派生cache |
@@ -143,14 +143,15 @@ Tauri setup 時に local server を開始し、desktop/browser/Fire TV の接続
 
 アクセス制御:
 
+- desktop main window の静的 title は product name のみとし、Tauri setup 時に `app.package_info().version` から `Musical v{version}` を生成して設定する。これにより window title 用の version literal を別管理しない。
 - local request は許可する。
 - LAN access が明示的に有効になるまで非ローカル request は拒否する。
 - `/mcp` と `/api/mcp-settings` は LAN access と独立して local-only のままにする。
 - Tauri は `settings.json` の `remoteAccessMode`、`remoteAccessGlobalIp`、`mcpEnabled`、`sidebarCollapsed` を Config として保持する。LAN/public を明示的に有効化すると、HTTPSのipify IPv4 endpointで現在のグローバルIPを取得してモードと一緒に保存する。local server は frontend 起動前に保存IPと現在IPを比較し、一致時だけLAN runtime stateを復元する。public dev tunnelも同じ比較を通過したモードだけをfrontend hydration後に復元する。IP未保存、取得失敗、不一致はOFFとして扱うが、保存済みモードとIPは消去せず、信頼済みネットワークへ戻った次回起動時に再評価する。Web runtime は同じ利用者設定を `musical.remoteAccessMode`、`musical.remoteAccessGlobalIp`、`musical.mcpEnabled`、`musical.sidebarCollapsed` の local storage へ保存し、同じfail-closed比較を行う。
-- MCP enabled 時、Tauri は `dist/mcp/server.js` を Node sidecar として起動し、`/mcp` request を sidecar の loopback port へ proxy する。
+- MCP enabled 時、Tauri は依存を含む単一の `server.mjs` を Node sidecar として起動し、`/mcp` request を sidecar の loopback port へ proxy する。release build は Tauri の `resource_dir/mcp/server.mjs` と externalBin に同梱した Node `24.15.0` runtime を使い、system Node やビルド環境の絶対パスに依存しない。debug build は workspace の生成物と開発用 Node `24.15.0` を使う。
 - Tauri proxy は system HTTP proxy を迂回したloopback接続で、Streamable HTTP の `POST` と `DELETE` をmethodを保持して転送する。Musicalはserver-initiated event streamを使わないため、`GET /mcp` はSPAへfallbackさせず`405 Method Not Allowed`と`Allow: POST, DELETE`を返す。
 - MCP sidecar は `@modelcontextprotocol/sdk` の Streamable HTTP server を使い、AI SDK V7 `@ai-sdk/mcp` client から `mcpClient.tools()` / `callTool()` で検証する。
-- `dev:public` は Vite 起動前に MCP sidecar を build し、production build は Vite が `dist` を生成した後に `dist/mcp/server.js` を出力する。これにより Vite の出力 cleanup で sidecar が欠落しないようにする。
+- `dev:public` は Vite 起動前に MCP sidecar を build し、production/release build は Vite の frontend 出力とは独立して依存込み単一 `server.mjs` を生成し、Tauri resource `mcp/server.mjs` へ配置する。これにより Vite の出力 cleanup で sidecar が欠落しないようにする。
 - local server のrelease buildは `dist` を実行ファイルへ埋め込み、自己完結したWeb UIを配信する。debug buildだけは各frontend requestでworkspaceの現在の `dist` を優先し、`Cache-Control: no-store` を付ける。これにより長時間動作する `tauri dev` がCargo compile時点の古いvisualizer chunkをWeb/LAN側へ配信し続けることを防ぐ。disk buildがない場合は埋め込みbundleへfallbackし、`/api/*`、音声解析packet、remote player同期の経路は変更しない。
 - MCP internal bridge API は sidecar に渡した per-process token (`X-Musical-MCP-Token`) を要求する。
 - 初回の自動または明示的な index build は `intfloat/multilingual-e5-small` のcommit `614241f622f53c4eeff9890bdc4f31cfecc418b3`から必要5fileだけをアプリcacheへ取得する。各fileのsize/SHA-256とmanifest identityをmodel初期化の前後に検証し、FastEmbed用refを同commitへatomic固定してから、metadata documentと6行単位・2行overlapのlyrics chunkを埋め込む。embedding model IDはartifact identityに加えて、exact pinしたFastEmbed 5.17.4とtokenizers 0.22.2、mean pooling、max length 512、E5のquery/passage prefix、pool後のL2正規化を表すpipeline IDを含み、いずれかの世代変更で旧indexを無効化する。tokenizersは既定featureを無効化して`onig`だけを有効にし、実行時に不要な`esaxx_fast`を除外することで、Windows binaryに静的CRTの`esaxx-rs`と動的CRTのdownload済みONNX Runtimeを混在させない。

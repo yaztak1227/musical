@@ -35,12 +35,14 @@ jobs:
             libgtk-3-dev \
             libayatana-appindicator3-dev \
             librsvg2-dev \
-            patchelf
+            patchelf \
+            rpm2cpio \
+            cpio
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 24
+          node-version-file: .node-version
           cache: npm
 
       - name: Setup Rust
@@ -53,6 +55,12 @@ jobs:
 
       - name: Install frontend dependencies
         run: npm ci
+
+      - name: Test MCP sidecar
+        run: npm run test:mcp
+
+      - name: Test release packaging verifier
+        run: npm run test:release-packaging
 
       - name: Build frontend
         run: npm run build
@@ -86,12 +94,122 @@ jobs:
           node scripts/write-tauri-updater-config.mjs src-tauri/tauri-updater.generated.conf.json
           npm run tauri -- build --bundles msi,nsis --config src-tauri/tauri-updater.generated.conf.json
 
+      - name: Verify staged release payload
+        shell: bash
+        run: |
+          node scripts/verify-release-bundle.mjs \
+            --platform=staging \
+            --root=src-tauri/target/release \
+            --frontend-dist=dist \
+            --smoke-sidecar
+
       - name: Sign macOS app bundle
         if: matrix.platform.name == 'macos'
         shell: bash
         run: |
           codesign --force --deep --sign - "src-tauri/target/release/bundle/macos/Musical.app"
           codesign --verify --deep --strict --verbose=4 "src-tauri/target/release/bundle/macos/Musical.app"
+
+      - name: Verify macOS app bundle
+        if: matrix.platform.name == 'macos'
+        shell: bash
+        run: |
+          node scripts/verify-release-bundle.mjs \
+            --platform=macos \
+            --root=src-tauri/target/release/bundle/macos/Musical.app \
+            --frontend-dist=dist \
+            --smoke-sidecar
+
+      - name: Verify Windows installers
+        if: matrix.platform.name == 'windows'
+        shell: pwsh
+        run: |
+          ./scripts/verify-windows-installers.ps1 `
+            -MsiDirectory "src-tauri/target/release/bundle/msi" `
+            -NsisDirectory "src-tauri/target/release/bundle/nsis" `
+            -FrontendDist "dist" `
+            -Verifier "scripts/verify-release-bundle.mjs" `
+            -RunnerTemp $env:RUNNER_TEMP
+
+      - name: Verify Linux packages
+        if: matrix.platform.name == 'linux'
+        shell: bash
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          debs=(src-tauri/target/release/bundle/deb/*.deb)
+          rpms=(src-tauri/target/release/bundle/rpm/*.rpm)
+          appimages=(src-tauri/target/release/bundle/appimage/*.AppImage)
+          if (( ${#debs[@]} == 0 )); then
+            echo "No Debian installer found in src-tauri/target/release/bundle/deb." >&2
+            exit 1
+          fi
+          if (( ${#rpms[@]} == 0 )); then
+            echo "No RPM installer found in src-tauri/target/release/bundle/rpm." >&2
+            exit 1
+          fi
+          if (( ${#appimages[@]} == 0 )); then
+            echo "No AppImage found in src-tauri/target/release/bundle/appimage." >&2
+            exit 1
+          fi
+
+          deb_temp_roots=()
+          rpm_temp_roots=()
+          appimage_temp_roots=()
+          cleanup_linux_temp_roots() {
+            for deb_temp_root in "${deb_temp_roots[@]}"; do
+              rm -rf -- "$deb_temp_root"
+            done
+            for rpm_temp_root in "${rpm_temp_roots[@]}"; do
+              rm -rf -- "$rpm_temp_root"
+            done
+            for appimage_temp_root in "${appimage_temp_roots[@]}"; do
+              rm -rf -- "$appimage_temp_root"
+            done
+          }
+          trap cleanup_linux_temp_roots EXIT
+
+          for deb in "${debs[@]}"; do
+            deb_temp_root="$(mktemp -d)"
+            deb_temp_roots+=("$deb_temp_root")
+            dpkg-deb -x "$deb" "$deb_temp_root"
+            node scripts/verify-release-bundle.mjs \
+              --platform=linux \
+              --root="$deb_temp_root" \
+              --frontend-dist=dist \
+              --smoke-sidecar
+          done
+
+          for rpm in "${rpms[@]}"; do
+            rpm_temp_root="$(mktemp -d)"
+            rpm_temp_roots+=("$rpm_temp_root")
+            rpm2cpio "$rpm" | (cd "$rpm_temp_root" && cpio -idmu --quiet)
+            node scripts/verify-release-bundle.mjs \
+              --platform=linux \
+              --root="$rpm_temp_root" \
+              --frontend-dist=dist \
+              --smoke-sidecar
+          done
+
+          for appimage in "${appimages[@]}"; do
+            appimage_temp_root="$(mktemp -d)"
+            appimage_temp_roots+=("$appimage_temp_root")
+            appimage_path="$(realpath "$appimage")"
+            (
+              cd "$appimage_temp_root"
+              "$appimage_path" --appimage-extract
+            )
+            appimage_bundle_root="$appimage_temp_root/squashfs-root"
+            if [ ! -d "$appimage_bundle_root" ]; then
+              echo "AppImage extraction did not create $appimage_bundle_root." >&2
+              exit 1
+            fi
+            node scripts/verify-release-bundle.mjs \
+              --platform=linux \
+              --root="$appimage_bundle_root" \
+              --frontend-dist=dist \
+              --smoke-sidecar
+          done
 
       - name: Collect app bundle
         shell: bash

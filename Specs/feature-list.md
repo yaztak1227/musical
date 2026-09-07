@@ -135,6 +135,7 @@
 - ローカル MCP endpoint を切り替える。無効時の `/mcp` は 404 を返す。
 - LAN/public の公開モードと MCP enabled 状態は、Tauri では Config、Web では local storage に保存する。LAN/public を有効化した時点のグローバルIPv4も保存し、次回起動時は現在のグローバルIPv4と一致する場合だけ実際の公開状態へ復元する。IP未保存、取得失敗、不一致では安全側のOFFにし、保存済みの希望モードとIPは維持する。公開URLのQRコード直下には、公共LANでの利用禁止、URL共有による操作リスク、グローバルIP一致時だけ再公開されることを示す注意文を表示する。
 - MCP endpoint は AI SDK V7 compatible な TypeScript sidecar と MCP SDK server で提供し、Tauri local server は `/mcp` を sidecar へ proxy する。
+- MCP の release 配布物は依存込み単一 `server.mjs` を Tauri resource `mcp/server.mjs` として含み、Node `24.15.0` runtime も externalBin に同梱するため、配布版で system Node を要求しない。debug は workspace 生成物と開発用 Node `24.15.0` を使い、実行時パスは release では app resource directory 基準、debug では workspace 基準で解決する。
 - リポジトリルートを Agent Plugins 1.0.0 package とし、`plugin.json` で正規 schema と Musical 自身の version を宣言し、`mcp.json` から loopback の `/mcp` を `streamable-http` server として公開する。
 - `/mcp` はsystem HTTP proxyを迂回したloopback接続で、Streamable HTTP の `POST` と session終了用 `DELETE` を sidecar へ転送する。server event streamは公開せず、`GET /mcp` にはHTML fallbackではなく`405 Method Not Allowed`と`Allow: POST, DELETE`を返す。
 - MCP sidecar は loopback だけに bind し、Tauri internal bridge は per-process token で保護する。

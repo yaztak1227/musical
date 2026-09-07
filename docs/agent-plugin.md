@@ -18,6 +18,11 @@ The package does not embed credentials. `mcp.json` declares only the loopback UR
 
 The app must remain running while the client uses Musical tools. If the app is stopped or MCP is disabled, the plugin remains valid but the MCP connection is unavailable.
 
+Release desktop packages contain the dependency-bundled MCP `server.mjs` at
+the app resource path `mcp/server.mjs` and ship Node `24.15.0` in `externalBin`.
+The installed app therefore does not require system Node; this directory
+plugin continues to use the same loopback URL and 51-tool catalog.
+
 ## Validate changes
 
 Run the repository-level conformance checks:

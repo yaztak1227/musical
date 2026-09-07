@@ -1,25 +1,28 @@
 {
   "name": "musical",
   "private": true,
-  "version": "0.6.3",
+  "version": "0.6.4",
   "license": "MIT",
   "author": "yaztak1227@gmail.com",
   "type": "module",
   "packageManager": "npm@11.12.1",
   "engines": {
-    "node": ">=24.0.0"
+    "node": "24.15.0"
   },
   "scripts": {
-    "build:mcp": "tsc -p tsconfig.mcp.json",
+    "build:mcp": "tsc -p tsconfig.mcp.json && node scripts/bundle-mcp.mjs",
     "dev": "vite",
-    "dev:public": "npm run build:mcp && node scripts/public-dev.mjs",
+    "dev:public": "npm run build:mcp && npm run prepare:node-runtime && node scripts/public-dev.mjs",
     "prebuild": "npm run test:agent-plugin",
-    "build": "tsc && vite build && npm run build:mcp",
+    "build": "tsc && vite build && npm run build:mcp && npm run prepare:node-runtime",
     "mcp:dev": "npm run build:mcp && node dist/mcp/server.js",
     "mcp:smoke": "npm run build:mcp && node scripts/mcp-ai-sdk-smoke.mjs",
+    "prepare:node-runtime": "node scripts/prepare-node-runtime.mjs",
     "test:agent-plugin": "node --test tests/agent-plugin.test.mjs",
     "preview": "vite preview",
-    "test:mcp": "npm run build:mcp && node --test tests/mcp/*.test.mjs",
+    "test:mcp": "npm run build:mcp && npm run prepare:node-runtime && node --test tests/mcp/*.test.mjs",
+    "test:release-packaging": "node --test tests/release-packaging.test.mjs",
+    "verify:release": "node scripts/verify-release-bundle.mjs",
     "test:e2e": "playwright test",
     "test:e2e:ui": "playwright test --ui",
     "cache:status": "node scripts/prune-build-cache.mjs --status",
@@ -66,6 +69,7 @@
     "@vitejs/plugin-react": "^6.0.1",
     "ajv": "^8.20.0",
     "cloudflared": "^0.7.1",
+    "esbuild": "^0.27.4",
     "typescript": "^6.0.3",
     "vite": "^8.0.11"
   }

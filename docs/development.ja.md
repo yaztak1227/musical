@@ -17,7 +17,7 @@ Musical はフロントエンドに React / TypeScript、ローカルファイ�
 
 | Tool | Version |
 | --- | --- |
-| Node.js | 24.x |
+| Node.js | 24.15.0 |
 | npm | 11.x |
 | Rust | stable |
 
@@ -51,6 +51,13 @@ npm run tauri dev
 Tauri のデスクトップアプリとして起動します。ローカルフォルダのスキャン、音声ファイルの再生、タグ編集、アートワーク保存などはこのモードで利用します。
 
 `http://127.0.0.1:1422/` またはLAN URLで開くWeb版は、debug buildではworkspaceの現在の `dist` をno-cacheで読みます。ビジュアライザなどのfrontend変更をWeb版へ反映するときは `npm run build` を実行してください。音声解析APIやremote playerの送信経路は変わりません。release buildは実行ファイルへ埋め込んだ `dist` を配信します。
+
+MCP の配布とランタイム:
+
+- 開発時は Node `24.15.0` を使い、workspace の生成 sidecar を解決します。
+- release package は依存込み単一 `server.mjs` を生成して Tauri resource `mcp/server.mjs` に配置し、Node `24.15.0` runtime を `externalBin` に同梱します。
+- release の sidecar path は app の `resource_dir` 基準で解決され、system Node やビルド環境の絶対パスを要求しません。MCP URL、設定、51 tools は変更しません。
+- CI では MCP tests と実 bundle の資産（sidecar、Node runtime、frontend assets、NOTICE files）を検査します。
 
 開発用ブラウザルートはデフォルトでは自動で開きません。起動時に同時に開きたい場合:
 

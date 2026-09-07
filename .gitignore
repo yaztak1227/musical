@@ -10,10 +10,14 @@ lerna-debug.log*
 node_modules
 dist
 dist-ssr
+dist-mcp
+build/mcp
+build/node
 public/dev-tunnel.json
 playwright-report
 test-results
 src-tauri/target
+src-tauri/binaries/musical-node-*
 apps/firetv/.gradle
 apps/firetv/build
 apps/firetv/app/build
