@@ -531,6 +531,20 @@ test("Tauri config does not duplicate the package version in the window title", 
   assert.equal(tauriConfig.app?.windows?.[0]?.title, "Musical");
 });
 
+test("Tauri resource source and target basenames stay aligned for every bundled resource", async () => {
+  const tauriConfig = JSON.parse(await readFile("src-tauri/tauri.conf.json", "utf8"));
+  const resources = tauriConfig.bundle?.resources;
+
+  assert.ok(resources && typeof resources === "object" && !Array.isArray(resources));
+  for (const [source, target] of Object.entries(resources)) {
+    assert.equal(
+      path.posix.basename(source),
+      path.posix.basename(target),
+      `Tauri resource source and target must have the same basename: ${source} -> ${target}`,
+    );
+  }
+});
+
 test("Node runtime preparation fails closed for a target different from the host", () => {
   const mismatchedTarget =
     process.platform === "win32" ? "aarch64-apple-darwin" : "x86_64-pc-windows-msvc";

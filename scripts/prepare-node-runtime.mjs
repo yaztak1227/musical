@@ -92,7 +92,7 @@ if (targetTriple !== runtimeHostTriple) {
 }
 
 const nodeLicenseDir = path.join(projectRoot, "build", "node");
-const nodeLicensePath = path.join(nodeLicenseDir, "LICENSE.txt");
+const nodeLicensePath = path.join(nodeLicenseDir, "NODE_RUNTIME_LICENSE.txt");
 
 function findNodeLicense() {
   let directory = path.dirname(path.resolve(process.execPath));
