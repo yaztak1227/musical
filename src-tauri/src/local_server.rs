@@ -29,7 +29,7 @@ use std::{
     io::{BufRead, BufReader, Read, Seek, SeekFrom, Write},
     net::{IpAddr, Shutdown, SocketAddr, TcpListener, TcpStream, UdpSocket},
     path::{Path, PathBuf},
-    process::{Child, ChildStdout, Command, Stdio},
+    process::{Child, ChildStderr, ChildStdout, Command, Stdio},
     sync::{Arc, Condvar, LockResult, Mutex, MutexGuard},
     thread,
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
@@ -48,6 +48,7 @@ const GLOBAL_IP_API_URL: &str = "https://api.ipify.org?format=json";
 const GLOBAL_IP_LOOKUP_TIMEOUT: Duration = Duration::from_secs(3);
 const MCP_SIDECAR_READY_TIMEOUT: Duration = Duration::from_secs(3);
 const MCP_SIDECAR_READY_POLL_INTERVAL: Duration = Duration::from_millis(10);
+const MCP_SIDECAR_STDERR_LIMIT_BYTES: usize = 4 * 1024;
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -1280,11 +1281,16 @@ fn ensure_mcp_sidecar(
     }
 
     let token = state.mcp_bridge_token.clone();
+    // Keep Node's ESM entry relative to the working directory. On Windows,
+    // Tauri's resource_dir can use the verbatim `\\?\` namespace, which Node
+    // does not accept as an ESM entry path even though CreateProcess accepts it
+    // as the child's working directory.
+    let script_argument = mcp_script_argument(&resource_dir, &script_path)?;
     let startup_deadline = Instant::now() + MCP_SIDECAR_READY_TIMEOUT;
     loop {
         let port = reserve_loopback_port()?;
         let mut child = Command::new(&node_path)
-            .arg(&script_path)
+            .arg(&script_argument)
             .current_dir(&resource_dir)
             .env(
                 "MUSICAL_MCP_BRIDGE_URL",
@@ -1296,7 +1302,7 @@ fn ensure_mcp_sidecar(
             .env("MUSICAL_MCP_PARENT_WATCHDOG", "stdin")
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
-            .stderr(Stdio::null())
+            .stderr(Stdio::piped())
             .spawn()
             .map_err(|error| {
                 format!(
@@ -1304,6 +1310,11 @@ fn ensure_mcp_sidecar(
                     node_path.display()
                 )
             })?;
+        let stderr_receiver = child
+            .stderr
+            .take()
+            .map(spawn_mcp_stderr_reader)
+            .ok_or_else(|| "MCP sidecar stderr is not piped".to_owned())?;
 
         match wait_for_mcp_sidecar_ready_until(&mut child, port, startup_deadline) {
             Ok(()) => {
@@ -1313,6 +1324,7 @@ fn ensure_mcp_sidecar(
             }
             Err(error) => {
                 terminate_mcp_sidecar(&mut child);
+                let error = append_mcp_sidecar_stderr(error, stderr_receiver, &token);
                 if Instant::now() >= startup_deadline {
                     return Err(error);
                 }
@@ -1428,6 +1440,58 @@ fn spawn_mcp_stdout_reader(stdout: ChildStdout, marker: String) -> Receiver<()> 
     receiver
 }
 
+fn spawn_mcp_stderr_reader(stderr: ChildStderr) -> Receiver<String> {
+    let (sender, receiver) = mpsc::channel();
+    thread::spawn(move || {
+        let captured = read_bounded_mcp_stderr(stderr);
+        let _ = sender.send(captured);
+    });
+    receiver
+}
+
+fn read_bounded_mcp_stderr(mut stderr: impl Read) -> String {
+    let mut captured = Vec::with_capacity(MCP_SIDECAR_STDERR_LIMIT_BYTES);
+    let mut buffer = [0_u8; 1024];
+    let mut truncated = false;
+    loop {
+        match stderr.read(&mut buffer) {
+            Ok(0) | Err(_) => break,
+            Ok(read) => {
+                let remaining = MCP_SIDECAR_STDERR_LIMIT_BYTES.saturating_sub(captured.len());
+                let copied = read.min(remaining);
+                captured.extend_from_slice(&buffer[..copied]);
+                truncated |= copied < read;
+            }
+        }
+    }
+    let mut output = String::from_utf8_lossy(&captured).into_owned();
+    if truncated {
+        output.push_str("\n[stderr truncated]");
+    }
+    output
+}
+
+fn append_mcp_sidecar_stderr(
+    error: String,
+    stderr_receiver: Receiver<String>,
+    bridge_token: &str,
+) -> String {
+    let Ok(stderr) = stderr_receiver.recv_timeout(Duration::from_millis(100)) else {
+        return error;
+    };
+    let stderr = if bridge_token.is_empty() {
+        stderr
+    } else {
+        stderr.replace(bridge_token, "[REDACTED]")
+    };
+    let stderr = stderr.trim();
+    if stderr.is_empty() {
+        error
+    } else {
+        format!("{error}; sidecar stderr: {stderr}")
+    }
+}
+
 fn terminate_mcp_sidecar(child: &mut Child) {
     match child.try_wait() {
         Ok(Some(_)) => return,
@@ -1471,6 +1535,23 @@ fn bundled_node_path() -> Result<PathBuf, String> {
         )
     })?;
     Ok(executable_dir.join(executable_name))
+}
+
+fn mcp_script_argument(resource_dir: &Path, script_path: &Path) -> Result<PathBuf, String> {
+    let relative = script_path.strip_prefix(resource_dir).map_err(|_| {
+        format!(
+            "MCP sidecar path {} is outside the app resource directory {}",
+            script_path.display(),
+            resource_dir.display()
+        )
+    })?;
+    if relative.as_os_str().is_empty() || relative.is_absolute() {
+        return Err(format!(
+            "MCP sidecar path {} did not produce a safe relative entry path",
+            script_path.display()
+        ));
+    }
+    Ok(relative.to_owned())
 }
 
 fn stop_mcp_sidecar(remote_state: &SharedRemoteServerState) {
@@ -3493,11 +3574,11 @@ fn content_type(path: &Path) -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::{
-        apply_remote_command_to_player_state, empty_remote_player_state,
+        append_mcp_sidecar_stderr, apply_remote_command_to_player_state, empty_remote_player_state,
         filesystem_frontend_response, gated_remote_access_mode, has_command_gap,
-        is_allowed_request_origin, lyrics_mood_reference, proxy_mcp_request_to_url,
-        resolve_media_path, route_mcp_request, terminate_mcp_sidecar,
-        track_lyrics_analysis_response, wait_for_mcp_sidecar_ready,
+        is_allowed_request_origin, lyrics_mood_reference, mcp_script_argument,
+        proxy_mcp_request_to_url, read_bounded_mcp_stderr, resolve_media_path, route_mcp_request,
+        terminate_mcp_sidecar, track_lyrics_analysis_response, wait_for_mcp_sidecar_ready,
         wait_for_mcp_sidecar_ready_until, LyricsMoodReference, RemotePlayerCommand,
         RemoteServerState, RemoteServerStateStore, Request,
     };
@@ -3676,6 +3757,56 @@ mod tests {
             elapsed >= Duration::from_millis(200),
             "readiness returned before the intentional cold-start delay: {elapsed:?}"
         );
+    }
+
+    #[test]
+    fn mcp_script_entry_is_relative_to_its_resource_directory() {
+        let resource_dir = std::path::Path::new("/opt/Musical/resources");
+        let script_path = resource_dir.join("mcp").join("server.mjs");
+        assert_eq!(
+            mcp_script_argument(resource_dir, &script_path).expect("relative MCP entry"),
+            std::path::PathBuf::from("mcp/server.mjs")
+        );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn mcp_script_entry_avoids_verbatim_drive_path_for_node() {
+        let resource_dir = std::path::Path::new(r"\\?\D:\a\musical\resources");
+        let script_path = resource_dir.join("mcp").join("server.mjs");
+        assert_eq!(
+            mcp_script_argument(resource_dir, &script_path).expect("relative MCP entry"),
+            std::path::PathBuf::from(r"mcp\server.mjs")
+        );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn mcp_script_entry_avoids_verbatim_unc_path_for_node() {
+        let resource_dir = std::path::Path::new(r"\\?\UNC\server\share\Musical\resources");
+        let script_path = resource_dir.join("mcp").join("server.mjs");
+        assert_eq!(
+            mcp_script_argument(resource_dir, &script_path).expect("relative MCP entry"),
+            std::path::PathBuf::from(r"mcp\server.mjs")
+        );
+    }
+
+    #[test]
+    fn mcp_stderr_capture_is_bounded_and_redacts_the_bridge_token() {
+        let token = "private-bridge-token";
+        let stderr = format!(
+            "startup failed with {token}: {}",
+            "x".repeat(super::MCP_SIDECAR_STDERR_LIMIT_BYTES)
+        );
+        let captured = read_bounded_mcp_stderr(stderr.as_bytes());
+        assert!(captured.ends_with("[stderr truncated]"));
+
+        let (sender, receiver) = std::sync::mpsc::channel();
+        sender.send(captured).expect("send captured stderr");
+        let diagnostic = append_mcp_sidecar_stderr("sidecar exited".to_owned(), receiver, token);
+        assert!(diagnostic.contains("sidecar stderr: startup failed"));
+        assert!(diagnostic.contains("[REDACTED]"));
+        assert!(!diagnostic.contains(token));
     }
 
     #[test]
