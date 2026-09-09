@@ -15,6 +15,32 @@ const NOTICES = [
   "NODE_RUNTIME_LICENSE.txt",
 ];
 
+test("release base Tauri config supplies a non-null updater config", async () => {
+  const config = JSON.parse(
+    await readFile(path.join(process.cwd(), "src-tauri", "tauri.conf.json"), "utf8"),
+  );
+
+  assert.equal(typeof config.plugins?.updater, "object");
+  assert.ok(config.plugins.updater !== null);
+  assert.deepEqual(config.plugins.updater.endpoints, []);
+  assert.equal(config.plugins.updater.pubkey, "");
+});
+
+test("Windows release workflow starts the built app for an MCP bridge smoke test", async () => {
+  const packageJson = JSON.parse(await readFile(path.join(process.cwd(), "package.json"), "utf8"));
+  const workflow = await readFile(
+    path.join(process.cwd(), ".github", "workflows", "build-app.yml"),
+    "utf8",
+  );
+
+  assert.equal(packageJson.scripts["smoke:release-app"], "node scripts/smoke-release-app.mjs");
+  assert.match(workflow, /name: Smoke release app MCP bridge/);
+  assert.match(
+    workflow,
+    /npm run smoke:release-app -- --executable=src-tauri\/target\/release\/musical\.exe/,
+  );
+});
+
 function fixturePaths(bundleRoot, platform, layout) {
   if (layout === "macos-app") {
     return {

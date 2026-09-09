@@ -57,7 +57,8 @@ MCP packaging and runtime:
 - Development uses Node `24.15.0` and resolves the generated sidecar from the workspace.
 - Release packaging produces one dependency-bundled `server.mjs`, places it at the Tauri resource path `mcp/server.mjs`, and includes the Node `24.15.0` runtime in `externalBin`.
 - Release sidecar paths are resolved from the app `resource_dir`; no system Node or build-machine absolute path is required. The MCP URL, settings, and 51-tool catalog are unchanged.
-- CI checks the MCP tests and the real bundle assets, including the sidecar, Node runtime, frontend assets, and NOTICE files.
+- The base Tauri config always contains a non-null updater plugin config so an ordinary release build can start. The Windows release workflow overlays the signed updater endpoint and public key.
+- CI checks the MCP tests and the real bundle assets, including the sidecar, Node runtime, frontend assets, and NOTICE files. The release app smoke test also starts the built executable and verifies MCP initialization, tool discovery, and a Rust bridge call.
 
 The dev browser route does not open automatically by default. To open it at startup:
 

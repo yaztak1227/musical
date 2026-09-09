@@ -93,6 +93,10 @@ jobs:
           node scripts/write-tauri-updater-config.mjs src-tauri/tauri-updater.generated.conf.json
           npm run tauri -- build --bundles msi,nsis --config src-tauri/tauri-updater.generated.conf.json
 
+      - name: Smoke release app MCP bridge
+        if: matrix.platform.name == 'windows'
+        run: npm run smoke:release-app -- --executable=src-tauri/target/release/musical.exe
+
       - name: Verify staged release payload
         shell: bash
         run: |

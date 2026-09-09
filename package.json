@@ -1,7 +1,7 @@
 {
   "name": "musical",
   "private": true,
-  "version": "0.6.6",
+  "version": "0.6.7",
   "license": "MIT",
   "author": "yaztak1227@gmail.com",
   "type": "module",
@@ -17,6 +17,7 @@
     "build": "tsc && vite build && npm run build:mcp && npm run prepare:node-runtime",
     "mcp:dev": "npm run build:mcp && node dist/mcp/server.js",
     "mcp:smoke": "npm run build:mcp && node scripts/mcp-ai-sdk-smoke.mjs",
+    "smoke:release-app": "node scripts/smoke-release-app.mjs",
     "prepare:node-runtime": "node scripts/prepare-node-runtime.mjs",
     "test:agent-plugin": "node --test tests/agent-plugin.test.mjs",
     "preview": "vite preview",
