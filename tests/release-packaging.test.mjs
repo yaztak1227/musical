@@ -194,7 +194,17 @@ test("macOS app rejects a sidecar placed in Resources instead of beside the main
           layout: "macos-app",
           platform: "macos",
         }),
-      new RegExp(`Contents[\\/]MacOS[\\/]musical-node`),
+      (error) => {
+        assert(error instanceof Error);
+        assert.equal(
+          error.message,
+          [
+            "Release bundle verification failed:",
+            `- missing bundled Node sidecar at exact release path: ${fixture.paths.nodeSidecar}`,
+          ].join("\n"),
+        );
+        return true;
+      },
     );
   } finally {
     await rm(fixture.cleanupRoot, { recursive: true, force: true });
@@ -216,7 +226,21 @@ test("Debian extraction rejects resources placed beside usr/bin instead of usr/l
           layout: "linux-deb",
           platform: "linux",
         }),
-      new RegExp(`usr[\\/]lib[\\/]Musical[\\/]mcp[\\/]server\\.mjs`),
+      (error) => {
+        assert(error instanceof Error);
+        assert.equal(
+          error.message,
+          [
+            "Release bundle verification failed:",
+            `- missing MCP resource at exact release path: ${path.join(
+              fixture.paths.resourceDirectory,
+              "mcp",
+              "server.mjs",
+            )}`,
+          ].join("\n"),
+        );
+        return true;
+      },
     );
   } finally {
     await rm(fixture.cleanupRoot, { recursive: true, force: true });

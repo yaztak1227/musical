@@ -36,8 +36,7 @@ jobs:
             libayatana-appindicator3-dev \
             librsvg2-dev \
             patchelf \
-            rpm2cpio \
-            cpio
+            libarchive-tools
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -183,7 +182,7 @@ jobs:
           for rpm in "${rpms[@]}"; do
             rpm_temp_root="$(mktemp -d)"
             rpm_temp_roots+=("$rpm_temp_root")
-            rpm2cpio "$rpm" | (cd "$rpm_temp_root" && cpio -idmu --quiet)
+            bsdtar -xf "$rpm" -C "$rpm_temp_root"
             node scripts/verify-release-bundle.mjs \
               --platform=linux \
               --root="$rpm_temp_root" \
