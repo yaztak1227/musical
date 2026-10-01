@@ -22,6 +22,27 @@ use crate::atomic_file;
 
 static PLAYLIST_MUTATION_LOCK: Mutex<()> = Mutex::new(());
 
+/// The small amount of state the MCP boundary needs after a playlist is
+/// created.  The regular Tauri/local HTTP APIs continue to return a full
+/// [`LibrarySnapshot`]; this type is intentionally not serializable so it
+/// cannot accidentally become part of that public response.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PlaylistCreateMutationResult {
+    pub id: String,
+    pub name: String,
+    pub track_count: usize,
+}
+
+/// The small amount of state the MCP boundary needs after adding a track.
+/// `added` is false when the track was already present in the playlist.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PlaylistTrackAddMutationResult {
+    pub playlist_id: String,
+    pub track_id: String,
+    pub added: bool,
+    pub track_count: usize,
+}
+
 fn lock_playlist_mutations() -> Result<MutexGuard<'static, ()>, String> {
     PLAYLIST_MUTATION_LOCK
         .lock()
@@ -33,6 +54,25 @@ pub fn create_playlist_from_album(
     request: CreatePlaylistFromAlbumRequest,
 ) -> Result<LibrarySnapshot, String> {
     let _mutation_guard = lock_playlist_mutations()?;
+    create_playlist_from_album_unlocked(app, request)?;
+    load_snapshot(app)
+}
+
+/// Create a playlist for the MCP boundary without rebuilding the complete
+/// library snapshot.  The existing local HTTP/Tauri API keeps using
+/// [`create_playlist_from_album`] and therefore keeps its response contract.
+pub fn create_playlist_from_album_for_mcp(
+    app: &AppHandle,
+    request: CreatePlaylistFromAlbumRequest,
+) -> Result<PlaylistCreateMutationResult, String> {
+    let _mutation_guard = lock_playlist_mutations()?;
+    create_playlist_from_album_unlocked(app, request)
+}
+
+fn create_playlist_from_album_unlocked(
+    app: &AppHandle,
+    request: CreatePlaylistFromAlbumRequest,
+) -> Result<PlaylistCreateMutationResult, String> {
     let playlist_name = request.name.trim();
     if playlist_name.is_empty() {
         return Err("library.error.emptyPlaylistName".to_owned());
@@ -60,14 +100,18 @@ pub fn create_playlist_from_album(
         .collect();
     let playlist_file = PlaylistFile {
         version: 1,
-        id: playlist_id,
+        id: playlist_id.clone(),
         name: playlist_name.to_owned(),
         artwork_path: None,
         track_paths,
     };
     write_playlist_file(&file_path, &playlist_file)?;
 
-    load_snapshot(app)
+    Ok(PlaylistCreateMutationResult {
+        id: playlist_id,
+        name: playlist_name.to_owned(),
+        track_count: tracks.len(),
+    })
 }
 
 pub fn create_playlist(
@@ -75,6 +119,25 @@ pub fn create_playlist(
     request: CreatePlaylistRequest,
 ) -> Result<LibrarySnapshot, String> {
     let _mutation_guard = lock_playlist_mutations()?;
+    create_playlist_unlocked(app, request)?;
+    load_snapshot(app)
+}
+
+/// Create an empty playlist for MCP without rebuilding the complete library
+/// snapshot.  The existing local HTTP/Tauri API keeps using
+/// [`create_playlist`] and therefore keeps its response contract.
+pub fn create_playlist_for_mcp(
+    app: &AppHandle,
+    request: CreatePlaylistRequest,
+) -> Result<PlaylistCreateMutationResult, String> {
+    let _mutation_guard = lock_playlist_mutations()?;
+    create_playlist_unlocked(app, request)
+}
+
+fn create_playlist_unlocked(
+    app: &AppHandle,
+    request: CreatePlaylistRequest,
+) -> Result<PlaylistCreateMutationResult, String> {
     let playlist_name = request.name.trim();
     if playlist_name.is_empty() {
         return Err("library.error.emptyPlaylistName".to_owned());
@@ -87,14 +150,18 @@ pub fn create_playlist(
     let file_path = playlist_dir.join(format!("{playlist_id}.{PLAYLIST_EXTENSION}"));
     let playlist_file = PlaylistFile {
         version: 1,
-        id: playlist_id,
+        id: playlist_id.clone(),
         name: playlist_name.to_owned(),
         artwork_path: None,
         track_paths: Vec::new(),
     };
     write_playlist_file(&file_path, &playlist_file)?;
 
-    load_snapshot(app)
+    Ok(PlaylistCreateMutationResult {
+        id: playlist_id,
+        name: playlist_name.to_owned(),
+        track_count: 0,
+    })
 }
 
 pub fn add_track_to_playlist(
@@ -102,6 +169,25 @@ pub fn add_track_to_playlist(
     request: AddTrackToPlaylistRequest,
 ) -> Result<LibrarySnapshot, String> {
     let _mutation_guard = lock_playlist_mutations()?;
+    add_track_to_playlist_unlocked(app, request)?;
+    load_snapshot(app)
+}
+
+/// Add a track for MCP without rebuilding the complete library snapshot.  The
+/// existing local HTTP/Tauri API keeps using [`add_track_to_playlist`] and
+/// therefore keeps its response contract.
+pub fn add_track_to_playlist_for_mcp(
+    app: &AppHandle,
+    request: AddTrackToPlaylistRequest,
+) -> Result<PlaylistTrackAddMutationResult, String> {
+    let _mutation_guard = lock_playlist_mutations()?;
+    add_track_to_playlist_unlocked(app, request)
+}
+
+fn add_track_to_playlist_unlocked(
+    app: &AppHandle,
+    request: AddTrackToPlaylistRequest,
+) -> Result<PlaylistTrackAddMutationResult, String> {
     let library_root = current_library_root(app)?;
     let database_path = required_app_database_path(app)?;
     let connection = open_database_for_read(&database_path)?;
@@ -110,16 +196,24 @@ pub fn add_track_to_playlist(
         editable_playlist_file_for_id(&library_root, &request.playlist_id)?;
     let track_path = playlist_track_path(&library_root, &file_path);
 
-    if !playlist_file
+    let added = if !playlist_file
         .track_paths
         .iter()
         .any(|existing_path| existing_path.replace('\\', "/") == track_path)
     {
         playlist_file.track_paths.push(track_path);
         write_playlist_file(&playlist_path, &playlist_file)?;
-    }
+        true
+    } else {
+        false
+    };
 
-    load_snapshot(app)
+    Ok(PlaylistTrackAddMutationResult {
+        playlist_id: playlist_file.id,
+        track_id: request.track_id,
+        added,
+        track_count: playlist_file.track_paths.len(),
+    })
 }
 
 pub fn add_tracks_to_playlist(
@@ -180,6 +274,25 @@ pub fn delete_playlist(
     request: DeletePlaylistRequest,
 ) -> Result<LibrarySnapshot, String> {
     let _mutation_guard = lock_playlist_mutations()?;
+    delete_playlist_unlocked(app, request)?;
+    load_snapshot(app)
+}
+
+/// Delete a playlist for MCP without rebuilding the complete library
+/// snapshot.  The existing local HTTP/Tauri API keeps using
+/// [`delete_playlist`] and therefore keeps its response contract.
+pub fn delete_playlist_for_mcp(
+    app: &AppHandle,
+    request: DeletePlaylistRequest,
+) -> Result<String, String> {
+    let _mutation_guard = lock_playlist_mutations()?;
+    delete_playlist_unlocked(app, request)
+}
+
+fn delete_playlist_unlocked(
+    app: &AppHandle,
+    request: DeletePlaylistRequest,
+) -> Result<String, String> {
     let library_root = current_library_root(app)?;
     let playlist_path = playlist_file_path_for_id(&library_root, &request.playlist_id)?;
     let playlist_stem = playlist_path
@@ -198,7 +311,7 @@ pub fn delete_playlist(
         }
     }
 
-    load_snapshot(app)
+    Ok(request.playlist_id)
 }
 
 pub fn remove_playlist_track(

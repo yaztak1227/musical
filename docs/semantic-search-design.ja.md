@@ -9,12 +9,12 @@ Musical の MCP client が、曲名の完全一致だけでなく、保存済み
 ## 責務
 
 - Rust backendがlibrary database、embedding model、search index、query cacheを所有する。
-- TypeScript MCP sidecarはtool schemaとinternal bridgeの転送だけを担当する。
+- Rustメインプロセス内のMCP serverは、build時にTypeScript定義から生成したtool schemaを公開し、tool callをRust実装へ直接dispatchする。
 - `.musical/musical.sqlite3` はライブラリの正本とする。
 - `.musical/search_index.sqlite3` は削除・再生成可能な派生cacheとする。
 - search indexはlibrary databaseの兄弟fileとしてpath APIで決定し、Windows/macOSともlibraryごとに同じ相対配置を使う。
 - embedding modelはTauriのapplication cache directoryに保存し、ライブラリ間で共有する。
-- 日本語歌詞感情analyzerと辞書cacheはRust backendが所有し、MCP sidecarは解析を行わない。
+- 日本語歌詞感情analyzerと辞書cacheはRust backendが所有し、MCP protocol layerは解析を行わない。
 
 ## Index document
 

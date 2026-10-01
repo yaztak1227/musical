@@ -8,7 +8,7 @@
 - `mcp.json` は Musical の MCP server を `http://127.0.0.1:1422/mcp` の Streamable HTTP として宣言します。
 - `plugin.json.version` は Musical 自身のリリース版です。`$schema` が示す Agent Plugins 仕様版とは別に管理します。
 
-パッケージには認証情報を埋め込みません。`mcp.json` は loopback URL だけを宣言し、Musical は `/mcp` への非 loopback request を拒否します。内部 sidecar への接続では system HTTP proxy も迂回します。
+パッケージには認証情報を埋め込みません。`mcp.json` は loopback URL だけを宣言し、Musical は `/mcp` への非 loopback request を拒否します。MCP request は Rust メインプロセス内で直接処理します。
 
 ## プラグインを使う
 
@@ -18,8 +18,8 @@
 
 Musical tools の利用中はアプリを起動したままにしてください。アプリが停止しているか MCP が無効な場合もプラグイン自体は有効ですが、MCP へは接続できません。
 
-release desktop package には依存込み MCP `server.mjs` を app resource path
-`mcp/server.mjs` として含め、Node `24.15.0` を `externalBin` に同梱します。
+MCP Streamable HTTP server は Tauri の Rust メインプロセス内で動作します。
+release desktop package は `musical-node` external binary を同梱せず、起動もしません。
 そのためインストール済みアプリは system Node を必要としません。この
 directory plugin の loopback URL と 51 tools は従来どおりです。
 

@@ -8,7 +8,7 @@ The repository root is an [Agent Plugins 1.0.0](https://github.com/agentplugins/
 - `mcp.json` declares the Musical MCP server as Streamable HTTP at `http://127.0.0.1:1422/mcp`.
 - `plugin.json.version` tracks the Musical release version. It is separate from the Agent Plugins specification version declared by `$schema`.
 
-The package does not embed credentials. `mcp.json` declares only the loopback URL, Musical rejects non-loopback requests to `/mcp`, and the internal sidecar connection bypasses system HTTP proxies.
+The package does not embed credentials. `mcp.json` declares only the loopback URL, and Musical rejects non-loopback requests to `/mcp`. MCP requests are handled directly in the Rust main process.
 
 ## Use the plugin
 
@@ -18,8 +18,8 @@ The package does not embed credentials. `mcp.json` declares only the loopback UR
 
 The app must remain running while the client uses Musical tools. If the app is stopped or MCP is disabled, the plugin remains valid but the MCP connection is unavailable.
 
-Release desktop packages contain the dependency-bundled MCP `server.mjs` at
-the app resource path `mcp/server.mjs` and ship Node `24.15.0` in `externalBin`.
+The MCP Streamable HTTP server runs in the Tauri Rust main process. Release
+desktop packages do not ship or start a `musical-node` external binary.
 The installed app therefore does not require system Node; this directory
 plugin continues to use the same loopback URL and 51-tool catalog.
 

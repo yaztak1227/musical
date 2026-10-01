@@ -5,6 +5,7 @@ mod audio_analysis;
 mod library;
 mod local_server;
 mod lyrics_sentiment;
+mod mcp_server;
 mod search_index;
 
 use library::{

@@ -56,12 +56,17 @@ test("AI SDK V7 client discovers tools and receives structuredContent", async ()
     const listed = await client.listTools();
     assert.equal(listed.tools.length, 51);
     assert.ok(listed.tools.some((tool) => tool.name === "get_player_state"));
+    for (const tool of listed.tools) {
+      assert.equal(typeof tool.outputSchema, "object", `${tool.name} must advertise outputSchema`);
+      assert.equal(tool.outputSchema.type, "object", `${tool.name} outputSchema must be an object`);
+    }
 
     const tools = await client.tools();
     assert.ok("get_player_state" in tools);
 
     const result = await client.callTool({ name: "get_player_state", arguments: {} });
     assert.equal(result.isError, false);
+    assert.deepEqual(result.content, []);
     assert.deepEqual(result.structuredContent, { state: null });
     assert.deepEqual(bridge.calls, [{ toolName: "get_player_state", body: { arguments: {} } }]);
   } finally {
@@ -127,6 +132,7 @@ test("sidecar forwards tool arguments to the protected Musical bridge", async ()
       arguments: { query: "Miles", limit: 5 },
     });
     assert.equal(result.isError, false);
+    assert.deepEqual(result.content, []);
     assert.deepEqual(result.structuredContent, { query: "miles", results: [] });
     assert.deepEqual(bridge.calls, [
       { toolName: "search_library", body: { arguments: { query: "Miles", limit: 5 } } },
@@ -163,6 +169,7 @@ test("sidecar forwards track lyrics analysis and returns structuredContent", asy
       arguments: { trackId: "track-1" },
     });
     assert.equal(result.isError, false);
+    assert.deepEqual(result.content, []);
     assert.deepEqual(result.structuredContent, {
       trackId: "track-1",
       lyricsHash: "fixture-hash",
@@ -211,7 +218,7 @@ test("sidecar forwards lyrics mood search and playback results as structuredCont
             sentiment: { score: 0.5, label: "positive", coverage: 0.7 },
           },
         ],
-        command: { id: 1, commandType: "set-queue" },
+        command: { commandId: 1, commandType: "set-queue" },
       }),
     },
   });
@@ -227,6 +234,7 @@ test("sidecar forwards lyrics mood search and playback results as structuredCont
       arguments: { prompt: "失恋した夜", moodStrength: "strong", limit: 5 },
     });
     assert.equal(search.isError, false);
+    assert.deepEqual(search.content, []);
     assert.deepEqual(search.structuredContent, {
       status: "ok",
       interpretedPrompt: "失恋した夜",
@@ -240,8 +248,10 @@ test("sidecar forwards lyrics mood search and playback results as structuredCont
       arguments: { prompt: "前向きになれる歌詞", durationMinutes: 30, limit: 1 },
     });
     assert.equal(play.isError, false);
+    assert.deepEqual(play.content, []);
     assert.equal(play.structuredContent.status, "playing");
-    assert.deepEqual(play.structuredContent.command, { id: 1, commandType: "set-queue" });
+    assert.deepEqual(play.structuredContent.command, { commandId: 1, commandType: "set-queue" });
+    assert.equal("id" in play.structuredContent.command, false);
     assert.deepEqual(bridge.calls, [
       {
         toolName: "search_lyrics_by_mood",
@@ -252,6 +262,33 @@ test("sidecar forwards lyrics mood search and playback results as structuredCont
         body: { arguments: { prompt: "前向きになれる歌詞", durationMinutes: 30, limit: 1 } },
       },
     ]);
+  } finally {
+    await client.close();
+    await sidecar.stop();
+    await bridge.close();
+  }
+});
+
+test("sidecar keeps large successful payloads in structuredContent only", async () => {
+  const token = `test-${Date.now()}`;
+  const payload = "x".repeat(256 * 1024);
+  const bridge = await createFakeBridge({
+    token,
+    handlers: {
+      get_library: () => ({ payload }),
+    },
+  });
+  const mcpPort = await reservePort();
+  const sidecar = await startMcpSidecar({ bridgePort: bridge.port, mcpPort, token });
+  const client = await createMCPClient({
+    transport: { type: "http", url: `http://127.0.0.1:${mcpPort}/mcp` },
+  });
+
+  try {
+    const result = await client.callTool({ name: "get_library", arguments: {} });
+    assert.equal(result.isError, false);
+    assert.deepEqual(result.content, []);
+    assert.equal(result.structuredContent.payload, payload);
   } finally {
     await client.close();
     await sidecar.stop();
@@ -278,6 +315,10 @@ test("sidecar returns MCP tool errors when bridge execution fails", async () => 
   try {
     const result = await client.callTool({ name: "get_library", arguments: {} });
     assert.equal(result.isError, true);
+    assert.equal(result.content?.length, 1);
+    assert.equal(result.content[0].type, "text");
+    assert.equal(result.content[0].text, "library unavailable");
+    assert.doesNotMatch(result.content[0].text, /SyntaxError|Unexpected token/);
     assertToolResultTextIncludes(result, /library unavailable/);
   } finally {
     await client.close();

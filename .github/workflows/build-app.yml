@@ -55,7 +55,7 @@ jobs:
       - name: Install frontend dependencies
         run: npm ci
 
-      - name: Test MCP sidecar
+      - name: Test MCP protocol and catalog
         run: npm run test:mcp
 
       - name: Test release packaging verifier
@@ -103,8 +103,7 @@ jobs:
           node scripts/verify-release-bundle.mjs \
             --platform=staging \
             --root=src-tauri/target/release \
-            --frontend-dist=dist \
-            --smoke-sidecar
+            --frontend-dist=dist
 
       - name: Sign macOS app bundle
         if: matrix.platform.name == 'macos'
@@ -120,8 +119,7 @@ jobs:
           node scripts/verify-release-bundle.mjs \
             --platform=macos \
             --root=src-tauri/target/release/bundle/macos/Musical.app \
-            --frontend-dist=dist \
-            --smoke-sidecar
+            --frontend-dist=dist
 
       - name: Verify Windows installers
         if: matrix.platform.name == 'windows'
@@ -179,8 +177,7 @@ jobs:
             node scripts/verify-release-bundle.mjs \
               --platform=linux \
               --root="$deb_temp_root" \
-              --frontend-dist=dist \
-              --smoke-sidecar
+              --frontend-dist=dist
           done
 
           for rpm in "${rpms[@]}"; do
@@ -190,8 +187,7 @@ jobs:
             node scripts/verify-release-bundle.mjs \
               --platform=linux \
               --root="$rpm_temp_root" \
-              --frontend-dist=dist \
-              --smoke-sidecar
+              --frontend-dist=dist
           done
 
           for appimage in "${appimages[@]}"; do
@@ -210,8 +206,7 @@ jobs:
             node scripts/verify-release-bundle.mjs \
               --platform=linux \
               --root="$appimage_bundle_root" \
-              --frontend-dist=dist \
-              --smoke-sidecar
+              --frontend-dist=dist
           done
 
       - name: Collect app bundle

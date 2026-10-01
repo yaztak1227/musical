@@ -273,11 +273,10 @@
 - dev mode では dev tunnel API が利用可能な場合に public dev tunnel を任意で公開する。
 - LAN/public control URL の QR code を表示する。
 - ローカル MCP endpoint を切り替える。`/mcp` endpoint は local-only で、無効時は 404 を返す。
-- `/mcp` は公式 MCP SDK 上の TypeScript sidecar で提供し、AI SDK V7 compatible な tool catalog として検証する。Tauri local server は enabled 設定、sidecar lifecycle、reverse proxy を担当する。
-- release 配布物には依存込み単一 `server.mjs` を Tauri resource `mcp/server.mjs` として含め、Node `24.15.0` runtime も `externalBin` に同梱するため、配布版は system Node やビルド環境の絶対パスを必要としない。debug build は workspace 生成物と開発用 Node `24.15.0` を使い、release は app の resource directory 基準、debug は workspace 基準で実行時パスを解決する。
-- リポジトリルートをcanonicalな`plugin.json`と`mcp.json`を持つAgent Plugins 1.0.0 packageとして提供する。portable MCP entryはloopbackのStreamable HTTPを使い、proxyはsystem HTTP proxyを迂回してPOSTとDELETEを転送する。server event streamは公開しないためGETは405を返す。
-- MCP sidecar と internal bridge は loopback bind と per-process `X-Musical-MCP-Token` で保護する。
-- Tauri から MCP sidecar へ専用 stdin pipe を保持し、sidecar は EOF で終了する。これにより Tauri の異常終了時にも orphan Node process を残さない。
+- `/mcp` は Tauri の Rust メインプロセス内で Streamable HTTP として提供し、AI SDK V7 compatible な tool catalog として検証する。local server は enabled 設定、session、tool discovery、tool dispatch を直接担当する。
+- release 配布物には `musical-node`、`server.mjs`、その他の MCP runtime process を含めない。TypeScript の Zod catalog は build 時に Rust へ埋め込む tool manifest へ変換する。
+- リポジトリルートをcanonicalな`plugin.json`と`mcp.json`を持つAgent Plugins 1.0.0 packageとして提供する。portable MCP entryはloopbackのStreamable HTTPを使い、Rust serverがPOSTとDELETEを直接処理する。server event streamは公開しないためGETは405を返す。
+- MCP endpoint は loopback-only access と client ごとの session で保護する。
 - `@ai-sdk/mcp` による tool discovery と `structuredContent` 検証を provider API key なしで実行できる。
 - MCP は再生操作、album/track/artist 検索、ローカル semantic/hybrid 曲検索、気分推薦、検索 index status/build、block/曲単位の歌詞感情分析read、library summary、queue 操作、favorites、playlist 作成・曲追加・削除、tag/artwork 更新を含む 51 tools を公開する。
 - `search_lyrics_by_mood`は保存済み歌詞の意味、感情、情景、覚えている一節から候補を返すread toolである。`play_lyrics_by_mood`はlyrics-only hybrid検索、再生時間、artist分散、queue確定、先頭曲からの再生を一つのserver operationで実行するplayback toolである。正確な曲名またはartistだけの検索には`search_library`、正確な曲名、album、artistの再生には`play_search`を使う。
@@ -604,7 +603,7 @@ architecture、navigation、layout、playback、platform integration を変更�
 - `/api/player_state`, `/api/player_command`, `/api/player_commands` が remote browser controls と desktop player を同期し続ける。
 - Browser backend mode は real local playback を own しようとせず commands を送る。
 - Browser backend mode は remote desktop player が既に別 track へ移った場合に stale analysis response を無視する。
-- `/mcp` は local-only のままで、MCP enabled でない限り disabled。enabled 時は AI SDK V7 compatible MCP sidecar へ proxy する。
+- `/mcp` は local-only のままで、MCP enabled でない限り disabled。enabled 時は Rust メインプロセス内の AI SDK V7 compatible server が直接処理する。
 
 ### Mock Browser Mode
 

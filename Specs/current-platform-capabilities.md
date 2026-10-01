@@ -338,23 +338,17 @@ Updates and local services:
 - Show QR codes for LAN/public control URLs.
 - Toggle the local MCP endpoint. The `/mcp` endpoint is local-only and returns
   404 when disabled.
-- Serve `/mcp` through an AI SDK V7 compatible TypeScript sidecar built on the
-  official MCP SDK. The Tauri local server owns the enabled setting, sidecar
-  lifecycle, and reverse proxy.
-- Release packages include the dependency-bundled single `server.mjs` at the
-  Tauri resource path `mcp/server.mjs` and a Node `24.15.0` runtime in
-  `externalBin`; they do not require system Node or build-machine absolute
-  paths. Debug builds resolve the workspace-generated sidecar and development
-  Node `24.15.0`, while release builds resolve from the app resource directory.
+- Serve `/mcp` through an AI SDK V7 compatible Streamable HTTP implementation
+  inside the Tauri Rust main process. The local server owns the enabled setting,
+  sessions, tool discovery, and tool dispatch without a reverse proxy.
+- Release packages do not include `musical-node`, `server.mjs`, or another MCP
+  runtime process. The TypeScript Zod catalog is converted to an embedded Rust
+  tool manifest at build time.
 - Package the repository root for Agent Plugins 1.0.0 with canonical
   `plugin.json` and `mcp.json` schemas. The portable MCP entry uses loopback
-  Streamable HTTP; the proxy bypasses system HTTP proxies and forwards POST and
-  DELETE, while GET returns 405 because Musical does not expose a server-event
-  stream.
-- Protect the MCP sidecar and internal bridge with loopback binding plus a
-  per-process `X-Musical-MCP-Token`.
-- Keep a dedicated stdin pipe from Tauri to the MCP sidecar. The sidecar exits
-  on EOF so an abrupt Tauri exit cannot leave an orphan Node process behind.
+  Streamable HTTP; the Rust server handles POST and DELETE directly, while GET
+  returns 405 because Musical does not expose a server-event stream.
+- Protect the MCP endpoint with loopback-only access and per-client sessions.
 - Validate MCP tool discovery and `structuredContent` through `@ai-sdk/mcp`
   without requiring a provider API key.
 - MCP exposes 51 tools covering playback transport, album/track/artist search,
@@ -838,7 +832,7 @@ app still satisfies the relevant platform items below.
 - Browser backend mode ignores stale analysis responses when the remote desktop
   player has already moved to another track.
 - `/mcp` remains local-only and disabled unless MCP is enabled; when enabled,
-  requests are proxied to the AI SDK V7 compatible MCP sidecar.
+  requests are handled by the AI SDK V7 compatible server in the Rust main process.
 
 ### Mock Browser Mode
 

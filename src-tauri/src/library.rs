@@ -64,9 +64,10 @@ use models::{
 };
 use playlist::load_playlists;
 pub use playlist::{
-    add_track_to_playlist, add_tracks_to_playlist, create_playlist, create_playlist_from_album,
-    delete_playlist, load_playlist, remove_playlist_track, rename_playlist, reorder_playlist_track,
-    update_playlist_artwork,
+    add_track_to_playlist, add_track_to_playlist_for_mcp, add_tracks_to_playlist, create_playlist,
+    create_playlist_for_mcp, create_playlist_from_album, create_playlist_from_album_for_mcp,
+    delete_playlist, delete_playlist_for_mcp, load_playlist, remove_playlist_track,
+    rename_playlist, reorder_playlist_track, update_playlist_artwork,
 };
 #[cfg(test)]
 use playlist::{

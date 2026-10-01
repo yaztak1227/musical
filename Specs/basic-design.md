@@ -41,11 +41,11 @@ flowchart LR
 | React main UI | `src/App.tsx`, `src/app/AppShell.tsx` | デスクトップ/ブラウザ共通 UI |
 | React feature hooks | `src/features/**` | library, playback, remote-player, tag-editing, tv-display の責務分割 |
 | Tauri backend | `src-tauri/src/lib.rs` | Tauri command と plugin setup |
-| AI test Tauri app | `src-tauri/tauri.ai-test.conf.json`, `scripts/ai-init-test.mjs` | Mockデータによる分離起動確認。非表示・非フォーカスでバックグラウンド実行し、frontendは`1430`を使い、local server、MCP sidecar、dev browserは起動しない |
+| AI test Tauri app | `src-tauri/tauri.ai-test.conf.json`, `scripts/ai-init-test.mjs` | Mockデータによる分離起動確認。非表示・非フォーカスでバックグラウンド実行し、frontendは`1430`を使い、local server、MCP endpoint、dev browserは起動しない |
 | Library backend | `src-tauri/src/library.rs`, `src-tauri/src/library/**` | scan, snapshot, playlist, tag, artwork, storage |
 | Audio analysis backend | `src-tauri/src/audio_analysis.rs` | FFT bucket 生成と cache |
-| Local server | `src-tauri/src/local_server.rs` | `/api/*`, `/tv`, WebSocket, media streaming, MCP sidecar lifecycle/proxy |
-| MCP sidecar | `src/mcp/**`, generated `server.mjs` | MCP SDK server, AI SDK V7 compatible tool catalog, internal bridge client。release は依存込み単一ファイルを Tauri resource `mcp/server.mjs` として同梱する |
+| Local server | `src-tauri/src/local_server.rs` | `/api/*`, `/tv`, WebSocket, media streaming, in-process MCP dispatch |
+| MCP server | `src-tauri/src/mcp_server.rs`, `src-tauri/mcp-tools.json` | Rust メインプロセス内の Streamable HTTP server、AI SDK V7 compatible tool catalog、session 管理 |
 | Agent Plugin package | `plugin.json`, `mcp.json` | Agent Plugins Specification 1.0.0 に準拠し、loopback の Musical MCP endpoint を指す portable Streamable HTTP 構成 |
 | Semantic search index | `src-tauri/src/search_index.rs`, `.musical/search_index.sqlite3` | ローカル multilingual embedding、歌詞 chunk、永続 vector cache、warm in-memory search |
 | Lyrics sentiment analyzer | `src-tauri/src/lyrics_sentiment.rs`, `.musical/search_index.sqlite3` | Lindera/IPADIC形態素解析、日本語極性辞書、block/曲集約、coverage付き派生cache |
@@ -137,7 +137,7 @@ Tauri setup 時に local server を開始し、desktop/browser/Fire TV の接続
 - `GET /api/mcp-settings`
 - `POST /api/mcp-settings`
 - `POST /api/_mcp/tools/{toolName}` internal bridge, loopback + token only
-- `POST /mcp` MCP sidecar proxy, loopback only
+- `POST /mcp` in-process MCP Streamable HTTP, loopback only
 - `GET /tv`
 - `GET /tv/sessions/{sessionId}` WebSocket
 
@@ -148,13 +148,14 @@ Tauri setup 時に local server を開始し、desktop/browser/Fire TV の接続
 - LAN access が明示的に有効になるまで非ローカル request は拒否する。
 - `/mcp` と `/api/mcp-settings` は LAN access と独立して local-only のままにする。
 - Tauri は `settings.json` の `remoteAccessMode`、`remoteAccessGlobalIp`、`mcpEnabled`、`sidebarCollapsed` を Config として保持する。LAN/public を明示的に有効化すると、HTTPSのipify IPv4 endpointで現在のグローバルIPを取得してモードと一緒に保存する。local server は frontend 起動前に保存IPと現在IPを比較し、一致時だけLAN runtime stateを復元する。public dev tunnelも同じ比較を通過したモードだけをfrontend hydration後に復元する。IP未保存、取得失敗、不一致はOFFとして扱うが、保存済みモードとIPは消去せず、信頼済みネットワークへ戻った次回起動時に再評価する。Web runtime は同じ利用者設定を `musical.remoteAccessMode`、`musical.remoteAccessGlobalIp`、`musical.mcpEnabled`、`musical.sidebarCollapsed` の local storage へ保存し、同じfail-closed比較を行う。
-- MCP enabled 時、Tauri は依存を含む単一の `server.mjs` を Node sidecar として起動し、`/mcp` request を sidecar の loopback port へ proxy する。release build は Tauri の `resource_dir/mcp/server.mjs` と externalBin に同梱した Node `24.15.0` runtime を使い、system Node やビルド環境の絶対パスに依存しない。Node へ渡す entry は resource directory からの相対 path とし、Windows の verbatim path (`\\?\...`) を ESM entry として渡さない。debug build は workspace の生成物と開発用 Node `24.15.0` を使う。sidecar 起動失敗時は bridge token を伏字にした上限付き stderr を診断へ含める。
-- Tauri proxy は system HTTP proxy を迂回したloopback接続で、Streamable HTTP の `POST` と `DELETE` をmethodを保持して転送する。Musicalはserver-initiated event streamを使わないため、`GET /mcp` はSPAへfallbackさせず`405 Method Not Allowed`と`Allow: POST, DELETE`を返す。
-- MCP sidecar は `@modelcontextprotocol/sdk` の Streamable HTTP server を使い、AI SDK V7 `@ai-sdk/mcp` client から `mcpClient.tools()` / `callTool()` で検証する。
-- `dev:public` は Vite 起動前に MCP sidecar を build し、production/release build は Vite の frontend 出力とは独立して依存込み単一 `server.mjs` を生成し、Tauri resource `mcp/server.mjs` へ配置する。これにより Vite の出力 cleanup で sidecar が欠落しないようにする。
+- MCP enabled 時、Tauri の Rust メインプロセスが `/mcp` の Streamable HTTP `POST` / `DELETE`、session、tool discovery、tool call を直接処理する。Windows を含む配布版は `musical-node` sidecar や別の MCP runtime process を起動しない。
+- Musicalはserver-initiated event streamを使わないため、`GET /mcp` はSPAへfallbackさせず`405 Method Not Allowed`と`Allow: POST, DELETE`を返す。
+- tool catalog は TypeScript の Zod 定義から build 時に `src-tauri/mcp-tools.json` を生成し、Rust serverへ埋め込む。AI SDK V7 `@ai-sdk/mcp` client から `mcpClient.tools()` / `callTool()` で互換性を検証する。
+- MCP bridge の応答は専用のcompact projectionを使う。libraryはalbum detail（summaryとcompact track）とplaylist summaryだけを返し、検索・track系はsummaryまたはcompact trackを返す。`databasePath`、`lastScanPath`、file/artwork path、snapshot、refresh commandはMCP応答へ含めず、playback/UI commandは`{ commandId, commandType }`だけを返す。既存のlocal HTTP/Tauri API契約は変更しない。
+- `dev:public` と production/release build は Vite 起動・build 前後に MCP tool manifest を生成する。release bundle verifier は legacy `musical-node` と `mcp/server.mjs` が配布物へ混入していないことを確認する。
 - Tauri の基底設定は非 null の updater plugin 設定を保持し、通常の release build が plugin 初期化で停止しないようにする。Windows release workflow は配布用 endpoint と公開鍵を生成設定で上書きする。release app smoke test はビルド済み本体を起動し、`/mcp` の initialize、tool discovery、Rust bridge の read-only call を検証する。
 - local server のrelease buildは `dist` を実行ファイルへ埋め込み、自己完結したWeb UIを配信する。debug buildだけは各frontend requestでworkspaceの現在の `dist` を優先し、`Cache-Control: no-store` を付ける。これにより長時間動作する `tauri dev` がCargo compile時点の古いvisualizer chunkをWeb/LAN側へ配信し続けることを防ぐ。disk buildがない場合は埋め込みbundleへfallbackし、`/api/*`、音声解析packet、remote player同期の経路は変更しない。
-- MCP internal bridge API は sidecar に渡した per-process token (`X-Musical-MCP-Token`) を要求する。
+- legacy development用のMCP internal bridge APIは per-process token (`X-Musical-MCP-Token`) を要求するが、desktop runtimeの`/mcp`経路はこれを介さずRust内で直接dispatchする。
 - 初回の自動または明示的な index build は `intfloat/multilingual-e5-small` のcommit `614241f622f53c4eeff9890bdc4f31cfecc418b3`から必要5fileだけをアプリcacheへ取得する。各fileのsize/SHA-256とmanifest identityをmodel初期化の前後に検証し、FastEmbed用refを同commitへatomic固定してから、metadata documentと6行単位・2行overlapのlyrics chunkを埋め込む。embedding model IDはartifact identityに加えて、exact pinしたFastEmbed 5.17.4とtokenizers 0.22.2、mean pooling、max length 512、E5のquery/passage prefix、pool後のL2正規化を表すpipeline IDを含み、いずれかの世代変更で旧indexを無効化する。tokenizersは既定featureを無効化して`onig`だけを有効にし、実行時に不要な`esaxx_fast`を除外することで、Windows binaryに静的CRTの`esaxx-rs`と動的CRTのdownload済みONNX Runtimeを混在させない。
 - FastEmbed 5.17が`HF_HOME`を明示cacheより優先するため、`HF_HOME`設定中は共有Hugging Face cacheへrefを書かずsemantic model初期化をerrorにする。Musical専用application cacheを使うには`HF_HOME`未設定でMusicalを起動する必要があり、通常launcherが設定済みの値を解除することはない。
 - search index は library database と分離した再生成可能な SQLite cache とし、各 library root の `.musical/search_index.sqlite3` に保存する。OS固有の区切り文字を連結せずpath APIで配置するため、Windows/macOSで同じ相対構造とする。
@@ -168,8 +169,7 @@ Tauri setup 時に local server を開始し、desktop/browser/Fire TV の接続
 - `search_lyrics_by_mood` / `play_lyrics_by_mood` のtopic-aware処理は、promptがgrief、悲哀、哀歌、追悼、死別等を明示するか、loss/separation（喪失、別れ、さよなら等）とsorrow（涙、悲しみ、孤独等）の両方を含む場合だけ発火する。単なる「悲しい歌」、generic mood、`relativeToCurrent`には適用しない。複数blockかつ複数の証拠familyでcoreが成立した場合だけ正加点し、core未達はhard rejectせず正加点を行わないが、anti-themeとlow-specificityの上限付き減点は許容する。grief voiceの2 toolだけは同一lyrics hashまたは高いcontent containmentの別音源を1結果へ集約し、boundedにoversampleした候補pool内で可能な範囲だけ別候補を補充する。極端に重複が多い場合は結果が指定limit未満になり得る。generic検索は重複を保持する。正確な曲名・artistを`search_library` / `play_search`へ振り分ける規則、既存の歌詞感情解析とsemantic index cacheは変更せず、DB schemaやembedding indexのrebuildは行わない。比喩中心・語彙の少ない歌詞では決定論的heuristicの精度が限定され、exactな8曲構成は保証しない。
 - strong悲哀指定では、喪失の具体性と悲哀証拠blockの占有率がともに低いsemantic false positiveだけへ上限付きlow-specificity減点を適用する。全面的な物語分類やC評価の排除保証には使わず、S/A/B相当の特徴が重なる候補を保護する境界を設け、hard rejectしない。near-identical dedupeはlyrics hash、行containmentに加え、十分長く長さの近い正規化全文の5-character gram containmentを用いて句読点、空白、表記揺れを吸収する。この追補もgeneric mood、`relativeToCurrent`、公開schema、DB/index cacheを変更せず、決定論的heuristicの限界を引き継ぐ。
 - block/曲分析はTauri command `track_lyrics_analysis`、`GET` / `POST /api/track_lyrics_analysis`、MCP read tool `get_track_lyrics_analysis { trackId }`で取得する。cacheがなければ保存歌詞をon-demand解析し、曲不在、歌詞なし、index不在、辞書利用不能をpanicさせず結果または診断として返す。
-- 検索時は永続 embedding をプロセス内へ generation 単位で warm load し、query embedding は bounded LRU cache で再利用する。MCP sidecar は検索 cache を所有しない。
-- Tauri は MCP sidecar の stdin pipe を保持し、sidecar は pipe の EOF を親プロセス終了として扱って即時終了する。これにより Tauri の異常終了時にも orphan Node process を残さない。
+- 検索時は永続 embedding をメインプロセス内へ generation 単位で warm load し、query embedding は bounded LRU cache で再利用する。MCP layer は別の検索 cache を所有しない。
 - media は server が公開した file/API 経由でのみ取得できる。
 - アートワーク候補検索と候補画像 download は Tauri command 専用で、local server API には公開しない。
 

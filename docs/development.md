@@ -54,11 +54,11 @@ In debug builds, the Web app opened from `http://127.0.0.1:1422/` or its LAN URL
 
 MCP packaging and runtime:
 
-- Development uses Node `24.15.0` and resolves the generated sidecar from the workspace.
-- Release packaging produces one dependency-bundled `server.mjs`, places it at the Tauri resource path `mcp/server.mjs`, and includes the Node `24.15.0` runtime in `externalBin`.
-- Release sidecar paths are resolved from the app `resource_dir`; no system Node or build-machine absolute path is required. The MCP URL, settings, and 51-tool catalog are unchanged.
+- Development uses Node `24.15.0` for frontend tooling and to generate the MCP tool manifest from the TypeScript catalog.
+- The MCP Streamable HTTP server runs in the Tauri Rust main process. Release packages do not contain or start a `musical-node` external binary; builds generate only the embedded Rust tool manifest from the TypeScript catalog.
+- No runtime sidecar path is resolved. The MCP URL, settings, and 51-tool catalog are unchanged.
 - The base Tauri config always contains a non-null updater plugin config so an ordinary release build can start. The Windows release workflow overlays the signed updater endpoint and public key.
-- CI checks the MCP tests and the real bundle assets, including the sidecar, Node runtime, frontend assets, and NOTICE files. The release app smoke test also starts the built executable and verifies MCP initialization, tool discovery, and a Rust bridge call.
+- CI checks the MCP protocol/catalog tests and verifies that real bundles contain the frontend and NOTICE files but no legacy Node sidecar assets. The release app smoke test starts the built executable and verifies MCP initialization, tool discovery, and a Rust tool call.
 
 The dev browser route does not open automatically by default. To open it at startup:
 

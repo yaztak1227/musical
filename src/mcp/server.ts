@@ -2,6 +2,7 @@ import { createServer, type IncomingMessage, type ServerResponse } from "node:ht
 import { randomUUID } from "node:crypto";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
+import { z } from "zod";
 import { BridgeClient } from "./bridgeClient.js";
 import { musicalTools } from "./tools/catalog.js";
 import { errorToolResult, successToolResult } from "./results.js";
@@ -20,6 +21,10 @@ if (!token) {
 
 const bridgeClient = new BridgeClient({ baseUrl: bridgeBaseUrl, token });
 const serverVersion = process.env.MUSICAL_MCP_VERSION ?? "0.0.0";
+// The Rust bridge currently returns a JSON object for every successful tool call.
+// Keep the schema open so structuredContent remains the canonical response payload
+// without duplicating it as a large text block.
+const passthroughOutputSchema = z.object({}).passthrough();
 
 if (process.env.MUSICAL_MCP_PARENT_WATCHDOG === "stdin") {
   const exitWhenParentPipeCloses = () => process.exit(0);
@@ -44,6 +49,7 @@ function registerMusicalTools(server: McpServer) {
         title: tool.title,
         description: tool.description,
         inputSchema: tool.inputSchema,
+        outputSchema: passthroughOutputSchema,
         _meta: {
           "musical/modelVisible": tool.modelVisible,
           "musical/risk": tool.risk,

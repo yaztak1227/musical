@@ -60,8 +60,7 @@ function Invoke-ReleaseBundleVerifier {
     & node $Verifier `
         "--platform=windows" `
         "--root=$BundleRoot" `
-        "--frontend-dist=$FrontendDist" `
-        "--smoke-sidecar"
+        "--frontend-dist=$FrontendDist"
     $exitCode = $LASTEXITCODE
     if ($exitCode -ne 0) {
         throw "Release bundle verification failed for $InstallerPath (exit code $exitCode)."

@@ -1,0 +1,1649 @@
+[
+  {
+    "name": "get_player_state",
+    "title": "Get Player State",
+    "description": "Read Musical's current playback state.",
+    "inputSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {},
+      "additionalProperties": false
+    },
+    "outputSchema": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "_meta": {
+      "musical/modelVisible": true,
+      "musical/risk": "read"
+    }
+  },
+  {
+    "name": "get_library",
+    "title": "Get Library",
+    "description": "Return the indexed album library.",
+    "inputSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {},
+      "additionalProperties": false
+    },
+    "outputSchema": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "_meta": {
+      "musical/modelVisible": true,
+      "musical/risk": "read"
+    }
+  },
+  {
+    "name": "search_library",
+    "title": "Search Library",
+    "description": "Search albums and tracks by title, artist, year, genre, or file path.",
+    "inputSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "query": {
+          "type": "string",
+          "minLength": 1
+        },
+        "limit": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100
+        }
+      },
+      "required": [
+        "query"
+      ],
+      "additionalProperties": false
+    },
+    "outputSchema": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "_meta": {
+      "musical/modelVisible": true,
+      "musical/risk": "read"
+    }
+  },
+  {
+    "name": "get_track_lyrics",
+    "title": "Get Track Lyrics",
+    "description": "Read lyrics saved in a track tag.",
+    "inputSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "trackId": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "trackId"
+      ],
+      "additionalProperties": false
+    },
+    "outputSchema": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "_meta": {
+      "musical/modelVisible": true,
+      "musical/risk": "read"
+    }
+  },
+  {
+    "name": "get_track_lyrics_analysis",
+    "title": "Get Track Lyrics Analysis",
+    "description": "Read block-level and track-level Japanese sentiment analysis for a track's saved lyrics.",
+    "inputSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "trackId": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "trackId"
+      ],
+      "additionalProperties": false
+    },
+    "outputSchema": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "_meta": {
+      "musical/modelVisible": true,
+      "musical/risk": "read"
+    }
+  },
+  {
+    "name": "get_search_index_status",
+    "title": "Get Search Index Status",
+    "description": "Report whether Musical's persistent local semantic-search index is ready or stale.",
+    "inputSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {},
+      "additionalProperties": false
+    },
+    "outputSchema": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "_meta": {
+      "musical/modelVisible": true,
+      "musical/risk": "read"
+    }
+  },
+  {
+    "name": "build_search_index",
+    "title": "Build Search Index",
+    "description": "Build or incrementally refresh Musical's local semantic-search index. The multilingual embedding model is downloaded on first use and cached locally.",
+    "inputSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {},
+      "additionalProperties": false
+    },
+    "outputSchema": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "_meta": {
+      "musical/modelVisible": true,
+      "musical/risk": "library-mutation"
+    }
+  },
+  {
+    "name": "search_tracks",
+    "title": "Search Tracks",
+    "description": "Search track metadata and saved lyrics with local multilingual semantic or hybrid matching and optional coverage-weighted sentiment similarity.",
+    "inputSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "query": {
+          "type": "string",
+          "minLength": 1
+        },
+        "mode": {
+          "type": "string",
+          "enum": [
+            "semantic",
+            "hybrid"
+          ]
+        },
+        "target": {
+          "type": "string",
+          "enum": [
+            "all",
+            "lyrics",
+            "metadata"
+          ]
+        },
+        "lyricsOnly": {
+          "type": "boolean"
+        },
+        "favoriteOnly": {
+          "type": "boolean"
+        },
+        "minRating": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 5
+        },
+        "genres": {
+          "maxItems": 50,
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "excludeTrackIds": {
+          "maxItems": 500,
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "sentimentWeight": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 0.3
+        },
+        "limit": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100
+        }
+      },
+      "required": [
+        "query"
+      ],
+      "additionalProperties": false
+    },
+    "outputSchema": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "_meta": {
+      "musical/modelVisible": true,
+      "musical/risk": "read"
+    }
+  },
+  {
+    "name": "recommend_tracks",
+    "title": "Recommend Tracks",
+    "description": "Recommend tracks for a natural-language mood using local semantic and coverage-weighted sentiment similarity over metadata and saved lyrics, with diversity and duration controls.",
+    "inputSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "prompt": {
+          "type": "string",
+          "minLength": 1
+        },
+        "favoriteOnly": {
+          "type": "boolean"
+        },
+        "minRating": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 5
+        },
+        "genres": {
+          "maxItems": 50,
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "avoidTrackIds": {
+          "maxItems": 500,
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "durationMinutes": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 1440
+        },
+        "maxTracksPerArtist": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 20
+        },
+        "sentimentWeight": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 0.3
+        },
+        "limit": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100
+        }
+      },
+      "required": [
+        "prompt"
+      ],
+      "additionalProperties": false
+    },
+    "outputSchema": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "_meta": {
+      "musical/modelVisible": true,
+      "musical/risk": "read"
+    }
+  },
+  {
+    "name": "search_lyrics_by_mood",
+    "title": "Search Lyrics by Mood",
+    "description": "Find songs from the meaning, emotion, scene, or remembered line in saved lyrics without changing playback. Apply bounded topic-aware ranking and collapse duplicate lyrical variants only for explicit grief, elegy, mourning, or bereavement prompts, or prompts combining loss/separation with sorrow. A generic sad-song prompt, generic mood, and relativeToCurrent remain unchanged. Use search_library for an exact title or artist alone. For lyrics similar to the current track or brighter/darker than it, set relativeToCurrent. Put only the desired lyrical meaning, scene, or emotion in prompt, not spoken playback commands.",
+    "inputSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "prompt": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 500
+        },
+        "moodStrength": {
+          "type": "string",
+          "enum": [
+            "subtle",
+            "balanced",
+            "strong"
+          ]
+        },
+        "favoriteOnly": {
+          "type": "boolean"
+        },
+        "minRating": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 5
+        },
+        "genres": {
+          "maxItems": 50,
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "artist": {
+          "type": "string",
+          "minLength": 1
+        },
+        "excludeTrackIds": {
+          "maxItems": 500,
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "relativeToCurrent": {
+          "type": "string",
+          "enum": [
+            "similar",
+            "brighter",
+            "darker"
+          ]
+        },
+        "limit": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 20
+        }
+      },
+      "required": [
+        "prompt"
+      ],
+      "additionalProperties": false
+    },
+    "outputSchema": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "_meta": {
+      "musical/modelVisible": true,
+      "musical/risk": "read"
+    }
+  },
+  {
+    "name": "play_lyrics_by_mood",
+    "title": "Play Lyrics by Mood",
+    "description": "Find songs from the meaning, emotion, or scene in saved lyrics, set the resulting queue, and start playback in one operation. Apply bounded topic-aware ranking and collapse duplicate lyrical variants only for explicit grief, elegy, mourning, or bereavement prompts, or prompts combining loss/separation with sorrow. A generic sad-song prompt, generic mood, and relativeToCurrent remain unchanged. Use play_search for an exact title, album, or artist. Set relativeToCurrent for lyrics similar to the current track or brighter/darker than it; use limit: 1 for one song and durationMinutes: 30 for about 30 minutes. Put only the desired lyrical meaning, scene, or emotion in prompt, not spoken playback commands.",
+    "inputSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "prompt": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 500
+        },
+        "moodStrength": {
+          "type": "string",
+          "enum": [
+            "subtle",
+            "balanced",
+            "strong"
+          ]
+        },
+        "favoriteOnly": {
+          "type": "boolean"
+        },
+        "minRating": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 5
+        },
+        "genres": {
+          "maxItems": 50,
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "artist": {
+          "type": "string",
+          "minLength": 1
+        },
+        "avoidTrackIds": {
+          "maxItems": 500,
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "relativeToCurrent": {
+          "type": "string",
+          "enum": [
+            "similar",
+            "brighter",
+            "darker"
+          ]
+        },
+        "durationMinutes": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 1440
+        },
+        "maxTracksPerArtist": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 20
+        },
+        "limit": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100
+        }
+      },
+      "required": [
+        "prompt"
+      ],
+      "additionalProperties": false
+    },
+    "outputSchema": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "_meta": {
+      "musical/modelVisible": true,
+      "musical/risk": "playback"
+    }
+  },
+  {
+    "name": "get_library_summary",
+    "title": "Get Library Summary",
+    "description": "Return artist, album, track, favorite, and scan summary counts.",
+    "inputSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {},
+      "additionalProperties": false
+    },
+    "outputSchema": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "_meta": {
+      "musical/modelVisible": true,
+      "musical/risk": "read"
+    }
+  },
+  {
+    "name": "list_albums",
+    "title": "List Albums",
+    "description": "List albums, optionally filtered by artist name.",
+    "inputSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "artist": {
+          "type": "string",
+          "minLength": 1
+        },
+        "limit": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100
+        }
+      },
+      "additionalProperties": false
+    },
+    "outputSchema": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "_meta": {
+      "musical/modelVisible": true,
+      "musical/risk": "read"
+    }
+  },
+  {
+    "name": "list_tracks",
+    "title": "List Tracks",
+    "description": "List tracks, optionally filtered by album ID or artist name.",
+    "inputSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "albumId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "artist": {
+          "type": "string",
+          "minLength": 1
+        },
+        "limit": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100
+        }
+      },
+      "additionalProperties": false
+    },
+    "outputSchema": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "_meta": {
+      "musical/modelVisible": true,
+      "musical/risk": "read"
+    }
+  },
+  {
+    "name": "get_album",
+    "title": "Get Album",
+    "description": "Return one album by ID.",
+    "inputSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "albumId": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "albumId"
+      ],
+      "additionalProperties": false
+    },
+    "outputSchema": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "_meta": {
+      "musical/modelVisible": true,
+      "musical/risk": "read"
+    }
+  },
+  {
+    "name": "get_track",
+    "title": "Get Track",
+    "description": "Return one track by ID.",
+    "inputSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "trackId": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "trackId"
+      ],
+      "additionalProperties": false
+    },
+    "outputSchema": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "_meta": {
+      "musical/modelVisible": true,
+      "musical/risk": "read"
+    }
+  },
+  {
+    "name": "find_artist",
+    "title": "Find Artist",
+    "description": "Find likely artist matches by name, allowing simple spelling and spacing differences.",
+    "inputSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "limit": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "additionalProperties": false
+    },
+    "outputSchema": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "_meta": {
+      "musical/modelVisible": true,
+      "musical/risk": "read"
+    }
+  },
+  {
+    "name": "find_album",
+    "title": "Find Album",
+    "description": "Find likely album matches by album name and optional artist.",
+    "inputSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "artist": {
+          "type": "string",
+          "minLength": 1
+        },
+        "limit": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "additionalProperties": false
+    },
+    "outputSchema": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "_meta": {
+      "musical/modelVisible": true,
+      "musical/risk": "read"
+    }
+  },
+  {
+    "name": "get_queue",
+    "title": "Get Queue",
+    "description": "Read the current playback queue.",
+    "inputSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {},
+      "additionalProperties": false
+    },
+    "outputSchema": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "_meta": {
+      "musical/modelVisible": true,
+      "musical/risk": "read"
+    }
+  },
+  {
+    "name": "get_recently_played",
+    "title": "Get Recently Played",
+    "description": "Return tracks recently published by the active Musical player session.",
+    "inputSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "limit": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100
+        }
+      },
+      "additionalProperties": false
+    },
+    "outputSchema": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "_meta": {
+      "musical/modelVisible": true,
+      "musical/risk": "read"
+    }
+  },
+  {
+    "name": "get_favorites",
+    "title": "Get Favorites",
+    "description": "Return tracks marked as favorites.",
+    "inputSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "limit": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100
+        }
+      },
+      "additionalProperties": false
+    },
+    "outputSchema": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "_meta": {
+      "musical/modelVisible": true,
+      "musical/risk": "read"
+    }
+  },
+  {
+    "name": "play",
+    "title": "Play",
+    "description": "Start or resume playback.",
+    "inputSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {},
+      "additionalProperties": false
+    },
+    "outputSchema": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "_meta": {
+      "musical/modelVisible": true,
+      "musical/risk": "playback"
+    }
+  },
+  {
+    "name": "pause",
+    "title": "Pause",
+    "description": "Pause playback.",
+    "inputSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {},
+      "additionalProperties": false
+    },
+    "outputSchema": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "_meta": {
+      "musical/modelVisible": true,
+      "musical/risk": "playback"
+    }
+  },
+  {
+    "name": "toggle_playback",
+    "title": "Toggle Playback",
+    "description": "Toggle play and pause.",
+    "inputSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {},
+      "additionalProperties": false
+    },
+    "outputSchema": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "_meta": {
+      "musical/modelVisible": true,
+      "musical/risk": "playback"
+    }
+  },
+  {
+    "name": "next_track",
+    "title": "Next Track",
+    "description": "Skip to the next track.",
+    "inputSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {},
+      "additionalProperties": false
+    },
+    "outputSchema": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "_meta": {
+      "musical/modelVisible": true,
+      "musical/risk": "playback"
+    }
+  },
+  {
+    "name": "previous_track",
+    "title": "Previous Track",
+    "description": "Skip to the previous track.",
+    "inputSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {},
+      "additionalProperties": false
+    },
+    "outputSchema": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "_meta": {
+      "musical/modelVisible": true,
+      "musical/risk": "playback"
+    }
+  },
+  {
+    "name": "seek",
+    "title": "Seek",
+    "description": "Seek to a playback time in seconds.",
+    "inputSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "time": {
+          "type": "number",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "time"
+      ],
+      "additionalProperties": false
+    },
+    "outputSchema": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "_meta": {
+      "musical/modelVisible": true,
+      "musical/risk": "playback"
+    }
+  },
+  {
+    "name": "set_volume",
+    "title": "Set Volume",
+    "description": "Set volume from 0 to 1.",
+    "inputSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "volume": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        }
+      },
+      "required": [
+        "volume"
+      ],
+      "additionalProperties": false
+    },
+    "outputSchema": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "_meta": {
+      "musical/modelVisible": true,
+      "musical/risk": "playback"
+    }
+  },
+  {
+    "name": "set_shuffle",
+    "title": "Set Shuffle",
+    "description": "Enable or disable shuffle.",
+    "inputSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "isShuffle": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false
+    },
+    "outputSchema": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "_meta": {
+      "musical/modelVisible": true,
+      "musical/risk": "playback"
+    }
+  },
+  {
+    "name": "set_repeat",
+    "title": "Set Repeat",
+    "description": "Set repeat mode.",
+    "inputSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "mode": {
+          "type": "string",
+          "enum": [
+            "off",
+            "all",
+            "one"
+          ]
+        },
+        "repeatMode": {
+          "type": "string",
+          "enum": [
+            "off",
+            "all",
+            "one"
+          ]
+        }
+      },
+      "additionalProperties": false
+    },
+    "outputSchema": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "_meta": {
+      "musical/modelVisible": true,
+      "musical/risk": "playback"
+    }
+  },
+  {
+    "name": "play_album",
+    "title": "Play Album",
+    "description": "Play an album by ID.",
+    "inputSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "albumId": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "albumId"
+      ],
+      "additionalProperties": false
+    },
+    "outputSchema": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "_meta": {
+      "musical/modelVisible": true,
+      "musical/risk": "playback"
+    }
+  },
+  {
+    "name": "play_track",
+    "title": "Play Track",
+    "description": "Play a track by ID, optionally within an album.",
+    "inputSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "trackId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "albumId": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "trackId"
+      ],
+      "additionalProperties": false
+    },
+    "outputSchema": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "_meta": {
+      "musical/modelVisible": true,
+      "musical/risk": "playback"
+    }
+  },
+  {
+    "name": "play_artist",
+    "title": "Play Artist",
+    "description": "Start playback for an artist by artist ID or name.",
+    "inputSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "artistId": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "artistId"
+      ],
+      "additionalProperties": false
+    },
+    "outputSchema": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "_meta": {
+      "musical/modelVisible": true,
+      "musical/risk": "playback"
+    }
+  },
+  {
+    "name": "play_search",
+    "title": "Play Search",
+    "description": "Start playback from a natural search phrase by picking the best matching album, artist, or track.",
+    "inputSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "query": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "query"
+      ],
+      "additionalProperties": false
+    },
+    "outputSchema": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "_meta": {
+      "musical/modelVisible": true,
+      "musical/risk": "playback"
+    }
+  },
+  {
+    "name": "set_queue",
+    "title": "Set Queue",
+    "description": "Replace the playback queue with the given track IDs.",
+    "inputSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "trackIds": {
+          "maxItems": 500,
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "currentTrackId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "play": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "trackIds"
+      ],
+      "additionalProperties": false
+    },
+    "outputSchema": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "_meta": {
+      "musical/modelVisible": true,
+      "musical/risk": "playback"
+    }
+  },
+  {
+    "name": "clear_queue",
+    "title": "Clear Queue",
+    "description": "Clear the playback queue.",
+    "inputSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {},
+      "additionalProperties": false
+    },
+    "outputSchema": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "_meta": {
+      "musical/modelVisible": true,
+      "musical/risk": "playback"
+    }
+  },
+  {
+    "name": "select_album",
+    "title": "Select Album",
+    "description": "Select an album in the Musical UI.",
+    "inputSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "albumId": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "albumId"
+      ],
+      "additionalProperties": false
+    },
+    "outputSchema": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "_meta": {
+      "musical/modelVisible": true,
+      "musical/risk": "playback"
+    }
+  },
+  {
+    "name": "select_track",
+    "title": "Select Track",
+    "description": "Select a track in the Musical UI.",
+    "inputSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "trackId": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "trackId"
+      ],
+      "additionalProperties": false
+    },
+    "outputSchema": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "_meta": {
+      "musical/modelVisible": true,
+      "musical/risk": "playback"
+    }
+  },
+  {
+    "name": "refresh_library",
+    "title": "Refresh Library",
+    "description": "Ask the Musical UI to reload the indexed library.",
+    "inputSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {},
+      "additionalProperties": false
+    },
+    "outputSchema": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "_meta": {
+      "musical/modelVisible": true,
+      "musical/risk": "playback"
+    }
+  },
+  {
+    "name": "scan_music_folder",
+    "title": "Scan Music Folder",
+    "description": "Scan a local music folder and rebuild the indexed library.",
+    "inputSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "folderPath": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "folderPath"
+      ],
+      "additionalProperties": false
+    },
+    "outputSchema": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "_meta": {
+      "musical/modelVisible": true,
+      "musical/risk": "library-mutation"
+    }
+  },
+  {
+    "name": "create_playlist",
+    "title": "Create Playlist",
+    "description": "Create a Musical playlist.",
+    "inputSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "additionalProperties": false
+    },
+    "outputSchema": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "_meta": {
+      "musical/modelVisible": true,
+      "musical/risk": "library-mutation"
+    }
+  },
+  {
+    "name": "add_track_to_playlist",
+    "title": "Add Track To Playlist",
+    "description": "Add a track to a Musical playlist.",
+    "inputSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "playlistId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "trackId": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "playlistId",
+        "trackId"
+      ],
+      "additionalProperties": false
+    },
+    "outputSchema": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "_meta": {
+      "musical/modelVisible": true,
+      "musical/risk": "library-mutation"
+    }
+  },
+  {
+    "name": "delete_playlist",
+    "title": "Delete Playlist",
+    "description": "Delete a Musical playlist and its cached artwork.",
+    "inputSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "playlistId": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "playlistId"
+      ],
+      "additionalProperties": false
+    },
+    "outputSchema": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "_meta": {
+      "musical/modelVisible": true,
+      "musical/risk": "library-mutation"
+    }
+  },
+  {
+    "name": "create_playlist_from_album",
+    "title": "Create Playlist From Album",
+    "description": "Create a Musical playlist from an album.",
+    "inputSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "albumId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "albumId",
+        "name"
+      ],
+      "additionalProperties": false
+    },
+    "outputSchema": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "_meta": {
+      "musical/modelVisible": true,
+      "musical/risk": "library-mutation"
+    }
+  },
+  {
+    "name": "update_album_tags",
+    "title": "Update Album Tags",
+    "description": "Write album-wide tag values to files in an album.",
+    "inputSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "albumId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "albumTitle": {
+          "type": "string"
+        },
+        "albumArtist": {
+          "type": "string"
+        },
+        "artist": {
+          "type": "string"
+        },
+        "year": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": -9007199254740991,
+              "maximum": 9007199254740991
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "genre": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "albumId",
+        "albumTitle",
+        "albumArtist",
+        "artist",
+        "year",
+        "genre"
+      ],
+      "additionalProperties": false
+    },
+    "outputSchema": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "_meta": {
+      "musical/modelVisible": true,
+      "musical/risk": "file-mutation"
+    }
+  },
+  {
+    "name": "update_track_tags",
+    "title": "Update Track Tags",
+    "description": "Write tag values to one track file.",
+    "inputSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "trackId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "title": {
+          "type": "string"
+        },
+        "artist": {
+          "type": "string"
+        },
+        "albumTitle": {
+          "type": "string"
+        },
+        "year": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": -9007199254740991,
+              "maximum": 9007199254740991
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "genre": {
+          "type": "string"
+        },
+        "trackNumber": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": -9007199254740991,
+              "maximum": 9007199254740991
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "discNumber": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": -9007199254740991,
+              "maximum": 9007199254740991
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "trackId",
+        "title",
+        "artist",
+        "albumTitle",
+        "year",
+        "genre",
+        "trackNumber",
+        "discNumber"
+      ],
+      "additionalProperties": false
+    },
+    "outputSchema": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "_meta": {
+      "musical/modelVisible": true,
+      "musical/risk": "file-mutation"
+    }
+  },
+  {
+    "name": "update_track_artwork",
+    "title": "Update Track Artwork",
+    "description": "Write artwork from a local image path to the track's file.",
+    "inputSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "trackId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "artworkPath": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "trackId",
+        "artworkPath"
+      ],
+      "additionalProperties": false
+    },
+    "outputSchema": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "_meta": {
+      "musical/modelVisible": true,
+      "musical/risk": "file-mutation"
+    }
+  },
+  {
+    "name": "update_playlist_artwork",
+    "title": "Update Playlist Artwork",
+    "description": "Copy artwork from a local image path next to the playlist file.",
+    "inputSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "playlistId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "artworkPath": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "playlistId",
+        "artworkPath"
+      ],
+      "additionalProperties": false
+    },
+    "outputSchema": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "_meta": {
+      "musical/modelVisible": true,
+      "musical/risk": "file-mutation"
+    }
+  },
+  {
+    "name": "add_favorite",
+    "title": "Add Favorite",
+    "description": "Mark a track as favorite while preserving its rating.",
+    "inputSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "trackId": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "trackId"
+      ],
+      "additionalProperties": false
+    },
+    "outputSchema": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "_meta": {
+      "musical/modelVisible": true,
+      "musical/risk": "library-mutation"
+    }
+  },
+  {
+    "name": "remove_favorite",
+    "title": "Remove Favorite",
+    "description": "Remove a track from favorites while preserving its rating.",
+    "inputSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "trackId": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "trackId"
+      ],
+      "additionalProperties": false
+    },
+    "outputSchema": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "_meta": {
+      "musical/modelVisible": true,
+      "musical/risk": "library-mutation"
+    }
+  },
+  {
+    "name": "update_track_user_state",
+    "title": "Update Track User State",
+    "description": "Set Musical-only favorite and rating for a track.",
+    "inputSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "trackId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "isFavorite": {
+          "type": "boolean"
+        },
+        "rating": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 5
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "trackId",
+        "isFavorite",
+        "rating"
+      ],
+      "additionalProperties": false
+    },
+    "outputSchema": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "_meta": {
+      "musical/modelVisible": true,
+      "musical/risk": "library-mutation"
+    }
+  }
+]

@@ -54,11 +54,11 @@ Tauri のデスクトップアプリとして起動します。ローカルフ�
 
 MCP の配布とランタイム:
 
-- 開発時は Node `24.15.0` を使い、workspace の生成 sidecar を解決します。
-- release package は依存込み単一 `server.mjs` を生成して Tauri resource `mcp/server.mjs` に配置し、Node `24.15.0` runtime を `externalBin` に同梱します。
-- release の sidecar path は app の `resource_dir` 基準で解決され、system Node やビルド環境の絶対パスを要求しません。MCP URL、設定、51 tools は変更しません。
+- 開発時の Node `24.15.0` は frontend tooling と、TypeScript catalog から MCP tool manifest を生成するために使います。
+- MCP Streamable HTTP server は Tauri の Rust メインプロセス内で動作します。release package は `musical-node` external binary を含めず起動もしません。build 時は TypeScript catalog から Rust に埋め込む tool manifest だけを生成します。
+- runtime sidecar path の解決は行いません。MCP URL、設定、51 tools は変更しません。
 - 通常の release build も起動できるよう、Tauri の基底設定には非 null の updater plugin 設定を常に含めます。Windows の release workflow は署名付き updater の endpoint と公開鍵を上書きします。
-- CI では MCP tests と実 bundle の資産（sidecar、Node runtime、frontend assets、NOTICE files）を検査します。さらに release app smoke test でビルド済み実行ファイルを起動し、MCP 初期化、tool 一覧、Rust bridge 呼び出しまで確認します。
+- CI では MCP protocol/catalog tests を実行し、実 bundle に frontend と NOTICE files があり legacy Node sidecar 資産がないことを検査します。さらに release app smoke test でビルド済み実行ファイルを起動し、MCP 初期化、tool 一覧、Rust tool 呼び出しまで確認します。
 
 開発用ブラウザルートはデフォルトでは自動で開きません。起動時に同時に開きたい場合:
 

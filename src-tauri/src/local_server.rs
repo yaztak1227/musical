@@ -11,6 +11,7 @@ use crate::{
         RenamePlaylistRequest, ReorderPlaylistTrackRequest, TrackArtworkUpdateRequest,
         TrackTagUpdateRequest, TrackUserStateUpdateRequest,
     },
+    mcp_server,
     search_index::{
         self, LyricsMoodPlayRequest, LyricsMoodReference, LyricsMoodSearchRequest,
         LyricsMoodStatus, RecommendTracksRequest, SearchTracksRequest,
@@ -22,17 +23,15 @@ use log::{error, info, warn};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use sha1::{Digest, Sha1};
-use std::sync::mpsc::{self, Receiver, RecvTimeoutError};
 use std::{
     collections::{HashMap, HashSet, VecDeque},
     fs::{self, File},
-    io::{BufRead, BufReader, Read, Seek, SeekFrom, Write},
-    net::{IpAddr, Shutdown, SocketAddr, TcpListener, TcpStream, UdpSocket},
+    io::{Read, Seek, SeekFrom, Write},
+    net::{IpAddr, Shutdown, TcpListener, TcpStream, UdpSocket},
     path::{Path, PathBuf},
-    process::{Child, ChildStderr, ChildStdout, Command, Stdio},
     sync::{Arc, Condvar, LockResult, Mutex, MutexGuard},
     thread,
-    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
+    time::{Duration, SystemTime, UNIX_EPOCH},
 };
 use tauri::AppHandle;
 #[cfg(not(debug_assertions))]
@@ -46,9 +45,6 @@ const MEDIA_EXTENSIONS: &[&str] = &[
 ];
 const GLOBAL_IP_API_URL: &str = "https://api.ipify.org?format=json";
 const GLOBAL_IP_LOOKUP_TIMEOUT: Duration = Duration::from_secs(3);
-const MCP_SIDECAR_READY_TIMEOUT: Duration = Duration::from_secs(3);
-const MCP_SIDECAR_READY_POLL_INTERVAL: Duration = Duration::from_millis(10);
-const MCP_SIDECAR_STDERR_LIMIT_BYTES: usize = 4 * 1024;
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -139,6 +135,103 @@ struct LocalDevAccessInfo {
     url: Option<String>,
 }
 
+/// The MCP bridge intentionally exposes a projection of the library records
+/// instead of serializing the local HTTP/Tauri snapshot directly.  In
+/// particular, UUIDs, file paths, artwork paths, and playlist bookkeeping are
+/// implementation details that are not useful to a model and can make a
+/// `get_library` response very large.
+#[derive(Clone, Debug, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+struct McpTrack {
+    id: String,
+    title: String,
+    artist: String,
+    duration_seconds: i64,
+    track_number: Option<i64>,
+    disc_number: Option<i64>,
+    has_lyrics: bool,
+    is_favorite: bool,
+    rating: Option<i64>,
+}
+
+#[derive(Clone, Debug, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+struct McpAlbumSummary {
+    id: String,
+    title: String,
+    artist: String,
+    year: Option<i64>,
+    year_label: Option<String>,
+    genre: Option<String>,
+    track_count: usize,
+}
+
+#[derive(Clone, Debug, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+struct McpAlbumDetail {
+    #[serde(flatten)]
+    summary: McpAlbumSummary,
+    tracks: Vec<McpTrack>,
+}
+
+#[derive(Clone, Debug, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+struct McpPlaylistSummary {
+    id: String,
+    name: String,
+    track_count: usize,
+}
+
+#[derive(Clone, Debug, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+struct McpLibraryProjection {
+    albums: Vec<McpAlbumDetail>,
+    playlists: Vec<McpPlaylistSummary>,
+}
+
+#[derive(Clone, Debug, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+struct McpScanSummary {
+    scanned_files: usize,
+    imported_tracks: usize,
+    skipped_files: usize,
+    albums: usize,
+}
+
+#[derive(Clone, Debug, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+struct McpCommandAck {
+    command_id: u64,
+    command_type: String,
+}
+
+#[derive(Clone, Debug, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+struct McpTrackArtworkUpdate {
+    track_id: String,
+    album_id: String,
+}
+
+#[derive(Clone, Debug, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+struct McpPlaylistArtworkUpdate {
+    playlist_id: String,
+}
+
+#[derive(Clone, Debug, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+struct McpTagWriteFailure {
+    reason: String,
+}
+
+#[derive(Clone, Debug, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+struct McpAlbumTagUpdate {
+    album_id: String,
+    updated_files: usize,
+    failed_files: Vec<McpTagWriteFailure>,
+}
+
 #[derive(Debug, Deserialize, Serialize, Clone)]
 #[serde(rename_all = "camelCase")]
 struct RemotePlayerState {
@@ -148,6 +241,23 @@ struct RemotePlayerState {
     playback_playlist_id: Option<String>,
     current_track_id: Option<String>,
     queue_track_ids: Vec<String>,
+    is_playing: bool,
+    is_shuffle: bool,
+    repeat_mode: String,
+    current_time: f64,
+    volume: f64,
+}
+
+/// MCP does not need the complete queue in player-state reads; callers can
+/// use `get_queue` when they need queue entries.  Keep the local HTTP/Tauri
+/// [`RemotePlayerState`] unchanged and project it only at the MCP boundary.
+#[derive(Clone, Debug, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+struct McpPlayerState {
+    selected_album_id: Option<String>,
+    playback_album_id: Option<String>,
+    playback_playlist_id: Option<String>,
+    current_track_id: Option<String>,
     is_playing: bool,
     is_shuffle: bool,
     repeat_mode: String,
@@ -255,7 +365,7 @@ struct RemoteServerState {
     local_access_enabled: bool,
     mcp_enabled: bool,
     mcp_bridge_token: String,
-    mcp_sidecar: Option<McpSidecar>,
+    mcp_sessions: Arc<mcp_server::SessionStore>,
     next_command_id: u64,
     player_state: Option<RemotePlayerState>,
     player_state_captured_at_ms: Option<f64>,
@@ -265,11 +375,6 @@ struct RemoteServerState {
     display_devices: HashMap<String, DisplayDevice>,
     last_tv_player_event: Option<TvPlayerEventBody>,
     recently_played_track_ids: VecDeque<String>,
-}
-
-struct McpSidecar {
-    child: Child,
-    port: u16,
 }
 
 fn apply_remote_command_to_player_state(
@@ -490,14 +595,7 @@ pub fn start(app: AppHandle) -> Result<String, String> {
         restored_remote_access_mode == app_settings::RemoteAccessMode::Lan;
     initial_state.mcp_enabled = settings.mcp_enabled;
     initial_state.mcp_bridge_token = generate_mcp_bridge_token();
-    let should_start_mcp = initial_state.mcp_enabled;
     let remote_state = Arc::new(RemoteServerStateStore::new(initial_state));
-    if should_start_mcp {
-        if let Err(error) = ensure_mcp_sidecar(&app, &remote_state) {
-            error!("failed to start MCP sidecar: {error}");
-            eprintln!("failed to start MCP sidecar: {error}");
-        }
-    }
     info!("local server listening on {LOCAL_SERVER_ADDR}");
 
     thread::spawn(move || {
@@ -642,7 +740,7 @@ fn route_request(
     }
 
     if let Some(response) = route_mcp_request(&request, &remote_state, |request| {
-        proxy_mcp_request(request, &app, &remote_state)
+        handle_mcp_request(request, &app, &remote_state)
     }) {
         return response;
     }
@@ -1218,357 +1316,43 @@ fn fetch_global_ipv4() -> Result<String, String> {
 }
 
 fn set_mcp_enabled(
-    app: &AppHandle,
+    _app: &AppHandle,
     remote_state: &SharedRemoteServerState,
     enabled: bool,
 ) -> Result<(), String> {
-    {
+    let sessions = {
         let mut state = remote_state.lock().map_err(|error| error.to_string())?;
         state.mcp_enabled = enabled;
+        state.mcp_sessions.clone()
+    };
+    if !enabled {
+        sessions.clear();
     }
-
-    if enabled {
-        ensure_mcp_sidecar(app, remote_state).map(|_| ())
-    } else {
-        stop_mcp_sidecar(remote_state);
-        Ok(())
-    }
+    Ok(())
 }
 
-fn ensure_mcp_sidecar(
+fn handle_mcp_request(
+    request: &Request,
     app: &AppHandle,
     remote_state: &SharedRemoteServerState,
-) -> Result<u16, String> {
-    let (resource_dir, script_path) = mcp_runtime_paths(app)?;
-    let node_path = bundled_node_path()?;
-    let mut missing = Vec::new();
-    if !script_path.is_file() {
-        missing.push(format!(
-            "MCP sidecar bundle is missing at {}. Run npm run build:mcp.",
-            script_path.display()
-        ));
-    }
-    if !node_path.is_file() {
-        missing.push(format!(
-            "bundled Node runtime is missing at {}. Rebuild the Tauri app so the musical-node externalBin is staged.",
-            node_path.display()
-        ));
-    }
-    if !missing.is_empty() {
-        return Err(missing.join("\n"));
-    }
-
-    // Keep this lock for the complete check/spawn/readiness/register sequence.
-    // Requests arrive on separate threads, so releasing it before registration
-    // would allow multiple sidecars to be spawned and one to become orphaned
-    // when another request overwrites the stored child.
-    let mut state = remote_state.lock().map_err(|error| error.to_string())?;
-    if let Some(mut sidecar) = state.mcp_sidecar.take() {
-        match sidecar.child.try_wait() {
-            Ok(Some(status)) => {
-                warn!("MCP sidecar exited with status {status}");
-            }
-            Ok(None) => {
-                let port = sidecar.port;
-                state.mcp_sidecar = Some(sidecar);
-                return Ok(port);
-            }
-            Err(error) => {
-                warn!("failed to inspect MCP sidecar: {error}");
-                terminate_mcp_sidecar(&mut sidecar.child);
-            }
-        }
-    }
-
-    let token = state.mcp_bridge_token.clone();
-    // Keep Node's ESM entry relative to the working directory. On Windows,
-    // Tauri's resource_dir can use the verbatim `\\?\` namespace, which Node
-    // does not accept as an ESM entry path even though CreateProcess accepts it
-    // as the child's working directory.
-    let script_argument = mcp_script_argument(&resource_dir, &script_path)?;
-    let startup_deadline = Instant::now() + MCP_SIDECAR_READY_TIMEOUT;
-    loop {
-        let port = reserve_loopback_port()?;
-        let mut child = Command::new(&node_path)
-            .arg(&script_argument)
-            .current_dir(&resource_dir)
-            .env(
-                "MUSICAL_MCP_BRIDGE_URL",
-                format!("http://127.0.0.1:{LOCAL_SERVER_PORT}"),
-            )
-            .env("MUSICAL_MCP_PORT", port.to_string())
-            .env("MUSICAL_MCP_TOKEN", &token)
-            .env("MUSICAL_MCP_VERSION", env!("CARGO_PKG_VERSION"))
-            .env("MUSICAL_MCP_PARENT_WATCHDOG", "stdin")
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()
-            .map_err(|error| {
-                format!(
-                    "failed to start bundled Node MCP sidecar at {}: {error}",
-                    node_path.display()
-                )
-            })?;
-        let stderr_receiver = child
-            .stderr
-            .take()
-            .map(spawn_mcp_stderr_reader)
-            .ok_or_else(|| "MCP sidecar stderr is not piped".to_owned())?;
-
-        match wait_for_mcp_sidecar_ready_until(&mut child, port, startup_deadline) {
-            Ok(()) => {
-                state.mcp_sidecar = Some(McpSidecar { child, port });
-                info!("MCP sidecar started on 127.0.0.1:{port}");
-                return Ok(port);
-            }
-            Err(error) => {
-                terminate_mcp_sidecar(&mut child);
-                let error = append_mcp_sidecar_stderr(error, stderr_receiver, &token);
-                if Instant::now() >= startup_deadline {
-                    return Err(error);
-                }
-                warn!("MCP sidecar was not ready on 127.0.0.1:{port}; retrying: {error}");
-                let retry_delay = startup_deadline
-                    .saturating_duration_since(Instant::now())
-                    .min(MCP_SIDECAR_READY_POLL_INTERVAL);
-                if !retry_delay.is_zero() {
-                    thread::sleep(retry_delay);
-                }
-            }
-        }
-    }
-}
-
-#[cfg(test)]
-fn wait_for_mcp_sidecar_ready(child: &mut Child, port: u16) -> Result<(), String> {
-    wait_for_mcp_sidecar_ready_until(child, port, Instant::now() + MCP_SIDECAR_READY_TIMEOUT)
-}
-
-fn wait_for_mcp_sidecar_ready_until(
-    child: &mut Child,
-    port: u16,
-    deadline: Instant,
-) -> Result<(), String> {
-    let stdout = child.stdout.take().ok_or_else(|| {
-        "MCP sidecar stdout is not piped; refusing to treat it as ready".to_owned()
-    })?;
-    let marker = format!("musical mcp sidecar listening on 127.0.0.1:{port}");
-    let marker_receiver = spawn_mcp_stdout_reader(stdout, marker);
-    let address = SocketAddr::from(([127, 0, 0, 1], port));
-    let mut marker_seen = false;
-    loop {
-        match child.try_wait() {
-            Ok(Some(status)) => {
-                return Err(format!(
-                    "MCP sidecar exited before listening (code={}, signal={})",
-                    status
-                        .code()
-                        .map_or_else(|| "none".to_owned(), |code| code.to_string()),
-                    if status.success() { "none" } else { "unknown" },
-                ));
-            }
-            Ok(None) => {}
-            Err(error) => return Err(format!("failed to inspect MCP sidecar: {error}")),
-        }
-
-        let remaining = deadline.saturating_duration_since(Instant::now());
-        if remaining.is_zero() {
-            return Err("MCP sidecar did not listen before the startup deadline".to_owned());
-        }
-
-        if marker_seen {
-            let connect_timeout = remaining.min(MCP_SIDECAR_READY_POLL_INTERVAL);
-            if TcpStream::connect_timeout(&address, connect_timeout).is_ok() {
-                // A port can be claimed between reserve_loopback_port and spawn.
-                // The exact marker owns the port, and this second child check
-                // prevents an EADDRINUSE exit from being mistaken for readiness.
-                match child.try_wait() {
-                    Ok(Some(status)) => {
-                        return Err(format!(
-                            "MCP sidecar exited before listening (code={}, signal={})",
-                            status
-                                .code()
-                                .map_or_else(|| "none".to_owned(), |code| code.to_string()),
-                            if status.success() { "none" } else { "unknown" },
-                        ));
-                    }
-                    Ok(None) => return Ok(()),
-                    Err(error) => return Err(format!("failed to inspect MCP sidecar: {error}")),
-                }
-            }
-        }
-
-        let wait_duration = deadline
-            .saturating_duration_since(Instant::now())
-            .min(MCP_SIDECAR_READY_POLL_INTERVAL);
-        if wait_duration.is_zero() {
-            continue;
-        }
-        match marker_receiver.recv_timeout(wait_duration) {
-            Ok(()) => marker_seen = true,
-            Err(RecvTimeoutError::Timeout) => {}
-            Err(RecvTimeoutError::Disconnected) => {
-                return Err(
-                    "MCP sidecar stdout closed before its exact listening marker was received"
-                        .to_owned(),
-                )
-            }
-        }
-    }
-}
-
-fn spawn_mcp_stdout_reader(stdout: ChildStdout, marker: String) -> Receiver<()> {
-    let (sender, receiver) = mpsc::channel();
-    thread::spawn(move || {
-        let mut reader = BufReader::new(stdout);
-        let mut line = String::new();
-        let mut marker_sent = false;
-        loop {
-            line.clear();
-            match reader.read_line(&mut line) {
-                Ok(0) | Err(_) => break,
-                Ok(_) => {
-                    if !marker_sent && line.trim_end_matches(&['\r', '\n'][..]) == marker {
-                        marker_sent = true;
-                        let _ = sender.send(());
-                    }
-                }
-            }
-        }
-    });
-    receiver
-}
-
-fn spawn_mcp_stderr_reader(stderr: ChildStderr) -> Receiver<String> {
-    let (sender, receiver) = mpsc::channel();
-    thread::spawn(move || {
-        let captured = read_bounded_mcp_stderr(stderr);
-        let _ = sender.send(captured);
-    });
-    receiver
-}
-
-fn read_bounded_mcp_stderr(mut stderr: impl Read) -> String {
-    let mut captured = Vec::with_capacity(MCP_SIDECAR_STDERR_LIMIT_BYTES);
-    let mut buffer = [0_u8; 1024];
-    let mut truncated = false;
-    loop {
-        match stderr.read(&mut buffer) {
-            Ok(0) | Err(_) => break,
-            Ok(read) => {
-                let remaining = MCP_SIDECAR_STDERR_LIMIT_BYTES.saturating_sub(captured.len());
-                let copied = read.min(remaining);
-                captured.extend_from_slice(&buffer[..copied]);
-                truncated |= copied < read;
-            }
-        }
-    }
-    let mut output = String::from_utf8_lossy(&captured).into_owned();
-    if truncated {
-        output.push_str("\n[stderr truncated]");
-    }
-    output
-}
-
-fn append_mcp_sidecar_stderr(
-    error: String,
-    stderr_receiver: Receiver<String>,
-    bridge_token: &str,
-) -> String {
-    let Ok(stderr) = stderr_receiver.recv_timeout(Duration::from_millis(100)) else {
-        return error;
+) -> Vec<u8> {
+    let sessions = match remote_state.lock() {
+        Ok(state) => state.mcp_sessions.clone(),
+        Err(error) => return text_response(500, &error.to_string()),
     };
-    let stderr = if bridge_token.is_empty() {
-        stderr
-    } else {
-        stderr.replace(bridge_token, "[REDACTED]")
-    };
-    let stderr = stderr.trim();
-    if stderr.is_empty() {
-        error
-    } else {
-        format!("{error}; sidecar stderr: {stderr}")
-    }
-}
-
-fn terminate_mcp_sidecar(child: &mut Child) {
-    match child.try_wait() {
-        Ok(Some(_)) => return,
-        Ok(None) | Err(_) => {}
-    }
-    let _ = child.kill();
-    let _ = child.wait();
-}
-
-#[cfg(debug_assertions)]
-fn mcp_runtime_paths(_app: &AppHandle) -> Result<(PathBuf, PathBuf), String> {
-    let resource_dir = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("..")
-        .join("dist-mcp");
-    let script_path = resource_dir.join("server.mjs");
-    Ok((resource_dir, script_path))
-}
-
-#[cfg(not(debug_assertions))]
-fn mcp_runtime_paths(app: &AppHandle) -> Result<(PathBuf, PathBuf), String> {
-    let resource_dir = app
-        .path()
-        .resource_dir()
-        .map_err(|error| format!("failed to resolve the app resource directory: {error}"))?;
-    let script_path = resource_dir.join("mcp").join("server.mjs");
-    Ok((resource_dir, script_path))
-}
-
-fn bundled_node_path() -> Result<PathBuf, String> {
-    let executable_name = if cfg!(windows) {
-        "musical-node.exe"
-    } else {
-        "musical-node"
-    };
-    let current_executable = std::env::current_exe()
-        .map_err(|error| format!("failed to resolve the Musical executable path: {error}"))?;
-    let executable_dir = current_executable.parent().ok_or_else(|| {
-        format!(
-            "Musical executable has no parent directory: {}",
-            current_executable.display()
-        )
-    })?;
-    Ok(executable_dir.join(executable_name))
-}
-
-fn mcp_script_argument(resource_dir: &Path, script_path: &Path) -> Result<PathBuf, String> {
-    let relative = script_path.strip_prefix(resource_dir).map_err(|_| {
-        format!(
-            "MCP sidecar path {} is outside the app resource directory {}",
-            script_path.display(),
-            resource_dir.display()
-        )
-    })?;
-    if relative.as_os_str().is_empty() || relative.is_absolute() {
-        return Err(format!(
-            "MCP sidecar path {} did not produce a safe relative entry path",
-            script_path.display()
-        ));
-    }
-    Ok(relative.to_owned())
-}
-
-fn stop_mcp_sidecar(remote_state: &SharedRemoteServerState) {
-    let sidecar = remote_state
-        .lock()
-        .ok()
-        .and_then(|mut state| state.mcp_sidecar.take());
-    if let Some(mut sidecar) = sidecar {
-        terminate_mcp_sidecar(&mut sidecar.child);
-    }
-}
-
-fn reserve_loopback_port() -> Result<u16, String> {
-    TcpListener::bind("127.0.0.1:0")
-        .and_then(|listener| listener.local_addr())
-        .map(|address| address.port())
-        .map_err(|error| error.to_string())
+    let response = mcp_server::handle_request(
+        &request.method,
+        &request.headers,
+        &request.body,
+        sessions.as_ref(),
+        |name, arguments| call_musical_tool(app, remote_state, name, arguments),
+    );
+    response_with_headers(
+        response.status,
+        response.content_type,
+        &response.body,
+        &response.headers,
+    )
 }
 
 fn generate_mcp_bridge_token() -> String {
@@ -1590,75 +1374,6 @@ fn is_valid_mcp_bridge_request(request: &Request, remote_state: &SharedRemoteSer
         .lock()
         .map(|state| state.mcp_bridge_token == *token)
         .unwrap_or(false)
-}
-
-fn proxy_mcp_request(
-    request: &Request,
-    app: &AppHandle,
-    remote_state: &SharedRemoteServerState,
-) -> Vec<u8> {
-    let port = match ensure_mcp_sidecar(app, remote_state) {
-        Ok(port) => port,
-        Err(error) => return text_response(503, &error),
-    };
-    let url = format!("http://127.0.0.1:{port}/mcp");
-    proxy_mcp_request_to_url(request, &url)
-}
-
-fn proxy_mcp_request_to_url(request: &Request, url: &str) -> Vec<u8> {
-    let client = match reqwest::blocking::Client::builder()
-        .no_proxy()
-        .timeout(Duration::from_secs(60 * 30))
-        .build()
-    {
-        Ok(client) => client,
-        Err(error) => return text_response(500, &error.to_string()),
-    };
-    let proxy_method = match request.method.as_str() {
-        "POST" => reqwest::Method::POST,
-        "DELETE" => reqwest::Method::DELETE,
-        _ => return mcp_method_not_allowed_response(),
-    };
-    let mut builder = client.request(proxy_method, url);
-    if !request.body.is_empty() {
-        builder = builder.body(request.body.clone());
-    }
-    if let Some(content_type) = request.headers.get("content-type") {
-        builder = builder.header("content-type", content_type);
-    }
-    if let Some(accept) = request.headers.get("accept") {
-        builder = builder.header("accept", accept);
-    }
-    for header_name in ["mcp-session-id", "mcp-protocol-version", "last-event-id"] {
-        if let Some(value) = request.headers.get(header_name) {
-            builder = builder.header(header_name, value);
-        }
-    }
-    let proxied_response = match builder.send() {
-        Ok(response) => response,
-        Err(error) => return text_response(503, &error.to_string()),
-    };
-    let status = proxied_response.status().as_u16();
-    let content_type = proxied_response
-        .headers()
-        .get("content-type")
-        .and_then(|value| value.to_str().ok())
-        .unwrap_or("application/json")
-        .to_owned();
-    let extra_headers = ["mcp-session-id", "mcp-protocol-version"]
-        .iter()
-        .filter_map(|header_name| {
-            proxied_response
-                .headers()
-                .get(*header_name)
-                .and_then(|value| value.to_str().ok())
-                .map(|value| ((*header_name).to_owned(), value.to_owned()))
-        })
-        .collect::<Vec<_>>();
-    match proxied_response.bytes() {
-        Ok(bytes) => response_with_headers(status, &content_type, bytes.as_ref(), &extra_headers),
-        Err(error) => text_response(503, &error.to_string()),
-    }
 }
 
 fn mcp_method_not_allowed_response() -> Vec<u8> {
@@ -1704,6 +1419,117 @@ fn scan_music_folder(app: &AppHandle, folder_path: &str) -> Result<library::Scan
     library::scan_folder(app, folder_path)
 }
 
+fn mcp_track_projection(track: &library::TrackRecord) -> McpTrack {
+    McpTrack {
+        id: track.id.clone(),
+        title: track.title.clone(),
+        artist: track.artist.clone(),
+        duration_seconds: track.duration_seconds,
+        track_number: track.track_number,
+        disc_number: track.disc_number,
+        has_lyrics: track.has_lyrics,
+        is_favorite: track.is_favorite,
+        rating: track.rating,
+    }
+}
+
+fn mcp_album_summary_projection(album: &library::AlbumRecord) -> McpAlbumSummary {
+    McpAlbumSummary {
+        id: album.id.clone(),
+        title: album.title.clone(),
+        artist: album.artist.clone(),
+        year: album.year,
+        year_label: album.year_label.clone(),
+        genre: album.genre.clone(),
+        track_count: album.tracks.len(),
+    }
+}
+
+fn mcp_album_detail_projection(album: &library::AlbumRecord) -> McpAlbumDetail {
+    McpAlbumDetail {
+        summary: mcp_album_summary_projection(album),
+        tracks: album.tracks.iter().map(mcp_track_projection).collect(),
+    }
+}
+
+fn mcp_playlist_summary_projection(playlist: &library::PlaylistRecord) -> McpPlaylistSummary {
+    McpPlaylistSummary {
+        id: playlist.id.clone(),
+        name: playlist.name.clone(),
+        track_count: playlist.track_count,
+    }
+}
+
+fn mcp_library_snapshot(snapshot: &library::LibrarySnapshot) -> Value {
+    serde_json::to_value(McpLibraryProjection {
+        albums: snapshot
+            .albums
+            .iter()
+            .map(mcp_album_detail_projection)
+            .collect(),
+        playlists: snapshot
+            .playlists
+            .iter()
+            .map(mcp_playlist_summary_projection)
+            .collect(),
+    })
+    .expect("MCP library projection is serializable")
+}
+
+fn mcp_scan_summary(summary: &library::ScanSummary) -> McpScanSummary {
+    McpScanSummary {
+        scanned_files: summary.scanned_files,
+        imported_tracks: summary.imported_tracks,
+        skipped_files: summary.skipped_files,
+        albums: summary.albums,
+    }
+}
+
+fn mcp_track_artwork_update_projection(
+    result: &library::TrackArtworkUpdateResult,
+) -> McpTrackArtworkUpdate {
+    McpTrackArtworkUpdate {
+        track_id: result.track_id.clone(),
+        album_id: result.album_id.clone(),
+    }
+}
+
+fn mcp_playlist_artwork_update_projection(
+    result: &library::PlaylistArtworkUpdateResult,
+) -> McpPlaylistArtworkUpdate {
+    McpPlaylistArtworkUpdate {
+        playlist_id: result.playlist_id.clone(),
+    }
+}
+
+fn mcp_player_state_projection(state: Option<&RemotePlayerState>) -> Option<McpPlayerState> {
+    state.map(|state| McpPlayerState {
+        selected_album_id: state.selected_album_id.clone(),
+        playback_album_id: state.playback_album_id.clone(),
+        playback_playlist_id: state.playback_playlist_id.clone(),
+        current_track_id: state.current_track_id.clone(),
+        is_playing: state.is_playing,
+        is_shuffle: state.is_shuffle,
+        repeat_mode: state.repeat_mode.clone(),
+        current_time: state.current_time,
+        volume: state.volume,
+    })
+}
+
+fn mcp_album_tag_update_projection(result: &library::AlbumTagUpdateResult) -> McpAlbumTagUpdate {
+    McpAlbumTagUpdate {
+        album_id: result.album_id.clone(),
+        updated_files: result.updated_files,
+        failed_files: result
+            .failed_files
+            .iter()
+            .map(|failure| McpTagWriteFailure {
+                reason: failure.reason.clone(),
+            })
+            .collect(),
+    }
+}
+
 fn enqueue_remote_command(
     remote_state: &SharedRemoteServerState,
     command_type: &str,
@@ -1726,6 +1552,26 @@ fn enqueue_remote_command(
         state.commands.pop_front();
     }
     Ok(queued_command)
+}
+
+fn mcp_command_ack(command: &QueuedRemotePlayerCommand) -> McpCommandAck {
+    McpCommandAck {
+        command_id: command.id,
+        command_type: command.command_type.clone(),
+    }
+}
+
+fn enqueue_remote_command_ack(
+    remote_state: &SharedRemoteServerState,
+    command_type: &str,
+    payload: Option<Value>,
+) -> Result<Value, String> {
+    let command = enqueue_remote_command(remote_state, command_type, payload)?;
+    serde_json::to_value(mcp_command_ack(&command)).map_err(|error| error.to_string())
+}
+
+fn enqueue_refresh_command(remote_state: &SharedRemoteServerState) -> Result<(), String> {
+    enqueue_remote_command(remote_state, "refresh-library", None).map(|_| ())
 }
 
 fn remember_recent_track(recently_played_track_ids: &mut VecDeque<String>, track_id: String) {
@@ -1751,10 +1597,11 @@ fn call_musical_tool(
                 .lock()
                 .map(|state| state.player_state.clone())
                 .map_err(|error| error.to_string())?;
-            Ok(json!({ "state": state }))
+            Ok(json!({
+                "state": mcp_player_state_projection(state.as_ref()),
+            }))
         }
-        "get_library" => serde_json::to_value(load_library_snapshot(app, None)?)
-            .map_err(|error| error.to_string()),
+        "get_library" => Ok(mcp_library_snapshot(&load_library_snapshot(app, None)?)),
         "search_library" => search_library(app, &arguments),
         "get_search_index_status" => serde_json::to_value(search_index::index_status(app)?)
             .map_err(|error| error.to_string()),
@@ -1814,70 +1661,50 @@ fn call_musical_tool(
             serde_json::to_value(search_index::track_lyrics_analysis(app, &track_id)?)
                 .map_err(|error| error.to_string())
         }
-        "play" => serde_json::to_value(enqueue_remote_command(remote_state, "play", None)?)
-            .map_err(|error| error.to_string()),
-        "pause" => serde_json::to_value(enqueue_remote_command(remote_state, "pause", None)?)
-            .map_err(|error| error.to_string()),
-        "toggle_playback" => serde_json::to_value(enqueue_remote_command(
-            remote_state,
-            "toggle-playback",
-            None,
-        )?)
-        .map_err(|error| error.to_string()),
-        "next_track" => serde_json::to_value(enqueue_remote_command(remote_state, "next", None)?)
-            .map_err(|error| error.to_string()),
-        "previous_track" => {
-            serde_json::to_value(enqueue_remote_command(remote_state, "previous", None)?)
-                .map_err(|error| error.to_string())
-        }
+        "play" => enqueue_remote_command_ack(remote_state, "play", None),
+        "pause" => enqueue_remote_command_ack(remote_state, "pause", None),
+        "toggle_playback" => enqueue_remote_command_ack(remote_state, "toggle-playback", None),
+        "next_track" => enqueue_remote_command_ack(remote_state, "next", None),
+        "previous_track" => enqueue_remote_command_ack(remote_state, "previous", None),
         "seek" => {
             let time = required_f64(&arguments, "time")?.max(0.0);
-            serde_json::to_value(enqueue_remote_command(
-                remote_state,
-                "seek",
-                Some(json!({ "time": time })),
-            )?)
-            .map_err(|error| error.to_string())
+            enqueue_remote_command_ack(remote_state, "seek", Some(json!({ "time": time })))
         }
         "set_volume" => {
             let volume = required_f64(&arguments, "volume")?.clamp(0.0, 1.0);
-            serde_json::to_value(enqueue_remote_command(
+            enqueue_remote_command_ack(
                 remote_state,
                 "set-volume",
                 Some(json!({ "volume": volume })),
-            )?)
-            .map_err(|error| error.to_string())
+            )
         }
         "set_shuffle" => {
             let is_shuffle = required_bool_any(&arguments, &["enabled", "isShuffle"])?;
-            serde_json::to_value(enqueue_remote_command(
+            enqueue_remote_command_ack(
                 remote_state,
                 "toggle-shuffle",
                 Some(json!({ "isShuffle": is_shuffle })),
-            )?)
-            .map_err(|error| error.to_string())
+            )
         }
         "set_repeat" => {
             let repeat_mode = required_string_any(&arguments, &["mode", "repeatMode"])?;
             if !matches!(repeat_mode.as_str(), "off" | "all" | "one") {
                 return Err("repeatMode must be off, all, or one".to_owned());
             }
-            serde_json::to_value(enqueue_remote_command(
+            enqueue_remote_command_ack(
                 remote_state,
                 "cycle-repeat",
                 Some(json!({ "repeatMode": repeat_mode })),
-            )?)
-            .map_err(|error| error.to_string())
+            )
         }
         "play_album" => {
             let album_id = required_string(&arguments, "albumId")?;
             let queue_track_ids = album_track_ids(app, &album_id)?;
-            serde_json::to_value(enqueue_remote_command(
+            enqueue_remote_command_ack(
                 remote_state,
                 "play-album",
                 Some(json!({ "albumId": album_id, "queueTrackIds": queue_track_ids })),
-            )?)
-            .map_err(|error| error.to_string())
+            )
         }
         "play_track" => {
             let track_id = required_string(&arguments, "trackId")?;
@@ -1890,107 +1717,117 @@ fn call_musical_tool(
                 payload["albumId"] = json!(album_id);
                 payload["queueTrackIds"] = json!(queue_track_ids);
             }
-            serde_json::to_value(enqueue_remote_command(
-                remote_state,
-                "play-track",
-                Some(payload),
-            )?)
-            .map_err(|error| error.to_string())
+            enqueue_remote_command_ack(remote_state, "play-track", Some(payload))
         }
         "play_artist" => play_artist(app, remote_state, &arguments),
         "play_search" => play_search(app, remote_state, &arguments),
         "set_queue" => set_queue(app, remote_state, &arguments),
-        "clear_queue" => serde_json::to_value(enqueue_remote_command(
+        "clear_queue" => enqueue_remote_command_ack(
             remote_state,
             "clear-queue",
             Some(json!({ "queueTrackIds": [] })),
-        )?)
-        .map_err(|error| error.to_string()),
+        ),
         "select_album" => {
             let album_id = required_string(&arguments, "albumId")?;
-            serde_json::to_value(enqueue_remote_command(
+            enqueue_remote_command_ack(
                 remote_state,
                 "select-album",
                 Some(json!({ "albumId": album_id })),
-            )?)
-            .map_err(|error| error.to_string())
+            )
         }
         "select_track" => {
             let track_id = required_string(&arguments, "trackId")?;
-            serde_json::to_value(enqueue_remote_command(
+            enqueue_remote_command_ack(
                 remote_state,
                 "select-track",
                 Some(json!({ "trackId": track_id })),
-            )?)
-            .map_err(|error| error.to_string())
+            )
         }
-        "refresh_library" => serde_json::to_value(enqueue_remote_command(
-            remote_state,
-            "refresh-library",
-            None,
-        )?)
-        .map_err(|error| error.to_string()),
+        "refresh_library" => enqueue_remote_command_ack(remote_state, "refresh-library", None),
         "scan_music_folder" => {
             let folder_path = required_string(&arguments, "folderPath")?;
             let result = scan_music_folder(app, &folder_path)?;
-            let refresh_command = enqueue_remote_command(remote_state, "refresh-library", None)?;
-            Ok(json!({ "scan": result, "refreshCommand": refresh_command }))
+            enqueue_refresh_command(remote_state)?;
+            Ok(json!({ "scan": mcp_scan_summary(&result) }))
         }
         "create_playlist" => {
             let request = serde_json::from_value::<CreatePlaylistRequest>(arguments)
                 .map_err(|error| error.to_string())?;
-            let result = library::create_playlist(app, request)?;
-            let refresh_command = enqueue_remote_command(remote_state, "refresh-library", None)?;
-            Ok(json!({ "snapshot": result, "refreshCommand": refresh_command }))
+            let result = library::create_playlist_for_mcp(app, request)?;
+            enqueue_refresh_command(remote_state)?;
+            Ok(json!({
+                "playlist": {
+                    "id": result.id,
+                    "name": result.name,
+                    "trackCount": result.track_count,
+                }
+            }))
         }
         "add_track_to_playlist" => {
             let request = serde_json::from_value::<AddTrackToPlaylistRequest>(arguments)
                 .map_err(|error| error.to_string())?;
-            let result = library::add_track_to_playlist(app, request)?;
-            let refresh_command = enqueue_remote_command(remote_state, "refresh-library", None)?;
-            Ok(json!({ "snapshot": result, "refreshCommand": refresh_command }))
+            let result = library::add_track_to_playlist_for_mcp(app, request)?;
+            enqueue_refresh_command(remote_state)?;
+            Ok(json!({
+                "playlistId": result.playlist_id,
+                "trackId": result.track_id,
+                "added": result.added,
+                "trackCount": result.track_count,
+            }))
         }
         "delete_playlist" => {
             let request = serde_json::from_value::<DeletePlaylistRequest>(arguments)
                 .map_err(|error| error.to_string())?;
-            let result = library::delete_playlist(app, request)?;
-            let refresh_command = enqueue_remote_command(remote_state, "refresh-library", None)?;
-            Ok(json!({ "snapshot": result, "refreshCommand": refresh_command }))
+            let playlist_id = library::delete_playlist_for_mcp(app, request)?;
+            enqueue_refresh_command(remote_state)?;
+            Ok(json!({ "playlistId": playlist_id, "deleted": true }))
         }
         "create_playlist_from_album" => {
             let request = serde_json::from_value::<CreatePlaylistFromAlbumRequest>(arguments)
                 .map_err(|error| error.to_string())?;
-            let result = library::create_playlist_from_album(app, request)?;
-            let refresh_command = enqueue_remote_command(remote_state, "refresh-library", None)?;
-            Ok(json!({ "snapshot": result, "refreshCommand": refresh_command }))
+            let result = library::create_playlist_from_album_for_mcp(app, request)?;
+            enqueue_refresh_command(remote_state)?;
+            Ok(json!({
+                "playlist": {
+                    "id": result.id,
+                    "name": result.name,
+                    "trackCount": result.track_count,
+                }
+            }))
         }
         "update_album_tags" => {
             let request = serde_json::from_value::<AlbumTagUpdateRequest>(arguments)
                 .map_err(|error| error.to_string())?;
             let result = library::update_album_tags(app, request)?;
-            let refresh_command = enqueue_remote_command(remote_state, "refresh-library", None)?;
-            Ok(json!({ "update": result, "refreshCommand": refresh_command }))
+            enqueue_refresh_command(remote_state)?;
+            Ok(json!({
+                "update": mcp_album_tag_update_projection(&result),
+            }))
         }
         "update_track_tags" => {
             let request = serde_json::from_value::<TrackTagUpdateRequest>(arguments)
                 .map_err(|error| error.to_string())?;
             let result = library::update_track_tags(app, request)?;
-            let refresh_command = enqueue_remote_command(remote_state, "refresh-library", None)?;
-            Ok(json!({ "update": result, "refreshCommand": refresh_command }))
+            enqueue_refresh_command(remote_state)?;
+            Ok(json!({ "update": result }))
         }
         "update_track_artwork" => {
             let request = serde_json::from_value::<TrackArtworkUpdateRequest>(arguments)
                 .map_err(|error| error.to_string())?;
             let result = library::update_track_artwork(app, request)?;
-            let refresh_command = enqueue_remote_command(remote_state, "refresh-library", None)?;
-            Ok(json!({ "update": result, "refreshCommand": refresh_command }))
+            enqueue_refresh_command(remote_state)?;
+            Ok(json!({
+                "update": mcp_track_artwork_update_projection(&result),
+            }))
         }
         "update_playlist_artwork" => {
             let request = serde_json::from_value::<PlaylistArtworkUpdateRequest>(arguments)
                 .map_err(|error| error.to_string())?;
             let result = library::update_playlist_artwork(app, request)?;
-            let refresh_command = enqueue_remote_command(remote_state, "refresh-library", None)?;
-            Ok(json!({ "update": result, "refreshCommand": refresh_command }))
+            enqueue_refresh_command(remote_state)?;
+            Ok(json!({
+                "update": mcp_playlist_artwork_update_projection(&result),
+            }))
         }
         "add_favorite" => update_favorite(app, remote_state, &arguments, true),
         "remove_favorite" => update_favorite(app, remote_state, &arguments, false),
@@ -1998,8 +1835,8 @@ fn call_musical_tool(
             let request = serde_json::from_value::<TrackUserStateUpdateRequest>(arguments)
                 .map_err(|error| error.to_string())?;
             let result = library::update_track_user_state(app, request)?;
-            let refresh_command = enqueue_remote_command(remote_state, "refresh-library", None)?;
-            Ok(json!({ "update": result, "refreshCommand": refresh_command }))
+            enqueue_refresh_command(remote_state)?;
+            Ok(json!({ "update": result }))
         }
         _ => Err(format!("unknown tool: {name}")),
     }
@@ -2011,7 +1848,7 @@ fn search_library(app: &AppHandle, arguments: &Value) -> Result<Value, String> {
     let snapshot = library::load_snapshot(app)?;
     let mut results = Vec::new();
 
-    'albums: for album in snapshot.albums {
+    'albums: for album in &snapshot.albums {
         let album_text = format!(
             "{} {} {} {}",
             album.title,
@@ -2022,21 +1859,29 @@ fn search_library(app: &AppHandle, arguments: &Value) -> Result<Value, String> {
         .to_lowercase();
 
         if album_text.contains(&query) {
-            results.push(json!({ "type": "album", "album": album }));
+            results.push(json!({
+                "type": "album",
+                "album": mcp_album_summary_projection(album),
+            }));
             if results.len() >= limit {
                 break;
             }
             continue;
         }
 
-        for track in album.tracks {
+        for track in &album.tracks {
             let track_text = format!(
                 "{} {} {} {} {}",
                 album.title, album.artist, track.title, track.artist, track.file_path
             )
             .to_lowercase();
             if track_text.contains(&query) {
-                results.push(json!({ "type": "track", "albumId": album.id, "albumTitle": album.title, "track": track }));
+                results.push(json!({
+                    "type": "track",
+                    "albumId": album.id,
+                    "albumTitle": album.title,
+                    "track": mcp_track_projection(track),
+                }));
                 if results.len() >= limit {
                     break 'albums;
                 }
@@ -2067,8 +1912,6 @@ fn library_summary(app: &AppHandle) -> Result<Value, String> {
         "trackCount": track_count,
         "favoriteCount": favorite_count,
         "playlistCount": snapshot.playlists.len(),
-        "lastScanPath": snapshot.last_scan_path,
-        "databasePath": snapshot.database_path,
         "isScanned": !snapshot.database_path.is_empty(),
     }))
 }
@@ -2088,6 +1931,7 @@ fn list_albums(app: &AppHandle, arguments: &Value) -> Result<Value, String> {
                 .map(|artist| normalize_mcp_match_text(&album.artist).contains(artist))
                 .unwrap_or(true)
         })
+        .map(|album| mcp_album_summary_projection(&album))
         .take(limit)
         .collect::<Vec<_>>();
     Ok(json!({ "albums": albums }))
@@ -2114,9 +1958,11 @@ fn list_tracks(app: &AppHandle, arguments: &Value) -> Result<Value, String> {
                 })
                 .unwrap_or(true)
             {
-                tracks.push(
-                    json!({ "albumId": album.id, "albumTitle": album.title, "track": track }),
-                );
+                tracks.push(json!({
+                    "albumId": album.id,
+                    "albumTitle": album.title,
+                    "track": mcp_track_projection(&track),
+                }));
                 if tracks.len() >= limit {
                     return Ok(json!({ "tracks": tracks }));
                 }
@@ -2134,7 +1980,7 @@ fn get_album(app: &AppHandle, arguments: &Value) -> Result<Value, String> {
         .into_iter()
         .find(|album| album.id == album_id)
         .ok_or_else(|| format!("album not found: {album_id}"))?;
-    Ok(json!({ "album": album }))
+    Ok(json!({ "album": mcp_album_detail_projection(&album) }))
 }
 
 fn get_track(app: &AppHandle, arguments: &Value) -> Result<Value, String> {
@@ -2142,7 +1988,11 @@ fn get_track(app: &AppHandle, arguments: &Value) -> Result<Value, String> {
     let snapshot = library::load_snapshot(app)?;
     let (album, track) = find_track_in_snapshot(&snapshot, &track_id)
         .ok_or_else(|| format!("track not found: {track_id}"))?;
-    Ok(json!({ "albumId": album.id, "albumTitle": album.title, "track": track }))
+    Ok(json!({
+        "albumId": album.id,
+        "albumTitle": album.title,
+        "track": mcp_track_projection(track),
+    }))
 }
 
 fn find_artist(app: &AppHandle, arguments: &Value) -> Result<Value, String> {
@@ -2181,7 +2031,12 @@ fn find_album(app: &AppHandle, arguments: &Value) -> Result<Value, String> {
         })
         .filter_map(|album| {
             let normalized = normalize_mcp_match_text(&album.title);
-            fuzzy_score(&normalized, &query).map(|score| json!({ "score": score, "album": album }))
+            fuzzy_score(&normalized, &query).map(|score| {
+                json!({
+                    "score": score,
+                    "album": mcp_album_summary_projection(&album),
+                })
+            })
         })
         .collect::<Vec<_>>();
     sort_scored_values(&mut albums);
@@ -2237,7 +2092,11 @@ fn get_favorites(app: &AppHandle, arguments: &Value) -> Result<Value, String> {
     let mut tracks = Vec::new();
     for album in snapshot.albums {
         for track in album.tracks.into_iter().filter(|track| track.is_favorite) {
-            tracks.push(json!({ "albumId": album.id, "albumTitle": album.title, "track": track }));
+            tracks.push(json!({
+                "albumId": album.id,
+                "albumTitle": album.title,
+                "track": mcp_track_projection(&track),
+            }));
             if tracks.len() >= limit {
                 return Ok(json!({ "tracks": tracks }));
             }
@@ -2372,8 +2231,8 @@ fn update_favorite(
         rating: track.rating,
     };
     let result = library::update_track_user_state(app, request)?;
-    let refresh_command = enqueue_remote_command(remote_state, "refresh-library", None)?;
-    Ok(json!({ "update": result, "refreshCommand": refresh_command }))
+    enqueue_refresh_command(remote_state)?;
+    Ok(json!({ "update": result }))
 }
 
 fn enqueue_set_queue(
@@ -2391,7 +2250,7 @@ fn enqueue_set_queue(
             "isPlaying": is_playing,
         })),
     )?;
-    serde_json::to_value(command).map_err(|error| error.to_string())
+    serde_json::to_value(mcp_command_ack(&command)).map_err(|error| error.to_string())
 }
 
 fn lyrics_mood_reference(
@@ -2577,8 +2436,13 @@ fn queue_tracks_from_ids(snapshot: &library::LibrarySnapshot, track_ids: &[Strin
     track_ids
         .iter()
         .filter_map(|track_id| {
-            find_track_in_snapshot(snapshot, track_id)
-                .map(|(album, track)| json!({ "albumId": album.id, "albumTitle": album.title, "track": track }))
+            find_track_in_snapshot(snapshot, track_id).map(|(album, track)| {
+                json!({
+                    "albumId": album.id,
+                    "albumTitle": album.title,
+                    "track": mcp_track_projection(track),
+                })
+            })
         })
         .collect()
 }
@@ -3574,15 +3438,18 @@ fn content_type(path: &Path) -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::{
-        append_mcp_sidecar_stderr, apply_remote_command_to_player_state, empty_remote_player_state,
+        apply_remote_command_to_player_state, empty_remote_player_state,
         filesystem_frontend_response, gated_remote_access_mode, has_command_gap,
-        is_allowed_request_origin, lyrics_mood_reference, mcp_script_argument,
-        proxy_mcp_request_to_url, read_bounded_mcp_stderr, resolve_media_path, route_mcp_request,
-        terminate_mcp_sidecar, track_lyrics_analysis_response, wait_for_mcp_sidecar_ready,
-        wait_for_mcp_sidecar_ready_until, LyricsMoodReference, RemotePlayerCommand,
-        RemoteServerState, RemoteServerStateStore, Request,
+        is_allowed_request_origin, lyrics_mood_reference, mcp_album_detail_projection,
+        mcp_album_summary_projection, mcp_album_tag_update_projection, mcp_command_ack,
+        mcp_library_snapshot, mcp_player_state_projection, mcp_playlist_artwork_update_projection,
+        mcp_playlist_summary_projection, mcp_scan_summary, mcp_track_artwork_update_projection,
+        mcp_track_projection, resolve_media_path, route_mcp_request,
+        track_lyrics_analysis_response, LyricsMoodReference, QueuedRemotePlayerCommand,
+        RemotePlayerCommand, RemoteServerState, RemoteServerStateStore, Request,
     };
     use crate::app_settings::RemoteAccessMode;
+    use crate::library::{AlbumRecord, LibrarySnapshot, PlaylistRecord, TrackRecord};
     use crate::lyrics_sentiment::{
         LyricsSentimentBlock, LyricsSentimentSummary, SentimentLabel, TrackLyricsAnalysis,
         ANALYZER_ID,
@@ -3590,19 +3457,15 @@ mod tests {
     use crate::search_index::{
         LyricsMoodStatus, VoiceLyricsMatch, VoiceLyricsResponse, VoiceLyricsSentiment,
     };
-    use serde_json::Value;
+    use serde_json::{json, Value};
     use std::{
         collections::HashMap,
         fs,
-        io::{Read, Write},
-        net::TcpListener,
-        process::{Command, Stdio},
         sync::{
             atomic::{AtomicUsize, Ordering},
             Arc,
         },
-        thread,
-        time::{Duration, Instant, SystemTime, UNIX_EPOCH},
+        time::{SystemTime, UNIX_EPOCH},
     };
 
     struct ParsedHttpResponse {
@@ -3716,206 +3579,6 @@ mod tests {
         .is_none());
     }
 
-    #[test]
-    fn mcp_sidecar_readiness_waits_for_a_cold_start() {
-        let node_available = Command::new("node")
-            .arg("--version")
-            .output()
-            .map(|output| output.status.success())
-            .unwrap_or(false);
-        if !node_available {
-            return;
-        }
-
-        let listener = TcpListener::bind("127.0.0.1:0").expect("reserve MCP readiness port");
-        let port = listener.local_addr().expect("MCP readiness address").port();
-        drop(listener);
-        let delayed_server = r#"
-            import { createServer } from "node:http";
-            const server = createServer();
-            setTimeout(() => server.listen(Number(process.env.MUSICAL_TEST_PORT), "127.0.0.1", () => {
-                process.stdout.write("musical mcp sidecar listening on 127.0.0.1:" + process.env.MUSICAL_TEST_PORT + "\n");
-            }), 250);
-            process.stdin.resume();
-        "#;
-        let mut child = Command::new("node")
-            .args(["--input-type=module", "-e", delayed_server])
-            .env("MUSICAL_TEST_PORT", port.to_string())
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::null())
-            .spawn()
-            .expect("spawn delayed MCP readiness fixture");
-
-        let started_at = Instant::now();
-        let readiness = wait_for_mcp_sidecar_ready(&mut child, port);
-        let elapsed = started_at.elapsed();
-        terminate_mcp_sidecar(&mut child);
-
-        readiness.expect("MCP sidecar readiness should wait for a cold start");
-        assert!(
-            elapsed >= Duration::from_millis(200),
-            "readiness returned before the intentional cold-start delay: {elapsed:?}"
-        );
-    }
-
-    #[test]
-    fn mcp_script_entry_is_relative_to_its_resource_directory() {
-        let resource_dir = std::path::Path::new("/opt/Musical/resources");
-        let script_path = resource_dir.join("mcp").join("server.mjs");
-        assert_eq!(
-            mcp_script_argument(resource_dir, &script_path).expect("relative MCP entry"),
-            std::path::PathBuf::from("mcp/server.mjs")
-        );
-    }
-
-    #[cfg(windows)]
-    #[test]
-    fn mcp_script_entry_avoids_verbatim_drive_path_for_node() {
-        let resource_dir = std::path::Path::new(r"\\?\D:\a\musical\resources");
-        let script_path = resource_dir.join("mcp").join("server.mjs");
-        assert_eq!(
-            mcp_script_argument(resource_dir, &script_path).expect("relative MCP entry"),
-            std::path::PathBuf::from(r"mcp\server.mjs")
-        );
-    }
-
-    #[cfg(windows)]
-    #[test]
-    fn mcp_script_entry_avoids_verbatim_unc_path_for_node() {
-        let resource_dir = std::path::Path::new(r"\\?\UNC\server\share\Musical\resources");
-        let script_path = resource_dir.join("mcp").join("server.mjs");
-        assert_eq!(
-            mcp_script_argument(resource_dir, &script_path).expect("relative MCP entry"),
-            std::path::PathBuf::from(r"mcp\server.mjs")
-        );
-    }
-
-    #[test]
-    fn mcp_stderr_capture_is_bounded_and_redacts_the_bridge_token() {
-        let token = "private-bridge-token";
-        let stderr = format!(
-            "startup failed with {token}: {}",
-            "x".repeat(super::MCP_SIDECAR_STDERR_LIMIT_BYTES)
-        );
-        let captured = read_bounded_mcp_stderr(stderr.as_bytes());
-        assert!(captured.ends_with("[stderr truncated]"));
-
-        let (sender, receiver) = std::sync::mpsc::channel();
-        sender.send(captured).expect("send captured stderr");
-        let diagnostic = append_mcp_sidecar_stderr("sidecar exited".to_owned(), receiver, token);
-        assert!(diagnostic.contains("sidecar stderr: startup failed"));
-        assert!(diagnostic.contains("[REDACTED]"));
-        assert!(!diagnostic.contains(token));
-    }
-
-    #[test]
-    fn mcp_sidecar_readiness_does_not_accept_a_markerless_listener() {
-        let node_available = Command::new("node")
-            .arg("--version")
-            .output()
-            .map(|output| output.status.success())
-            .unwrap_or(false);
-        if !node_available {
-            return;
-        }
-
-        let listener = TcpListener::bind("127.0.0.1:0").expect("reserve MCP readiness port");
-        let port = listener.local_addr().expect("MCP readiness address").port();
-        drop(listener);
-        let markerless_server = r#"
-            import { createServer } from "node:http";
-            const server = createServer();
-            server.listen(Number(process.env.MUSICAL_TEST_PORT), "127.0.0.1");
-            process.stdin.resume();
-        "#;
-        let mut child = Command::new("node")
-            .args(["--input-type=module", "-e", markerless_server])
-            .env("MUSICAL_TEST_PORT", port.to_string())
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::null())
-            .spawn()
-            .expect("spawn markerless MCP readiness fixture");
-
-        let readiness = wait_for_mcp_sidecar_ready_until(
-            &mut child,
-            port,
-            Instant::now() + Duration::from_millis(300),
-        );
-        terminate_mcp_sidecar(&mut child);
-
-        let error = readiness.expect_err("markerless listener must not satisfy readiness");
-        assert!(
-            error.contains("did not listen before the startup deadline"),
-            "unexpected readiness error: {error}"
-        );
-    }
-
-    #[test]
-    fn mcp_proxy_preserves_delete_for_session_termination() {
-        let listener = TcpListener::bind("127.0.0.1:0").expect("bind mock MCP sidecar");
-        let address = listener.local_addr().expect("mock MCP address");
-        listener
-            .set_nonblocking(true)
-            .expect("make mock MCP sidecar nonblocking");
-        let server = thread::spawn(move || {
-            let deadline = Instant::now() + Duration::from_secs(5);
-            let (mut stream, _) = loop {
-                match listener.accept() {
-                    Ok(connection) => break connection,
-                    Err(error)
-                        if error.kind() == std::io::ErrorKind::WouldBlock
-                            && Instant::now() < deadline =>
-                    {
-                        thread::sleep(Duration::from_millis(10));
-                    }
-                    Err(error) => panic!("accept proxied MCP request: {error}"),
-                }
-            };
-            stream
-                .set_nonblocking(false)
-                .expect("make accepted MCP socket blocking");
-            stream
-                .set_read_timeout(Some(Duration::from_secs(5)))
-                .expect("set mock MCP read timeout");
-            let mut bytes = Vec::new();
-            let mut buffer = [0_u8; 1024];
-            loop {
-                let count = stream.read(&mut buffer).expect("read proxied MCP request");
-                assert!(count > 0, "proxied request ended before its headers");
-                bytes.extend_from_slice(&buffer[..count]);
-                if bytes.windows(4).any(|window| window == b"\r\n\r\n") {
-                    break;
-                }
-            }
-
-            stream
-                .write_all(
-                    b"HTTP/1.1 202 Accepted\r\nContent-Length: 0\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n",
-                )
-                .expect("write mock MCP response");
-            String::from_utf8(bytes).expect("UTF-8 proxied MCP request")
-        });
-        let request = Request {
-            method: "DELETE".to_owned(),
-            path: "/mcp".to_owned(),
-            query: String::new(),
-            headers: HashMap::from([("mcp-session-id".to_owned(), "fixture-session".to_owned())]),
-            body: Vec::new(),
-            is_local: true,
-        };
-
-        let response = proxy_mcp_request_to_url(&request, &format!("http://{address}/mcp"));
-        let proxied_request = server.join().expect("mock MCP sidecar thread");
-
-        assert_eq!(parse_http_response(&response).status, 202);
-        assert!(proxied_request.starts_with("DELETE /mcp HTTP/1.1\r\n"));
-        assert!(proxied_request
-            .to_ascii_lowercase()
-            .contains("mcp-session-id: fixture-session\r\n"));
-    }
-
     fn lyrics_analysis_request(method: &str, query: &str, body: &[u8]) -> Request {
         Request {
             method: method.to_owned(),
@@ -3999,6 +3662,277 @@ mod tests {
         for key in expected {
             assert!(object.contains_key(*key), "missing JSON field {key}");
         }
+    }
+
+    fn mcp_projection_track_fixture() -> TrackRecord {
+        TrackRecord {
+            id: "track-1".to_owned(),
+            uuid: "uuid-1".to_owned(),
+            title: "Track One".to_owned(),
+            artist: "Artist".to_owned(),
+            duration_seconds: 201,
+            track_number: Some(1),
+            disc_number: Some(2),
+            file_path: "/private/music/track-1.flac".to_owned(),
+            has_lyrics: true,
+            is_favorite: true,
+            rating: Some(5),
+        }
+    }
+
+    fn mcp_projection_album_fixture() -> AlbumRecord {
+        AlbumRecord {
+            id: "album-1".to_owned(),
+            group_key: "internal-group-key".to_owned(),
+            title: "Album One".to_owned(),
+            artist: "Artist".to_owned(),
+            year: Some(2025),
+            year_label: Some("2025".to_owned()),
+            genre: Some("Ambient".to_owned()),
+            artwork_path: Some("/private/artwork/album.jpg".to_owned()),
+            tracks: vec![mcp_projection_track_fixture()],
+        }
+    }
+
+    fn mcp_projection_playlist_fixture() -> PlaylistRecord {
+        PlaylistRecord {
+            id: "playlist-1".to_owned(),
+            name: "Playlist One".to_owned(),
+            file_path: "/private/playlist/playlist-1.mplaylist".to_owned(),
+            artwork_path: Some("/private/playlist/playlist-1.jpg".to_owned()),
+            track_count: 1,
+            missing_track_paths: vec!["/private/music/missing.flac".to_owned()],
+            track_indexes: vec![0],
+            tracks: vec![mcp_projection_track_fixture()],
+        }
+    }
+
+    #[test]
+    fn mcp_library_projection_is_compact_and_excludes_snapshot_internals() {
+        let snapshot = LibrarySnapshot {
+            albums: vec![mcp_projection_album_fixture()],
+            playlists: vec![mcp_projection_playlist_fixture()],
+            last_scan_path: Some("/private/music".to_owned()),
+            database_path: "/private/music/.musical/musical.sqlite3".to_owned(),
+        };
+
+        let value = mcp_library_snapshot(&snapshot);
+        assert_object_keys(&value, &["albums", "playlists"]);
+        assert!(value.get("databasePath").is_none());
+        assert!(value.get("lastScanPath").is_none());
+
+        let album = &value["albums"][0];
+        assert_object_keys(
+            album,
+            &[
+                "id",
+                "title",
+                "artist",
+                "year",
+                "yearLabel",
+                "genre",
+                "trackCount",
+                "tracks",
+            ],
+        );
+        assert!(album.get("groupKey").is_none());
+        assert!(album.get("artworkPath").is_none());
+
+        let track = &album["tracks"][0];
+        assert_object_keys(
+            track,
+            &[
+                "id",
+                "title",
+                "artist",
+                "durationSeconds",
+                "trackNumber",
+                "discNumber",
+                "hasLyrics",
+                "isFavorite",
+                "rating",
+            ],
+        );
+        assert!(track.get("uuid").is_none());
+        assert!(track.get("filePath").is_none());
+
+        let playlist = &value["playlists"][0];
+        assert_object_keys(playlist, &["id", "name", "trackCount"]);
+        assert!(playlist.get("filePath").is_none());
+        assert!(playlist.get("tracks").is_none());
+    }
+
+    #[test]
+    fn mcp_projections_preserve_only_the_declared_compact_fields() {
+        let album = mcp_projection_album_fixture();
+        let track = mcp_projection_track_fixture();
+        let playlist = mcp_projection_playlist_fixture();
+
+        let track_value = serde_json::to_value(mcp_track_projection(&track)).expect("track JSON");
+        assert_object_keys(
+            &track_value,
+            &[
+                "id",
+                "title",
+                "artist",
+                "durationSeconds",
+                "trackNumber",
+                "discNumber",
+                "hasLyrics",
+                "isFavorite",
+                "rating",
+            ],
+        );
+
+        let summary_value =
+            serde_json::to_value(mcp_album_summary_projection(&album)).expect("album summary JSON");
+        assert_object_keys(
+            &summary_value,
+            &[
+                "id",
+                "title",
+                "artist",
+                "year",
+                "yearLabel",
+                "genre",
+                "trackCount",
+            ],
+        );
+
+        let detail_value =
+            serde_json::to_value(mcp_album_detail_projection(&album)).expect("album detail JSON");
+        assert_object_keys(
+            &detail_value,
+            &[
+                "id",
+                "title",
+                "artist",
+                "year",
+                "yearLabel",
+                "genre",
+                "trackCount",
+                "tracks",
+            ],
+        );
+
+        let playlist_value = serde_json::to_value(mcp_playlist_summary_projection(&playlist))
+            .expect("playlist summary JSON");
+        assert_object_keys(&playlist_value, &["id", "name", "trackCount"]);
+
+        let track_artwork_value = serde_json::to_value(mcp_track_artwork_update_projection(
+            &crate::library::TrackArtworkUpdateResult {
+                track_id: "track-1".to_owned(),
+                album_id: "album-1".to_owned(),
+                artwork_path: "/private/artwork/track.jpg".to_owned(),
+            },
+        ))
+        .expect("track artwork update JSON");
+        assert_object_keys(&track_artwork_value, &["trackId", "albumId"]);
+        assert!(track_artwork_value.get("artworkPath").is_none());
+
+        let playlist_artwork_value = serde_json::to_value(mcp_playlist_artwork_update_projection(
+            &crate::library::PlaylistArtworkUpdateResult {
+                playlist_id: "playlist-1".to_owned(),
+                artwork_path: "/private/artwork/playlist.jpg".to_owned(),
+            },
+        ))
+        .expect("playlist artwork update JSON");
+        assert_object_keys(&playlist_artwork_value, &["playlistId"]);
+        assert!(playlist_artwork_value.get("artworkPath").is_none());
+
+        let album_tag_value = serde_json::to_value(mcp_album_tag_update_projection(
+            &crate::library::AlbumTagUpdateResult {
+                album_id: "album-1".to_owned(),
+                updated_files: 1,
+                failed_files: vec![crate::library::TagWriteFailure {
+                    file_path: "/private/music/track.flac".to_owned(),
+                    reason: "fixture failure".to_owned(),
+                }],
+            },
+        ))
+        .expect("album tag update JSON");
+        assert_object_keys(
+            &album_tag_value,
+            &["albumId", "updatedFiles", "failedFiles"],
+        );
+        assert_object_keys(&album_tag_value["failedFiles"][0], &["reason"]);
+        assert!(album_tag_value["failedFiles"][0].get("filePath").is_none());
+
+        let scan = mcp_scan_summary(&crate::library::ScanSummary {
+            scanned_files: 4,
+            imported_tracks: 3,
+            skipped_files: 1,
+            albums: 2,
+            library_path: "/private/music".to_owned(),
+        });
+        let scan_value = serde_json::to_value(scan).expect("scan JSON");
+        assert_object_keys(
+            &scan_value,
+            &["scannedFiles", "importedTracks", "skippedFiles", "albums"],
+        );
+        assert!(scan_value.get("libraryPath").is_none());
+    }
+
+    #[test]
+    fn mcp_command_ack_excludes_the_internal_payload() {
+        let command = QueuedRemotePlayerCommand {
+            id: 41,
+            command_type: "set-queue".to_owned(),
+            payload: Some(json!({
+                "queueTrackIds": ["track-1", "track-2"],
+                "currentTrackId": "track-1",
+            })),
+        };
+
+        let value = serde_json::to_value(mcp_command_ack(&command)).expect("command ack JSON");
+        assert_object_keys(&value, &["commandId", "commandType"]);
+        assert_eq!(value["commandId"], 41);
+        assert_eq!(value["commandType"], "set-queue");
+        assert!(value.get("id").is_none());
+        assert!(value.get("payload").is_none());
+    }
+
+    #[test]
+    fn mcp_player_state_projection_excludes_the_queue_and_preserves_state_fields() {
+        let mut state = empty_remote_player_state();
+        state.selected_album_id = Some("album-1".to_owned());
+        state.playback_album_id = Some("album-1".to_owned());
+        state.playback_playlist_id = Some("playlist-1".to_owned());
+        state.current_track_id = Some("track-1".to_owned());
+        state.queue_track_ids = vec!["track-1".to_owned(), "track-2".to_owned()];
+        state.is_playing = true;
+        state.is_shuffle = true;
+        state.repeat_mode = "one".to_owned();
+        state.current_time = 12.5;
+        state.volume = 0.75;
+
+        let value = serde_json::to_value(mcp_player_state_projection(Some(&state)))
+            .expect("player state JSON");
+        assert_object_keys(
+            &value,
+            &[
+                "selectedAlbumId",
+                "playbackAlbumId",
+                "playbackPlaylistId",
+                "currentTrackId",
+                "isPlaying",
+                "isShuffle",
+                "repeatMode",
+                "currentTime",
+                "volume",
+            ],
+        );
+        assert_eq!(value["selectedAlbumId"], "album-1");
+        assert_eq!(value["playbackAlbumId"], "album-1");
+        assert_eq!(value["playbackPlaylistId"], "playlist-1");
+        assert_eq!(value["currentTrackId"], "track-1");
+        assert_eq!(value["isPlaying"], true);
+        assert_eq!(value["isShuffle"], true);
+        assert_eq!(value["repeatMode"], "one");
+        assert_eq!(value["currentTime"], 12.5);
+        assert_eq!(value["volume"], 0.75);
+        assert!(value.get("queueTrackIds").is_none());
+        assert!(mcp_player_state_projection(None).is_none());
     }
 
     fn assert_sentiment_schema(value: &Value) {
@@ -4329,7 +4263,10 @@ mod tests {
         )
         .expect("playing response");
         assert_eq!(result["status"], "playing");
+        assert_object_keys(&result["command"], &["commandId", "commandType"]);
+        assert_eq!(result["command"]["commandId"], 1);
         assert_eq!(result["command"]["commandType"], "set-queue");
+        assert!(result["command"].get("payload").is_none());
 
         let state = remote_state.lock().expect("remote state");
         assert_eq!(state.commands.len(), 1);
