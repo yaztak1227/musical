@@ -157,8 +157,15 @@ async function verifyMcpBridge() {
     callResponse.headers.get("content-type") ?? "",
     3,
   );
-  if (callResult?.isError || !Array.isArray(callResult?.content) || callResult.content.length === 0) {
-    throw new Error("MCP get_player_state did not return a successful content result.");
+  const hasPlayerState =
+    callResult?.structuredContent !== null &&
+    typeof callResult?.structuredContent === "object" &&
+    !Array.isArray(callResult.structuredContent) &&
+    Object.hasOwn(callResult.structuredContent, "state");
+  if (callResult?.isError || !Array.isArray(callResult?.content) || !hasPlayerState) {
+    throw new Error(
+      `MCP get_player_state did not return a successful structured result: ${JSON.stringify(callResult)}`,
+    );
   }
   return toolsResult.tools.length;
 }
